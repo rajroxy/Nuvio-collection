@@ -521,10 +521,8 @@ check(
   $$("#modal-pins .btn.pin").map(text).join(","),
 );
 check(
-  "and the custom row's own button, apart from the states",
-  text($("#pin-custom-row")) === "＋ Add cards in watchlist" &&
-    Boolean($("#modal-pins .pin-divider")) &&
-    $("#modal-pins .pin-divider").nextElementSibling?.id === "pin-custom-row",
+  "and the modal offers nothing else — no custom row, no divider",
+  $$("#modal-pins .btn.pin").length === 3 && !$("#pin-custom-row") && !$("#modal-pins .pin-divider"),
   $$("#modal-pins .btn.pin").map((b) => `${b.id}:${text(b)}`).join(" | "),
 );
 $("#pin-planned").click();
@@ -546,19 +544,9 @@ const watchRows = () =>
 await waitFor(() => watchRows()[0]?.posters === 1, { tries: 60, ms: 250 });
 const rows = watchRows();
 check(
-  "the Watchlist card lists its three states, then the custom row",
-  rows.map((r) => r.name).join(",") === "Plan to Watch,Watching,Watched,Add cards in watchlist",
+  "the Watchlist card is its three states and nothing else",
+  rows.map((r) => r.name).join(",") === "Plan to Watch,Watching,Watched",
   rows.map((r) => r.name).join(","),
-);
-check(
-  "the custom row is the one after the watched row",
-  rows.length === 4 && String($$(".cat-row")[3]?.dataset.catalog || "").includes("add-cards-in-watchlist"),
-  $$(".cat-row").map((r) => r.dataset.catalog).join(","),
-);
-check(
-  "an empty custom row says how to fill it, not that the catalog failed",
-  rows[3]?.posters === 0 && /add it to this row/.test(rows[3]?.text || ""),
-  JSON.stringify(rows[3]?.text?.slice(0, 90)),
 );
 check("the pinned title lands in Plan to Watch", rows[0]?.posters === 1, JSON.stringify(rows.map((r) => [r.name, r.posters])));
 check("an empty state explains how to fill it", rows[1]?.posters === 0 && /is empty/.test(rows[1]?.text || ""), JSON.stringify(rows[1]?.text?.slice(0, 90)));
@@ -588,22 +576,16 @@ check(
   JSON.stringify(watchRows().map((r) => [r.name, r.posters])),
 );
 
-// The custom row is filled by hand: a title in it is not a watch state, so it
-// must not appear in any of the three state rows.
-await nav("#/c/discover", 600);
-const customSource = $$(".cat-row .strip").find((s) => s.querySelectorAll(".poster").length > 0);
-await waitFor(() => customSource.querySelectorAll(".poster").length > 0, { tries: 60, ms: 250 });
-customSource.querySelector(".poster").click();
-await settle(160);
-$("#pin-custom-row").click();
-await settle(400);
-check("adding a title to the custom row marks the button", $("#pin-custom-row")?.classList.contains("active") === true, $("#pin-custom-row")?.className);
-await nav("#/c/watchlist", 700);
-await waitFor(() => watchRows()[3]?.posters === 1, { tries: 60, ms: 250 });
+// There is no "add cards" row anywhere: not on the card, and not in the modal.
 check(
-  "the title you add lands in the custom row",
-  watchRows()[3]?.posters === 1 && watchRows().slice(0, 3).every((r) => r.posters === 0),
-  JSON.stringify(watchRows().map((r) => [r.name, r.posters])),
+  "no 'Add cards in watchlist' row exists on the card",
+  !watchRows().some((r) => /add cards/i.test(r.name)),
+  watchRows().map((r) => r.name).join(","),
+);
+check(
+  "and no app button offers one",
+  !$("#pin-custom-row") && !/Add cards/.test(window.document.body.textContent || ""),
+  "#pin-custom-row is " + Boolean($("#pin-custom-row")),
 );
 
 
@@ -659,14 +641,20 @@ if (bothDay) {
     $$(".cal-detail .cal-pin.active").length === 1,
     $$(".cal-detail .cal-pin").map((b) => `${text(b)}:${b.className}`).join(" | "),
   );
+  // The heading and the cards, and no paragraph of explanation under them — the
+  // long hint was asked off this screen.
   check(
-    "and it shows in Recently planned, which says it is recent-only and not the watchlist",
-    $$(".cal-recent .poster").length === 1 && /last 30 days/.test(text($(".cal-recent"))) && /Watchlist card/.test(text($(".cal-recent"))),
+    "Recently planned shows the plan as a card",
+    $$(".cal-recent .poster").length === 1 && text($(".cal-recent .section-title")) === "Recently planned",
+    text($(".cal-recent"))?.slice(0, 120),
+  );
+  check(
+    "and it carries no paragraph of explanation",
+    $$(".cal-recent .view-hint").length === 0 && $$(".cal-recent p").length === 0,
     text($(".cal-recent"))?.slice(0, 160),
   );
-  // The custom-row store must hold it: a calendar plan in a watch state would
-  // fill the Watchlist card's Plan to Watch row with something the user never
-  // planned there.
+  // A calendar plan is stored in its own row: putting it in a watch state would
+  // fill the Watchlist card's Plan to Watch row with something never planned there.
   check(
     "planning on the calendar does not fill a watchlist state row",
     CUSTOM.some((i) => i.row === "calendar-plans") && !WATCH.items.some((i) => i.state === "planned"),
@@ -776,6 +764,8 @@ const settingsTab = async (label) => {
   $$(".settings-nav .settings-tab").find((b) => text(b) === label)?.click();
   await settle(90);
 };
+// The visibility editor's switches, by the level they pick (row | card | catalog).
+const visSwitches = (level) => $$(`.settings-pane .vis-option input[data-vis-level=${level}]`);
 check("settings is grouped, and every section sits under a group",
   $$(".settings-nav .settings-group").map(text).join(",") ===
     "What you see,Where it comes from,Tracking & assistant,This app",
@@ -798,6 +788,114 @@ check("Profile is still a section, just grouped under This app",
 check("the Profile pane shows the current profile",
   text($(".current-profile-name")) === "Movies & Shows" && /Current profile/i.test(text($(".current-profile"))),
   text($(".current-profile")));
+
+/* "Pick the cards for you" is back, and it is the switch over the Profile editor:
+   rows, cards, and each card's catalog rows, remembered per profile. */
+check(
+  "Profile offers the pick-the-cards switch, off by default",
+  $$(".settings-pane .option").some((o) => /Pick the rows, cards and catalogs for this profile/.test(text(o))) &&
+    !$$(".settings-pane .option").find((o) => /Pick the rows, cards and catalogs/.test(text(o))).querySelector("input").checked,
+);
+check(
+  "and no editor is shown until it is on — nothing disappears on its own",
+  visSwitches("card").length === 0 && visSwitches("row").length === 0,
+  `${visSwitches("card").length} card switches`,
+);
+$$(".settings-pane .option").find((o) => /Pick the rows, cards and catalogs/.test(text(o))).querySelector("input").click();
+await settle(160);
+check(
+  "turning it on opens the editor: Movies, Shows, every card and every catalog row",
+  visSwitches("row").length === 2 &&
+    visSwitches("card").length === published.length &&
+    visSwitches("catalog").length > visSwitches("card").length,
+  `${visSwitches("row").length} rows, ${visSwitches("card").length} cards, ${visSwitches("catalog").length} catalogs`,
+);
+check(
+  "each card's catalog rows sit indented under it",
+  $$(".settings-pane .vis-option.vis-sub").length === visSwitches("catalog").length &&
+    /// indentation is inline padding, so it survives a stylesheet that jsdom never loads
+    $$(".settings-pane .vis-option.vis-sub").every((n) => /padding-left/.test(n.getAttribute("style") || "")),
+  `${$$(".settings-pane .vis-option.vis-sub").length} indented rows`,
+);
+
+// Hide the Watchlist card, then read Home back: the card is gone there, and its
+// catalogs are gone from the card itself.
+const watchCardSwitch = visSwitches("card").find((i) => i.getAttribute("data-vis-id") === "watchlist");
+watchCardSwitch.click();
+await settle(180);
+await nav("#/", 400);
+const homeAfterHiding = $$(".icon-box .icon-name").map(text);
+check(
+  "a card switched off is not on Home",
+  !homeAfterHiding.includes("Watchlist") && homeAfterHiding.length === published.length - 1,
+  `${homeAfterHiding.length} of ${published.length} cards`,
+);
+await nav("#/settings", 140);
+await settingsTab("Profile");
+visSwitches("card").find((i) => i.getAttribute("data-vis-id") === "watchlist").click();
+await settle(180);
+await nav("#/", 400);
+check(
+  "and switching it back on brings it back, in its place",
+  $$(".icon-box .icon-name").map(text).join(" | ") === published.join(" | "),
+  $$(".icon-box .icon-name").map(text).slice(0, 3).join(", "),
+);
+
+// A single catalog row can be hidden too — and the row really leaves the card.
+await nav("#/settings", 140);
+await settingsTab("Profile");
+const genresRowSwitch = visSwitches("catalog").find((i) => /nuvio-genres--/.test(i.getAttribute("data-vis-id") || ""));
+const hiddenRowId = genresRowSwitch.getAttribute("data-vis-id");
+genresRowSwitch.click();
+await settle(180);
+await nav("#/c/genres", 700);
+check(
+  "the catalog row switched off is not on its card",
+  $$(".cat-row").length > 0 && !$$(".cat-row").map((r) => r.dataset.catalog).includes(hiddenRowId),
+  `${$$(".cat-row").length} rows: ${$$(".cat-row").map((r) => r.dataset.catalog).join(",")} (hidden: ${hiddenRowId})`,
+);
+await nav("#/settings", 140);
+await settingsTab("Profile");
+visSwitches("catalog").find((i) => i.getAttribute("data-vis-id") === hiddenRowId)?.click();
+await settle(180);
+// And the master switch off again: everything shows, the picks are kept.
+$$(".settings-pane .option").find((o) => /Pick the rows, cards and catalogs/.test(text(o))).querySelector("input").click();
+await settle(180);
+await nav("#/", 400);
+check(
+  "turning the master switch off shows every card again",
+  $$(".icon-box .icon-name").length === published.length,
+  `${$$(".icon-box .icon-name").length} of ${published.length} cards`,
+);
+await nav("#/settings", 140);
+await settingsTab("Profile");
+// A pick is written down per profile, so it survives the master switch and a
+// reload — hide one more row, read it back, and put it back the way it was.
+await settingsTab("Profile");
+const master = () => $$(".settings-pane .option").find((o) => /Pick the rows, cards and catalogs/.test(text(o))).querySelector("input");
+master().click();
+await settle(180);
+const firstSub = $$(".settings-pane .vis-option.vis-sub input")[0];
+const rememberedId = firstSub.getAttribute("data-vis-id");
+firstSub.click();
+await settle(180);
+check(
+  "a pick is remembered per profile, not just in this render",
+  JSON.parse(window.localStorage.getItem("nuvio.visibility") || "{}")["Movies & Shows"]?.catalogs?.[rememberedId] === false,
+  `${rememberedId} in ${window.localStorage.getItem("nuvio.visibility")}`,
+);
+visSwitches("catalog").find((i) => i.getAttribute("data-vis-id") === rememberedId)?.click();
+await settle(180);
+// Leave the app as it was: the master switch off, so every card shows.
+master().click();
+await settle(180);
+await settingsTab("AI");
+check(
+  "the AI section carries the same switch, so it is where you remember it from",
+  $$(".settings-pane .option").some((o) => /Pick the cards for you/.test(text(o))),
+  $$(".settings-pane .option-title").map(text).join(","),
+);
+await settingsTab("Profile");
 // Only the profile in use is listed — the other one must not appear here.
 check("the Profile pane lists only the active profile",
   $$(".current-profile").length === 1 &&
@@ -844,11 +942,11 @@ await settle(200);
 check("the poster service can be checked live", $$(".poster-check, .provider-check .source-status").some((s) => text(s).includes("posters ok")) || $$(".provider-check .source-status").some((s) => text(s).includes("ok")), $$(".provider-check .source-status").map(text).join(" | "));
 
 await settingsTab("AI");
-// "Pick the cards for you" is gone: Home always shows every card, in the published
-// order, so it is not offered any more.
+// "Pick the cards for you" is back — it is the switch over the editor in
+// Settings → Profile, and the picks themselves live there.
 check(
-  "AI has enable, artwork and missing-poster options — and no card-picking option",
-  $$(".settings-pane .option").length >= 3 && !window.document.body.textContent.includes("Pick the cards for you"),
+  "AI has enable, artwork, missing-poster and pick-the-cards options",
+  $$(".settings-pane .option").length >= 4 && window.document.body.textContent.includes("Pick the cards for you"),
   `${$$(".settings-pane .option").length} options`,
 );
 check("AI offers the fallback for posters without a better poster", window.document.body.textContent.includes("without a better poster"));
@@ -917,20 +1015,25 @@ await settingsTab("AI");
 $$(".settings-pane .option").find((o) => text(o).includes("Pick the cards for you"))?.querySelector("input")?.click();
 await settle(160);
 
-/* --------------------------------------------------------- country ------ */
-/* The language *picker* is gone: it read as if it moved the regional OTT cards
-   and it never did — rows are served in the language the server holds, and that
-   language still rides on every catalog request. The country stays, because the
-   three Regional OTT cards really do follow it. */
+/* ---------------------------------------------------------- content ------ */
+/* Both pickers are gone. The language never moved a row's contents, and the
+   country only ever named the regional OTT services — it is still server state
+   (`/settings` → `country`) and the cards still follow it, but it is not a switch
+   the app shows. What is left in Content is the one thing that changes a row. */
 await settingsTab("Content");
 check(
-  "Content offers the country, and no longer offers a language picker",
-  Boolean($("#app-country")) && !$("#app-language"),
+  "Content offers no language picker and no country picker",
+  !$("#app-language") && !$("#app-country"),
   $$(".settings-pane .option-title, .settings-pane .group-head .option-title").map(text).join(","),
 );
 check(
   "and it no longer repeats the content source, which lives with the providers",
   $$(".settings-pane .option").filter((o) => o.querySelector("input[name=contentSource]")).length === 0,
+);
+check(
+  "what is left is the SFW / NSFW switch",
+  $$(".settings-pane .option").filter((o) => o.querySelector("input[name=safe]")).length === 2,
+  $$(".settings-pane .option-title").map(text).join(","),
 );
 
 /* Which provider supplies the content inside the rows — one place, with the keys. */
@@ -972,29 +1075,19 @@ check(
 pickSource(liveSource === "tvdb" ? "TVDB" : "TMDB")?.querySelector("input")?.click();
 await settle(220);
 await settingsTab("Content");
+// The server still offers the country list (the addon and Nuvio use it), it is just
+// not a switch in the app any more.
 check(
-  "the country list is the server's, and says how many services each country fills the cards with",
-  $$("#app-country option").length === (liveSettings.options?.countries?.length ?? 0) &&
-    $$("#app-country option").length >= 60 &&
-    $$("#app-country option").every((o) => /service/.test(text(o))),
-  `${$$("#app-country option").length} countries`,
+  "the server still offers the country and language lists",
+  (liveSettings.options?.countries?.length ?? 0) >= 60 && (liveSettings.options?.languages?.length ?? 0) > 20,
+  `${liveSettings.options?.countries?.length} countries, ${liveSettings.options?.languages?.length} languages`,
 );
-// Picking a country has to reach the server *and* re-read the card list, because
-// the three Regional OTT cards name that country's services.
-const collectionsBefore = requested.filter((u) => u === `${BASE}/collections.json`).length;
-const countryPick = $("#app-country");
-countryPick.value = "IN";
-countryPick.dispatchEvent(new window.Event("change"));
-await settle(320);
-check("choosing a country is saved to the server", posted.some((p) => p.country === "IN"), JSON.stringify(posted.slice(-2)));
+// The cards still follow the server's country: it is read with the settings and the
+// card list is re-read when it differs from the cached one.
 check(
-  "and the cards are re-read, because the regional rows move with it",
-  requested.filter((u) => u === `${BASE}/collections.json`).length > collectionsBefore,
-);
-check(
-  "the pane says what the chosen country will put in the three cards",
-  /service|No local service/.test(text($(".settings-pane .provider-check"))),
-  text($(".settings-pane .provider-check")),
+  "the app re-reads the cards when the server's country is not the cached one",
+  requested.some((u) => u === `${BASE}/collections.json`),
+  `${requested.filter((u) => u === `${BASE}/collections.json`).length} card reads`,
 );
 // Even with no picker, the language the server holds still rides on the catalog
 // URLs — a row can never be answered in the wrong language from a cache.

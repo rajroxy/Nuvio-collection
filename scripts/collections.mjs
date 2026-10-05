@@ -31,8 +31,6 @@
  *   keyword       id   (verified TMDB keyword id)
  *   provider      providerId, region   (an OTT service in that region)
  *   watchlist     state: planned | watching | watched   (served from the pins)
- *   custom        row: <row id>                       (the titles you added
- *                 yourself — served from the custom-row store, not from TMDB)
  *
  *   `take` caps how many titles a catalog keeps. It is only used where the name
  *   promises a fixed size (a ◆ Top 10 really is ten titles) — anywhere else it
@@ -93,7 +91,12 @@ export const COUNTRIES = [
 ];
 
 // Hulu is a US service, so it is deliberately not in the global platform set.
-const GLOBAL_EXCLUDE = new Set(["Hulu"]);
+//
+// Crunchyroll and Rakuten Viki are the two Asian-catalogue services: they are
+// verified local services in nearly every region, and they belong in the
+// **Regional OTT** cards (where they are added for every country, see
+// `WORLDWIDE` below), not doubled up in the Global OTT set.
+const GLOBAL_EXCLUDE = new Set(["Hulu", "Crunchyroll", "Viki"]);
 
 /** The global OTT platforms — [label, TMDB provider id], all verified. */
 export const PLATFORMS = VERIFIED.platforms
@@ -116,15 +119,19 @@ export const countryName = (code) => {
 /**
  * Services that belong in **every** region's Regional OTT card.
  *
- * Crunchyroll sat only in the Global OTT card, so anime never appeared in the
- * regional rows even though the service is local to nearly every region the app
- * covers — which read as "the regional cards have no anime in them". It joins the
- * region's own list, after the local ones: a country's own services still come
- * first. Global OTT keeps it too.
+ * Crunchyroll and Viki (TMDB's name for Rakuten Viki) are the Asian-catalogue
+ * services. Sitting in the Global OTT card meant anime and Asian drama never
+ * appeared in the regional rows even though both are local to nearly every region
+ * the app covers, which read as "the regional cards have no anime in them". They
+ * join the region's own list, after the local ones — a country's own services
+ * still come first — and they are deliberately *not* in the Global OTT set, so each
+ * service lives in exactly one of the two OTT card families instead of being
+ * counted twice.
  */
 const WORLDWIDE = (VERIFIED.platforms || [])
-  .filter((p) => p.id && p.label === "Crunchyroll")
-  .map((p) => ({ id: p.id, name: p.label }));
+  .filter((p) => p.id && (p.label === "Crunchyroll" || p.label === "Viki"))
+  .map((p) => ({ id: p.id, name: p.label }))
+  .sort((a, b) => a.name.localeCompare(b.name));
 
 /** The verified local services for a country, plus the worldwide ones. */
 export const localServices = (code, type) => {
@@ -156,9 +163,6 @@ const episodes = (name, max) => ({ name, kind: "episodes", max });
 const keyword = (name, id, take) => ({ name, kind: "keyword", id, take });
 const provider = (name, providerId, region, take) => ({ name, kind: "provider", providerId, region, take });
 const watchlist = (name, state) => ({ name, kind: "watchlist", state });
-// A custom row you fill yourself. It is deliberately not a watch state: nothing
-// moves a title in or out of it except you adding it and taking it away.
-const custom = (name, row) => ({ name, kind: "custom", row });
 
 /**
  * Keyword entries for one card, straight from the verified table.
@@ -300,7 +304,6 @@ const buildCollections = (code) => {
       watchlist("Plan to Watch", "planned"),
       watchlist("Watching", "watching"),
       watchlist("Watched", "watched"),
-      custom("Add cards in watchlist", "add-cards"),
     ]),
   },
   {

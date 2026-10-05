@@ -146,9 +146,9 @@ drawn on the cover:
 | Global OTT ◆ Top 10 | `<Platform> ◆ Top 10` — Netflix, Prime Video, Disney+, Max, Apple TV+, Paramount+ (both) |
 | Popular Global OTT | `Popular <Platform>` — that platform's most popular right now (both) |
 | Global OTT | `<Platform>` — everything on that platform (both) |
-| Regional OTT Top 10 | `<Service> ◆ Top 10` — **your country's** services (both) |
-| Popular Regional OTT | `Popular <Service>` — **your country's** services (both) |
-| Regional OTT | `<Service>` — everything on your country's own services (both) |
+| Regional OTT Top 10 | `<Service> ◆ Top 10` — **your country's** services, then **Crunchyroll** and **Viki** (both) |
+| Popular Regional OTT | `Popular <Service>` — the same set (both) |
+| Regional OTT | `<Service>` — everything on your country's own services, plus the two Asian-catalogue services (both) |
 | Continental | continent names (both) |
 | Countries | 60 country names (movies) / 59 (shows — Ghana has no series on TMDB) |
 | Runtimes | `30+ mins … 120+ mins` (**movies**) / `4 · 6 · 8 · 10 Episodes` (**shows**) |
@@ -284,24 +284,24 @@ curl -X POST localhost:4173/customrows -H 'content-type: application/json' \
   -d '{"row":"calendar-plans","item":{"id":"tmdb:550","type":"movie","name":"Fight Club"}}'
 ```
 
-### Custom rows
+### Custom rows (the calendar's plans)
 
-After the three states the Watchlist card carries one more row: **Add cards in
-watchlist**. It is not a state and it is not TMDB — it holds exactly the titles you
-put in it (open any title and use the dashed **＋ Add cards in watchlist** button in
-its modal; pressing it again takes the title back out). Nothing moves a title in or
-out of it on its own, which is the point: it is where a handful of things you mean
-to get to go when "Plan to Watch" is not the right label.
+The store behind `/customrows` still exists, and it backs exactly one thing now:
+the **calendar's** plan-to-watch pins. Each is a plan about a *date* — a release you
+saw on the grid and mean to get to — so it lives in its own row (`calendar-plans`),
+is shown only for the **last 30 days** under *Recently planned*, and is never
+published as a catalog. It therefore cannot appear in the Watchlist card, which is
+what "the calendar pin showed up in my watchlist" was.
 
-It is backed by `addon/customrows.mjs` (`addon/customrows.json`, git-ignored, and
-`NUVIO_CUSTOM_FILE` overrides the path so tests never touch the real one), served
-through the ordinary catalog route, so it pages, scrolls and publishes in the
-manifest exactly like every other row.
+**There is no "add cards" row any more.** The Watchlist card is its three states
+and nothing else, the title modal offers the same three states, and no *Add cards
+in watchlist* catalog is published at all — `npm test` asserts the row, the id and
+the button are gone.
 
-The **calendar's** plans are a *second* row in the same store (`calendar-plans`)
-and are deliberately not published as a catalog: a plan made on the grid must
-never appear in the Watchlist card, and *Add cards in watchlist* must never pick a
-calendar plan up. `npm test` asserts both.
+The **calendar's** plans are kept in `addon/customrows.mjs` (the store that used to
+back that row) under `calendar-plans`, and are deliberately not published as a
+catalog: a plan made on the grid is not a watch state, so it never appears in the
+Watchlist card. `npm test` asserts both halves.
 
 ```sh
 curl localhost:4173/customrows.json
@@ -566,13 +566,11 @@ The UI is Nuvio-shaped:
   The cards are always in the published order: *pick the cards for you* chooses
   **which** cards appear, never their order, so Home never looks shuffled.
 - **Watchlist** — the first card, holding the three states a title moves through:
-  **Plan to Watch**, **Watching**, **Watched**, and then the custom row **Add cards
-  in watchlist**. Pin a title from its modal (open any title and pick a state;
-  picking the current state unpins it) and it lands in the matching row, tagged
-  with its state. The three state rows scan *everything* in that state — including
-  titles a *calendar* plan does not touch, because a calendar plan is not a watch
-  state and never enters this card. Same rows the addon publishes, so Nuvio sees
-  them too.
+  **Plan to Watch**, **Watching**, **Watched** — and nothing else. Pin a title from
+  its modal (open any title and pick a state; picking the current state unpins it)
+  and it lands in the matching row, tagged with its state. The three rows scan
+  *everything* in that state; a *calendar* plan is not a watch state, so it never
+  appears here. Same rows the addon publishes, so Nuvio sees them too.
 - **Collection** — its cover, then its catalogs as rows. Each row names its catalog
   and carries an **Explore** button *on the label line* — there is no shuffle icon
   there, because reordering a card's catalogs is not what "shuffle" means.
@@ -609,14 +607,15 @@ scrolling catalog.
   watchlist row: a calendar pin is **plan-only** (a dated release you mean to get
   to) and **recent-only** — *Recently planned* under the grid lists the last 30
 days, while the Watchlist card lists every Plan to Watch, Watching and Watched
-title whatever its date. Calendar plans live in their own custom row
+title whatever its date. Calendar plans live in their own stored row
 (`calendar-plans`), so pinning a release never fills the Watchlist card's Plan to
-Watch row with something you did not put there.
+Watch row with something you did not put there. *Recently planned* is a heading and
+its cards — no paragraph of explanation under it.
 - **Search** — searches **titles** (TMDB, through the server) as well as collections
   and catalogs in the current row. This is what the Ask box feeds.
 - **Settings**, grouped, with the group name over its tabs:
-  **What you see** — **Content** (the country and SFW / NSFW), **Layout**,
-  **Posters**, **Appearance** (the accent colour and how much the app moves);
+  **What you see** — **Content** (SFW / NSFW), **Layout**, **Posters**,
+  **Appearance** (the accent colour and how much the app moves);
   **Where it comes from** — **Providers** (TMDB / TVDB / MDBList keys *and* which
   of them supplies the row content), **Add-ons**, **Plugins**;
   **Tracking & assistant** — **Tracking** (film & TV trackers, then a divider, then
@@ -625,18 +624,22 @@ Watch row with something you did not put there.
   *Load models* that turns the models the provider really serves into pickable
   chips, plus the poster options and a text/voice ask box);
   **This app** — **Profile** (only the profile you are on — switching happens on the
-  switch-profile screen) and **Server**.
+  switch-profile screen — plus **what this profile shows**) and **Server**.
 
-**Settings → Content** holds the settings that change *what* you see:
+**Settings → Content** is one switch: **SFW / NSFW** (mapped to TMDB's
+`include_adult`). Both pickers that used to sit here are gone:
 
-- **Country** — where you are. The three **Regional OTT** cards show this
-  country's own services, and the global platform rows report availability for it.
-  The list carries how many services each country fills the cards with, and says
-  so when a country has none. Changing it re-reads the card list immediately, so
-  the regional cards change under you.
-- **SFW / NSFW** — one switch, mapped to TMDB's `include_adult`.
+- **The app-language picker** read as if it changed the regional OTT cards and it
+  never did — nothing about a row's *membership* is language-dependent. Rows are
+  served in English, and the server's `language` still rides on every catalog URL
+  as `?lang=`.
+- **The country picker** only ever named the *regional OTT services* rather than
+  changing what a row holds. It is still real server state (`/settings` →
+  `country`, and the cards still follow it), but it is not a switch in the app.
+  Setting it is a one-line POST:
+  `curl -X POST localhost:4173/settings -H 'content-type: application/json' -d '{"country":"NZ"}'`.
 
-**Content source moved to Settings → Providers.** TMDB and TVDB are providers; the
+**Content source lives in Settings → Providers.** TMDB and TVDB are providers; the
 switch that says *which* one supplies the titles inside a row belongs next to the
 keys that make it possible, not in a second place that drifts from it:
 
@@ -645,10 +648,17 @@ keys that make it possible, not in a second place that drifts from it:
   Choosing TVDB without a TVDB key says so in place, and the app keeps serving
   TMDB content rather than empty rows.
 
-**The app-language picker is gone.** It read as if it changed the regional OTT
-cards and it never did — nothing about a row's *membership* is language-dependent.
-Rows are served in English, and the server's `language` setting still rides on
-every catalog URL as `?lang=`.
+**Settings → Profile** also holds **what this profile shows** — *pick the rows,
+cards and catalogs for this profile*:
+
+- Off (the default) shows everything, so nothing disappears on its own.
+- On gives one switch for **Movies** and **Shows**, one for **every card**, and one
+  for **every catalog row** inside each card (indented under it). A hidden card is
+  gone from Home and its catalog rows are gone from the card; a hidden row is gone
+  from the card and from its catalog chips.
+- Picks are per profile and live in `localStorage` (`nuvio.visibility`). The same
+  master switch is drawn in **Settings → AI** as *Pick the cards for you*, because
+  that is where it used to live.
 
 **Settings → Appearance** is the accent and the motion:
 

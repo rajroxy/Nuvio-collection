@@ -50,16 +50,22 @@ Routing mirrors Nuvio:
 | Search | `#/search` | searches **titles**, collections and catalogs |
 | Settings | `#/settings` | grouped: **What you see** (Content · Layout · Posters · Appearance) · **Where it comes from** (Providers · Add-ons · Plugins) · **Tracking & assistant** (Tracking · AI) · **This app** (Profile · Server) |
 
-**Content** holds the country (whose own services the three Regional OTT cards
-show) and the SFW / NSFW switch. The country list comes from the server
-(`/settings` → `options`) and changing it re-reads `/collections.json` because the
-regional cards name different services.
+**Content** is one switch: SFW / NSFW. **Both pickers are gone.** The language one
+read as if it moved the regional cards (it never did — rows are served in English
+and the server's `language` still rides on every catalog URL as `?lang=`), and the
+country one only ever named the regional OTT services. The country is still real
+server state and the cards still follow it (`POST /settings {"country":"NZ"}`), it
+is just not a switch in the app.
 
 **Content source lives under Providers.** TMDB and TVDB are providers; which one
 supplies the titles inside a row belongs next to their keys, not in a second
-section that drifts from them. The **app-language picker is gone** — it read as if
-it moved the regional cards (it never did); rows are served in English and the
-server's `language` still rides on every catalog URL as `?lang=`.
+section that drifts from them.
+
+**Profile** also holds **what this profile shows**: *pick the rows, cards and
+catalogs for this profile*, off by default. On, it gives one switch for Movies and
+Shows, one per card, and one per catalog row inside each card (indented under it),
+remembered per profile in `localStorage` (`nuvio.visibility`). The same master
+switch is drawn in **Settings → AI** as *Pick the cards for you*.
 
 **Appearance** is the accent colour (the whole app is tinted from `--accent-rgb` /
 `--accent-deep`, so one pick re-tints buttons, chips, borders and highlights
@@ -92,12 +98,12 @@ the rest of the cards. The cards are always in the published order, and every ca
 appears — there is no picked subset on Home any more.
 
 The **Watchlist** card holds the three states a pinned title moves through:
-**Plan to Watch**, **Watching**, **Watched** — and then the custom row **Add cards
-in watchlist**, which holds exactly the titles you add (the dashed button in a
-title's modal toggles it) and nothing else. Open any title and pick a state in its
+**Plan to Watch**, **Watching**, **Watched** — and nothing else: the *Add cards in
+watchlist* row is gone from the card, from the title modal and from the addon, so
+no *add cards* catalog is published at all. Open any title and pick a state in its
 modal to pin it there (picking the state it is already in unpins it), and the card
-updates. The pins live on the server (`/watchlist`, and the custom row in
-`/customrows` → `addon/customrows.json`) so Nuvio sees the same rows.
+updates. The pins live on the server (`/watchlist` → `addon/watchlist.json`) so
+Nuvio sees the same rows.
 
 **Catalog labels are clickable** — in the hero banner and on a collection page each
 catalog name is a chip that opens that catalog inside the card.
@@ -133,8 +139,9 @@ the selected day again **deselects** it, and the grid carries no caption text.
 Every release has its own **Plan to Watch** pin, and it is not a watchlist row: it
 is plan-only and the *Recently planned* list under the grid is recent-only (last
 30 days), while the Watchlist card scans every state whatever the date. Calendar
-plans live in their own custom row (`calendar-plans`) on the server, so pinning a
-release never fills the Watchlist card's Plan to Watch row.
+plans live in their own stored row (`calendar-plans`, via `/customrows`) and are
+never published as a catalog, so pinning a release never fills the Watchlist card.
+*Recently planned* is a heading and its cards — no explanatory paragraph.
 
 A tile is entered by clicking its **artwork** — not the whole tile. Back (Escape /
 ← button) returns home; Escape in Explore goes back to the collection. A

@@ -39,6 +39,8 @@ const KEY = {
   section: "nuvio.settingsSection",
   accent: "nuvio.accent",
   motion: "nuvio.motion",
+  pickCards: "nuvio.pickCards",
+  visibility: "nuvio.visibility",
 };
 
 const PINNED = /◆ Top 10|Airing Today|Airing This Week|On the Air|Now Playing|^Latest|^New Release|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
@@ -256,6 +258,13 @@ const state = {
   settingsSection: localStorage.getItem(KEY.section) || "profile",
   accent: localStorage.getItem(KEY.accent) || "gold",
   motion: localStorage.getItem(KEY.motion) || "auto",
+  // "Pick the cards for you": when it is on, the per-profile visibility below
+  // decides which rows, cards and catalog rows this profile shows. Off means every
+  // card shows, which is the default so nothing disappears on its own.
+  pickCards: readJSON(KEY.pickCards, false),
+  // Per profile: rows.movie / rows.series, cards.<key>, catalogs.<id>. A missing
+  // entry means "shown", so a card added later is visible without a migration.
+  visibility: readJSON(KEY.visibility, {}),
   collections: [],
   order: {},
   calendar: { month: new Date().toISOString().slice(0, 7), day: null },
@@ -285,40 +294,14 @@ function applyWatchlist(payload) {
   state.watchItems = items;
 }
 
+/**
+ * The stored rows, as the app reads them.
+ *
+ * Only the **calendar's** plans use a stored row now: the Watchlist card is the
+ * three states and nothing else, and there is no "add cards" row anywhere.
+ */
 function applyCustomRows(payload) {
   state.customItems = payload?.items || [];
-}
-
-/**
- * The custom row the Watchlist card publishes after its three states.
- *
- * It is read from the cards rather than hard-coded, so the row's name and id
- * come from the one place that defines them (`scripts/collections.mjs`) — the
- * same definition the addon publishes to Nuvio.
- */
-function customRow() {
-  for (const card of state.collections) {
-    for (const row of [card.movie, card.series]) {
-      const hit = (row?.catalogs || []).find((c) => c.kind === "custom" && c.row);
-      if (hit) return { row: hit.row, name: hit.name, card: card.key };
-    }
-  }
-  return null;
-}
-
-const inCustomRow = (row, item) =>
-  state.customItems.some((i) => i.row === row && `${i.type}:${i.id}` === watchKey(item));
-
-/** Add a title to a custom row, or take it out when it is already there. */
-async function toggleCustomRow(row, item) {
-  try {
-    const res = await post("/customrows", { row, item: pinOf(item) });
-    if (res && Array.isArray(res.items)) applyCustomRows(res);
-  } catch {
-    /* offline — the row simply does not change */
-  }
-  modal.open(item);
-  render();
 }
 
 const rowKey = () => state.row;
@@ -491,10 +474,6 @@ const modal = {
     // Pin the title to a watch state. Clicking the state it is already in
     // unpins it, so a mis-tap is one click to undo.
     const current = state.watchlist[watchKey(item)] || "";
-    // The custom row is not a state — it is the list you keep yourself — so it
-    // is drawn apart from the three, after a divider.
-    const rowInfo = customRow();
-    const inRow = rowInfo ? inCustomRow(rowInfo.row, item) : false;
     document.getElementById("modal-pins").replaceChildren(
       ...WATCH_STATES.map(([id, label]) =>
         el("button", {
@@ -507,20 +486,6 @@ const modal = {
           onclick: () => setWatchState(item, current === id ? null : id),
         }),
       ),
-      ...(rowInfo
-        ? [
-            el("span", { class: "pin-divider", "aria-hidden": "true" }),
-            el("button", {
-              class: `btn pin custom focusable${inRow ? " active" : ""}`,
-              type: "button",
-              id: "pin-custom-row",
-              "aria-pressed": String(inRow),
-              title: inRow ? `In ${rowInfo.name} — click to remove` : `Add to ${rowInfo.name}`,
-              text: inRow ? `In ${rowInfo.name} · remove` : `＋ ${rowInfo.name}`,
-              onclick: () => toggleCustomRow(rowInfo.row, item),
-            }),
-          ]
-        : []),
     );
   },
   close() {
@@ -716,6 +681,31 @@ function applyShuffle(key, catalogs) {
   state.order[key] = [...pinned, ...rest].map((c) => c.id);
 }
 
+/* -- what this profile shows ------------------------------------------------- */
+
+/**
+ * The visibility of the current profile: which media rows, cards and catalog rows
+ * it shows. Missing means shown, so a card or row added in a later version appears
+ * without touching what you have already hidden.
+ */
+function visFor() {
+  const key = state.profile || PROFILES[0];
+  if (!state.visibility[key]) state.visibility[key] = { rows: { movie: true, series: true }, cards: {}, catalogs: {} };
+  const v = state.visibility[key];
+  v.rows = v.rows || { movie: true, series: true };
+  v.cards = v.cards || {};
+  v.catalogs = v.catalogs || {};
+  return v;
+}
+
+const saveVisibility = () => writeJSON(KEY.visibility, state.visibility);
+
+/** A pick only takes effect when the profile is picking — otherwise all shows. */
+const picking = () => state.pickCards === true;
+const rowEnabled = (row) => !picking() || visFor().rows[row] !== false;
+const cardVisible = (card) => !picking() || visFor().cards[card.key] !== false;
+const catalogVisible = (cat) => !picking() || visFor().catalogs[cat.id] !== false;
+
 function orderedCatalogs(card) {
   const catalogs = rowOf(card).catalogs;
   const order = state.order[card.key];
@@ -863,7 +853,7 @@ function iconBox(c, row) {
  * fixed in `scripts/collections.mjs` and Home shows all of it, always.
  */
 function collectionList() {
-  return state.collections;
+  return state.collections.filter(cardVisible);
 }
 
 /** The collection grid, with the vertical divider before the marked card. */
@@ -881,7 +871,7 @@ function rowSwitch() {
   return el(
     "div",
     { class: "row-switch", role: "tablist", "aria-label": "Movies or Shows" },
-    ...[["movie", "Movies"], ["series", "Shows"]].map(([value, label]) =>
+    ...[["movie", "Movies"], ["series", "Shows"]].filter(([value]) => rowEnabled(value)).map(([value, label]) =>
       el("button", {
         class: `row-btn focusable${state.row === value ? " active" : ""}`,
         type: "button",
@@ -899,6 +889,8 @@ function rowSwitch() {
 }
 
 function renderHome() {
+  // If this profile hides the row you were on, land on the one it does show.
+  if (!rowEnabled(state.row)) setRow(rowEnabled("movie") ? "movie" : "series");
   // Just the heading — no hint line under it, and no "Picked for you".
   return [
     heroBlock(),
@@ -953,7 +945,9 @@ function renderCard(key) {
   const c = cardByKey(key);
   if (!c) return [el("p", { class: "empty", text: "Collection not found." })];
   const row = rowOf(c);
-  const catalogs = orderedCatalogs(c);
+  // The catalogs this profile shows: a hidden row is not drawn here either, so the
+  // card reads exactly as Home does (and the chip line cannot link to it).
+  const catalogs = orderedCatalogs(c).filter(catalogVisible);
 
   const wrapper = el(
     "section",
@@ -967,7 +961,7 @@ function renderCard(key) {
         { class: "section-meta" },
         el("h2", { text: c.title }),
         // The catalog labels are links into each catalog.
-        el("div", { class: "cats" }, ...row.catalogs.map((cat) => catalogChip(c, cat))),
+        el("div", { class: "cats" }, ...row.catalogs.filter(catalogVisible).map((cat) => catalogChip(c, cat))),
       ),
     ),
   );
@@ -1030,7 +1024,7 @@ function renderExplore(key, id) {
 
   const openMenu = () => {
     catMenu.replaceChildren(
-      ...catalogs.map((c) =>
+      ...catalogs.filter(catalogVisible).map((c) =>
         el("button", {
           class: `menu-item focusable${c.id === cat.id ? " active" : ""}`,
           type: "button",
@@ -1560,10 +1554,6 @@ function renderCalendar() {
     const items = calendarPins();
     recent.replaceChildren(
       el("h3", { class: "section-title", text: "Recently planned" }),
-      el("p", {
-        class: "view-hint",
-        text: `Pinned on the calendar, last ${CAL_RECENT_DAYS} days, plan to watch only. These stay here — the Watchlist card's rows are the states you progress through, and they list every Plan to Watch, Watching and Watched title instead.`,
-      }),
       items.length
         ? el("div", { class: "grid-titles" }, ...items.map((m) => posterCard(m, { watch: true })))
         : el("p", { class: "empty", text: "Nothing planned from the calendar yet — pin a release above." }),
@@ -1930,8 +1920,53 @@ async function aiIntent(text) {
  * Profile — shows which profile is active and lets you switch in place, so the
  * pane is informative even when you never touch it.
  */
+/**
+ * One switch in the profile editor: a media row, a card, or a catalog inside a card.
+ *
+ * `level` decides where the pick is stored, so one drawing serves all three and a
+ * pick is remembered per profile (`nuvio.visibility`).
+ */
+function visRow(checked, level, id, title, desc, depth = 0) {
+  const input = el("input", {
+    type: "checkbox",
+    name: `${level}:${id}`,
+    "data-vis-level": level,
+    "data-vis-id": id,
+    ...(checked ? { checked: "checked" } : {}),
+    onchange: (e) => {
+      const v = visFor();
+      if (level === "row") v.rows[id] = e.target.checked;
+      else if (level === "card") v.cards[id] = e.target.checked;
+      else v.catalogs[id] = e.target.checked;
+      saveVisibility();
+      render();
+    },
+  });
+  return el(
+    "label",
+    {
+      class: `option vis-option focusable${depth ? " vis-sub" : ""}`,
+      tabindex: "0",
+      style: depth ? `padding-left: ${depth * 16}px` : "",
+    },
+    input,
+    el("span", { class: "option-body" },
+      el("span", { class: "option-title", text: title }),
+      desc ? el("span", { class: "option-desc", text: desc }) : null,
+    ),
+  );
+}
+
+/**
+ * Settings → Profile: the profile you are on, and what it shows.
+ *
+ * This is the "pick the cards for you" editor: one switch for each of Movies and
+ * Shows, one per card, and one per catalog row inside a card — so a profile can be
+ * exactly Netflix-and-anime, or films only, without a second app.
+ */
 function paneProfile() {
   // Only the profile in use — switching happens on the switch-profile screen.
+  const v = visFor();
   return [
     el(
       "div",
@@ -1944,8 +1979,34 @@ function paneProfile() {
         el("span", { class: "current-profile-note", text: "Current profile" }),
       ),
     ),
-    el("p", { class: "option-desc", text: "This is the profile the app is using. Open the profile icon in the top bar to switch." }),
-  ];
+    el("p", { class: "option-desc", text: "This is the profile the app is using. Open the profile icon in the top bar to switch. Each profile keeps its own picks below." }),
+
+    toggleRow(state.pickCards === true, "Pick the rows, cards and catalogs for this profile", "When this is on, only what you switch on below is shown on Home for this profile. Off means everything shows — nothing disappears unless you ask it to.", (e) => {
+      state.pickCards = e.target.checked;
+      writeJSON(KEY.pickCards, state.pickCards);
+      render();
+    }),
+
+    state.pickCards ? el("div", { class: "vis-editor" },
+      el("div", { class: "group-head" },
+        el("span", { class: "option-title", text: "Rows" }),
+        el("span", { class: "option-desc", text: "Movies and Shows, under the hero banner." }),
+      ),
+      visRow(v.rows.movie !== false, "row", "movie", "Movies", "The Movies row and its cards."),
+      visRow(v.rows.series !== false, "row", "series", "Shows", "The Shows row and its cards."),
+
+      el("div", { class: "group-head" },
+        el("span", { class: "option-title", text: "Cards" }),
+        el("span", { class: "option-desc", text: "Every card on Home, in the published order. Each card's catalog rows are indented under it." }),
+      ),
+      ...state.collections.flatMap((card) => [
+        visRow(v.cards[card.key] !== false, "card", card.key, card.title, `${rowOf(card).catalogs.length} catalog rows`),
+        ...rowOf(card).catalogs.map((cat) =>
+          visRow(v.catalogs[cat.id] !== false, "catalog", cat.id, cat.name, card.title, 1),
+        ),
+      ]),
+    ) : null,
+  ].filter(Boolean);
 }
 
 function panePosters() {
@@ -2224,6 +2285,13 @@ function paneAi() {
         pushSettings({ ai: { enhanceMissing: state.ai.enhanceMissing } });
         render();
       }),
+      // "Pick the cards for you" is back, and it is the switch over the editor in
+      // Settings → Profile: hit it here and pick there.
+      toggleRow(state.pickCards === true, "Pick the cards for you", "Shows only the rows, cards and catalogs you picked in Settings → Profile. Off means the whole card set, in the published order.", (e) => {
+        state.pickCards = e.target.checked;
+        writeJSON(KEY.pickCards, state.pickCards);
+        render();
+      }),
       el("p", { class: "option-desc", text: "Pick a free provider and paste its API key. The key is stored on the server, never in the page, and the Ask box falls back to a plain search when no key is set." }),
       ...AI_PROVIDERS.map(([slug, label, signup, note]) => aiProviderRow(slug, label, signup, note)),
       el("div", { class: "provider" },
@@ -2269,48 +2337,17 @@ const FALLBACK_COUNTRIES = [["US", "United States"], ["IN", "India"], ["GB", "Un
  * not every region's), and the language is the language every row is served in —
  * which is also the primary subtitle language.
  */
+/**
+ * Content: what the rows contain.
+ *
+ * The country picker is gone as well as the language one. Both belonged to the
+ * regional OTT cards' *names* rather than to what a row holds, and the country is
+ * published by the server (`/settings` → `country`) — so the two settings that
+ * only ever confused the question "what am I looking at?" are not here. What is
+ * left is the one switch that really does change a row's contents.
+ */
 function paneContent() {
-  const countries = state.options.countries?.length
-    ? state.options.countries.map((c) => [
-        c.code,
-        c.services ? `${c.name} — ${c.services} service${c.services === 1 ? "" : "s"}` : `${c.name} — no local service`,
-      ])
-    : FALLBACK_COUNTRIES;
-
-  const country = el("select", { class: "text-input focusable", id: "app-country" },
-    ...countries.map(([code, label]) => el("option", { value: code, text: label })));
-  country.value = state.country;
-  country.addEventListener("change", async () => {
-    state.country = country.value;
-    localStorage.setItem(KEY.country, state.country);
-    await pushSettings({ country: state.country });
-    // The regional cards name different services now, so the card list itself
-    // has to be re-read.
-    await refreshCollections();
-    render();
-  });
-
-  const chosen = state.options.countries?.find((c) => c.code === state.country);
-  const serviceNote = chosen
-    ? chosen.services
-      ? `${chosen.services} service${chosen.services === 1 ? "" : "s"} fill the three Regional OTT cards.`
-      : "No local service was verified for this country — the Regional OTT cards will be empty."
-    : "";
-
-  // The source of the content inside a row is *not* chosen here any more: it is
-  // chosen next to the providers it belongs to (Settings → Providers), where the
-  // keys that make it possible live. Two copies of one switch was one too many.
   return [
-    el("div", { class: "provider" },
-      el("span", { class: "option-title", text: "Language" }),
-      el("p", { class: "option-desc", text: "Rows are served in English. The language setting used to sit here and read as if it moved the regional OTT cards too, which it never did — so it is gone rather than misleading." }),
-    ),
-    el("div", { class: "provider" },
-      el("span", { class: "option-title", text: "Country" }),
-      el("p", { class: "option-desc", text: "Where you are. The three Regional OTT cards show this country's own services, and the global platform rows report availability for it." }),
-      el("div", { class: "source-form" }, country),
-      el("div", { class: "provider-check" }, el("span", { class: "source-status", text: serviceNote })),
-    ),
     radioRow(state.safe, "safe", "SFW", "Safe for work — adult titles excluded (TMDB default).", () => {
       state.safe = true; writeJSON(KEY.safe, true); pushSettings({ safe: true }); render();
     }),
@@ -2716,11 +2753,16 @@ async function boot() {
     return;
   }
 
+  // The country has no picker any more, but it is still real state: it decides
+  // which services the three Regional OTT cards name. It was read above the card
+  // list, so a country changed elsewhere has to re-read the cards here.
+  const cachedCountry = state.country;
   try {
     mergeServerSettings(await get("/settings"));
   } catch {
     /* server without the settings route */
   }
+  if (state.country !== cachedCountry) await refreshCollections();
 
   // The pins decide what the Watchlist card's three rows hold.
   try {

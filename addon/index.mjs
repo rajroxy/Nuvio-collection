@@ -968,6 +968,14 @@ export async function handleAddon(req, res, pathname, origin) {
 
   const parsed = parseCatalogPath(pathname);
   if (!parsed) return pathname.startsWith("/catalog/") ? (json(res, 404, { metas: [] }), true) : false;
+  // A retired or unknown catalog id is a 404, not a crash: the id is matched by
+  // shape, so `parsed.def` can be null, and the error handler below reads
+  // `parsed.def.id` — which would throw from inside the catch.
+
+  if (!parsed.def) {
+    json(res, 404, { metas: [] });
+    return true;
+  }
 
   if (!hasKey()) {
     if (!warnedNoKey) {

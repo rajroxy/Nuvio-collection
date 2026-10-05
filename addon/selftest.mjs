@@ -101,7 +101,7 @@ const { handleAddon, buildManifest, catalogMetas } = await import("./index.mjs")
 // request does: through `catalogDefs()` for the country currently configured.
 const { catalogDefs } = await import("./catalogs.mjs");
 const CATALOG_DEFS = catalogDefs();
-const { COUNTRIES, PLATFORMS, COLLECTIONS, MOVIE_GENRES, SHOW_GENRES, collectionsFor, localServices, DEFAULT_COUNTRY } = await import("../scripts/collections.mjs");
+const { COUNTRIES, PLATFORMS, COLLECTIONS, MOVIE_GENRES, SHOW_GENRES, collectionsFor, localServices, DEFAULT_COUNTRY, OTT_REGIONS } = await import("../scripts/collections.mjs");
 
 function fakeRes() {
   return {
@@ -238,6 +238,33 @@ check("shows use episode buckets instead of runtime", allNames.includes("series:
 
 // --- OTT cards ----------------------------------------------------------------
 check("global platforms exclude Hulu (a US-only service)", !namesIn("global-ott").includes("Hulu") && !namesIn("global-ott-top-10").includes("Hulu"));
+// Crunchyroll and Rakuten Viki are the Asian-catalogue services, and they belong to
+// the Regional OTT cards only — one service, one card family, never both.
+check(
+  "Crunchyroll and Viki are not in any Global OTT card",
+  ["Crunchyroll", "Viki"].every((label) =>
+    ["global-ott", "global-ott-popular", "global-ott-top-10"].every((key) =>
+      !namesIn(key).some((n) => n.replace(/^Popular /, "").replace(/ ◆ Top 10$/, "") === label),
+    ),
+  ),
+);
+check(
+  "and they are in the three Regional OTT cards for every country",
+  ["Crunchyroll", "Viki"].every((label) =>
+    OTT_REGIONS.every(([, code]) => localServices(code, "movie").some((s) => s.name === label)),
+  ),
+  `${OTT_REGIONS.length} regions checked`,
+);
+check(
+  "a country's own services still come first, with the Asian two at the end",
+  (() => {
+    const svc = localServices("US", "movie").map((s) => s.name);
+    const asian = new Set(["Crunchyroll", "Viki"]);
+    const firstAsian = svc.findIndex((n) => asian.has(n));
+    return firstAsian > 0 && svc.slice(firstAsian).every((n) => asian.has(n));
+  })(),
+  localServices("US", "movie").map((s) => s.name).join(","),
+);
 check(
   "every global platform is present in all three OTT cards",
   PLATFORMS.every(([label]) => namesIn("global-ott-top-10").includes(`${label} ◆ Top 10`) && namesIn("global-ott-popular").includes(`Popular ${label}`) && namesIn("global-ott").includes(label)),
@@ -794,41 +821,25 @@ check("the watchlist survives a re-read (it is stored, not in memory)", Array.is
 const statusRow = await call("/addon-status.json");
 check("addon status reports the watchlist and the AI provider", Boolean(statusRow.res.body?.watchlist) && statusRow.res.body.aiProvider === "groq");
 
-// --- the custom row after the states ------------------------------------------
-// The row after the watchlist states is the one you fill yourself: nothing moves
-// a title in or out of it except you adding it and taking it away.
+// --- no "add cards" row anywhere -----------------------------------------------
+// The Watchlist card is the three states it always was: the custom "Add cards in
+// watchlist" row is gone, and nothing publishes it any more.
 check(
-  "the watchlist card publishes a custom row after its three states",
-  ["movie", "series"].every((type) =>
-    manifest.catalogs.some((c) => c.type === type && c.id === "nuvio-watchlist--add-cards-in-watchlist"),
-  ),
-  manifest.catalogs.filter((c) => c.id.includes("add-cards")).map((c) => `${c.type}:${c.name}`).join(","),
-);
-const customEmpty = await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json");
-check("an empty custom row is an empty catalog, not a 404", customEmpty.handled && customEmpty.res.statusCode === 200 && customEmpty.res.body.metas.length === 0);
-const customAdd = await postTo("/customrows", { row: "add-cards", item: fightClub });
-check(
-  "adding a title to the custom row stores it there",
-  customAdd.body?.ok === true && customAdd.body.inRow === true && customAdd.body.counts["add-cards"] === 1,
-  JSON.stringify(customAdd.body?.counts),
+  "the watchlist card publishes its three states and nothing else",
+  ["movie", "series"].every((type) => {
+    const names = manifest.catalogs.filter((c) => c.type === type && c.id.startsWith("nuvio-watchlist--")).map((c) => c.name);
+    return names.join(",") === "Plan to Watch,Watching,Watched";
+  }),
+  manifest.catalogs.filter((c) => c.id.startsWith("nuvio-watchlist--")).map((c) => `${c.type}:${c.name}`).join(","),
 );
 check(
-  "and the row serves it as a normal catalog",
-  (await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json")).res.body.metas[0]?.name === "Fight Club",
+  "no 'Add cards in watchlist' catalog is published, so no app can show one",
+  !manifest.catalogs.some((c) => c.id.includes("add-cards") || /add cards/i.test(c.name)),
+  manifest.catalogs.filter((c) => /add cards/i.test(c.name)).map((c) => c.id).join(",") || "none published",
 );
 check(
-  "a custom row is not a watch state — it does not touch the watchlist",
-  (await call("/watchlist.json")).res.body.items.length === 0,
-  `${(await call("/watchlist.json")).res.body.items.length} pins`,
-);
-check(
-  "adding the same title again takes it back out",
-  (await postTo("/customrows", { row: "add-cards", item: fightClub })).body?.removed === true &&
-    !(await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json")).res.body.metas.length,
-);
-check(
-  "the custom row survives a re-read (it is stored, not in memory)",
-  Boolean((await call("/customrows.json")).res.body?.rows) && Array.isArray((await call("/customrows.json")).res.body?.items),
+  "and its catalog id is really gone, not just renamed",
+  (await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json")).res.statusCode === 404,
 );
 
 // A calendar plan is not a watch state: it is a plan about a *date*, kept in its
@@ -843,18 +854,22 @@ check(
   JSON.stringify(calendarPlan.body?.rows),
 );
 check(
+  "adding the same plan again takes it back out (the button is a toggle)",
+  (await postTo("/customrows", { row: "calendar-plans", item: fightClub })).body?.removed === true &&
+    (await postTo("/customrows", { row: "calendar-plans", item: fightClub })).body?.inRow === true,
+);
+check(
   "the calendar's plan is not published as a catalog row",
   !manifest.catalogs.some((c) => c.id.includes("calendar-plans")),
   manifest.catalogs.filter((c) => c.id.includes("calendar")).map((c) => c.id).join(",") || "none published",
 );
-// The Watchlist card's own custom row must never pick a calendar plan up: the two
-// rows hold different things, and mixing them is the bug this separation exists to
-// prevent.
-const addCardsAfterCalendarPlan = await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json");
+// The store still backs the calendar's own plans, and it is stored rather than held
+// in memory, so a plan survives a reload.
 check(
-  "a calendar plan never shows up in the 'Add cards in watchlist' row",
-  addCardsAfterCalendarPlan.res.body.metas.length === 0,
-  `${addCardsAfterCalendarPlan.res.body.metas.length} titles in the row`,
+  "the calendar's plans are stored and read back",
+  Boolean((await call("/customrows.json")).res.body?.rows) &&
+    (await call("/customrows.json")).res.body.items.some((i) => i.row === "calendar-plans"),
+  JSON.stringify((await call("/customrows.json")).res.body?.rows),
 );
 check(
   "and it can be taken back off again",

@@ -551,6 +551,13 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .settings-group:first-child { margin-top: 0; }
 
 /* The accent picker: one round swatch per colour, the chosen one ringed. */
+/* Settings → Profile: the per-profile visibility editor. A card's catalog rows sit
+   indented under it, so the nesting is readable without a disclosure widget. */
+.vis-editor { margin-top: 6px; }
+.vis-editor .group-head { margin-top: 18px; }
+.vis-option.vis-sub { opacity: 0.92; }
+.vis-option.vis-sub .option-title { font-weight: 600; }
+
 .accent-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0 4px; }
 .accent-swatch {
   width: 38px;

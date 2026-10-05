@@ -22,6 +22,28 @@
         "hasBetterPoster": true,
         "addedAt": "2026-10-05T22:01:04.029Z",
         "updatedAt": "2026-10-05T22:01:04.029Z"
+      },
+      {
+        "id": "tmdb:331366",
+        "type": "series",
+        "name": "Stereotypical",
+        "poster": "https://btttr.cc/poster-qa/imdb/poster-default/tt43986145.jpg",
+        "releaseInfo": "2026",
+        "description": "Stereotypical follows the life of Marvin, a sardonic anthropomorphic Turtle trying to navigate Forestville, a small town populated by people who seem determined to embody every small town stereotype imaginable. From oblivious neighbors, eccentric relatives, and overly strict HOA members, Marvin is constantly caught in the chaos created by the town's most ridiculous characters.",
+        "hasBetterPoster": true,
+        "addedAt": "2026-10-05T22:08:45.890Z",
+        "updatedAt": "2026-10-05T22:08:45.890Z"
+      }
+    ],
+    "add-cards": [
+      {
+        "id": "tmdb:335673",
+        "type": "series",
+        "name": "Fiasco",
+        "poster": "https://image.tmdb.org/t/p/w500/gSJ4m1ELlzmi9xcZvOqPX3taBFx.jpg",
+        "releaseInfo": "2026",
+        "addedAt": "2026-10-05T22:09:09.804Z",
+        "updatedAt": "2026-10-05T22:09:09.804Z"
       }
     ]
   }
