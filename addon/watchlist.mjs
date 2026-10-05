@@ -41,16 +41,13 @@ const keyOf = (item) => `${item?.type === "movie" ? "movie" : "series"}:${String
  *
  * Exported because a custom row stores the same shape: a stored title is the
  * same object whether it sits in a watch state or in a row you built yourself.
- * `source` records where the pin came from (`"calendar"` for a plan made on the
- * Calendar screen), which is what lets the calendar show its own recent pins
- * without touching the watchlist rows.
  */
 export function cleanItem(item, state) {
   const id = String(item?.id || "");
   if (!id) return null;
   const out = { id, type: item.type === "movie" ? "movie" : "series", name: String(item.name || "Untitled") };
   if (state) out.state = state;
-  for (const field of ["poster", "background", "releaseInfo", "imdbRating", "description", "source"]) {
+  for (const field of ["poster", "background", "releaseInfo", "imdbRating", "description"]) {
     if (item[field]) out[field] = String(item[field]);
   }
   if (item.hasBetterPoster) out.hasBetterPoster = true;

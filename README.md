@@ -259,9 +259,19 @@ curl -X POST localhost:4173/watchlist -H 'content-type: application/json' \
   -d '{"item":{"id":"tmdb:550","type":"movie","name":"Fight Club"},"state":"planned"}'
 ```
 
-A pin also records **where it was made** (`source: "calendar"` for a plan made on
-the Calendar screen). That is what keeps the Calendar's own pins apart from the
-watchlist rows — see *Calendar* below — without giving them a second store.
+### Calendar plans are not watchlist rows
+
+A plan made on the **Calendar** screen does not go into the watchlist. It lives in
+its own custom row (`calendar-plans`), because the two mean different things: a
+watchlist row is a *state you progress through* and lists everything in that state,
+while a calendar pin is a plan about a **date** — a release you saw on the grid and
+mean to get to. The Calendar shows only the **recent** pins (last 30 days); the
+watchlist rows are unaffected.
+
+```sh
+curl -X POST localhost:4173/customrows -H 'content-type: application/json' \
+  -d '{"row":"calendar-plans","item":{"id":"tmdb:550","type":"movie","name":"Fight Club"}}'
+```
 
 ### Custom rows
 
@@ -580,8 +590,9 @@ right of the header**, which redraws all three at once.
   watchlist row: a calendar pin is **plan-only** (a dated release you mean to get
   to) and **recent-only** — *Recently planned* under the grid lists the last 30
 days, while the Watchlist card lists every Plan to Watch, Watching and Watched
-title whatever its date. Calendar pins are tagged `source: "calendar"` so the two
-can never be confused.
+title whatever its date. Calendar plans live in their own custom row
+(`calendar-plans`), so pinning a release never fills the Watchlist card's Plan to
+Watch row with something you did not put there.
 - **Search** — searches **titles** (TMDB, through the server) as well as collections
   and catalogs in the current row. This is what the Ask box feeds.
 - **Settings**, grouped, with the group name over its tabs:

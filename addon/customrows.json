@@ -1,0 +1,28 @@
+{
+  "rows": {
+    "calendar-plans": [
+      {
+        "id": "tmdb:1786741",
+        "type": "movie",
+        "name": "Another Sea Behind Another Wall",
+        "releaseInfo": "2026",
+        "description": "A lifeguard in his late 60s from the Palestinian National Rescue Team-North District, who seems to be highly dedicated to his job, watches over the beaches of the sea.",
+        "addedAt": "2026-10-05T22:00:53.724Z",
+        "updatedAt": "2026-10-05T22:00:53.724Z"
+      },
+      {
+        "id": "tmdb:258165",
+        "type": "series",
+        "name": "East of Eden",
+        "poster": "https://btttr.cc/poster-qa/imdb/poster-default/tt21097264.jpg",
+        "background": "https://image.tmdb.org/t/p/w780/70RZX7kNjA0Qjn6HigB1oMvFJ8R.jpg",
+        "releaseInfo": "2026",
+        "imdbRating": "7.9",
+        "description": "In the early 1900s, a fiercely independent woman drives a rift between two brothers, igniting a saga that unfolds across two generations.",
+        "hasBetterPoster": true,
+        "addedAt": "2026-10-05T22:01:04.029Z",
+        "updatedAt": "2026-10-05T22:01:04.029Z"
+      }
+    ]
+  }
+}

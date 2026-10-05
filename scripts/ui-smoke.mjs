@@ -654,14 +654,22 @@ if (bothDay) {
     $$(".cal-detail .cal-pin").map((b) => `${text(b)}:${b.className}`).join(" | "),
   );
   check(
-    "and it shows in Recently planned, which says it is recent-only",
+    "and it shows in Recently planned, which says it is recent-only and not the watchlist",
     $$(".cal-recent .poster").length === 1 && /last 30 days/.test(text($(".cal-recent"))) && /Watchlist card/.test(text($(".cal-recent"))),
     text($(".cal-recent"))?.slice(0, 160),
   );
+  // The custom-row store must hold it: a calendar plan in a watch state would
+  // fill the Watchlist card's Plan to Watch row with something the user never
+  // planned there.
   check(
-    "the calendar's plan is marked as coming from the calendar",
-    WATCH.items.length >= 1 && WATCH.items.every((i) => i.state === "planned" && i.source === "calendar"),
-    JSON.stringify(WATCH.items.map((i) => [i.name, i.state, i.source])),
+    "planning on the calendar does not fill a watchlist state row",
+    CUSTOM.some((i) => i.row === "calendar-plans") && !WATCH.items.some((i) => i.state === "planned"),
+    `custom rows: ${[...new Set(CUSTOM.map((i) => i.row))].join(",") || "none"} · watch pins: ${WATCH.items.length}`,
+  );
+  check(
+    "the calendar's plan is its own row, not a watch state",
+    CUSTOM.filter((i) => i.row === "calendar-plans").length === 1 && WATCH.items.length === 0,
+    `calendar-plans: ${CUSTOM.filter((i) => i.row === "calendar-plans").length}, watch pins: ${WATCH.items.length}`,
   );
 
   // Clicking the selected day again deselects it.

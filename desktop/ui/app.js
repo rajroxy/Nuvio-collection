@@ -415,11 +415,8 @@ function tmdbUpscale(url) {
  * Move a title between watch states (or off the list when `next` is null) and
  * redraw — both the modal's buttons and the watchlist rows behind it.
  */
-async function setWatchState(item, next, opts = {}) {
-  // `source` travels with the pin so the Calendar can tell a plan made on the
-  // Calendar apart from a watchlist row — it never changes what the rows hold.
-  const pin = opts.source ? { ...pinOf(item), source: opts.source } : pinOf(item);
-  const body = next === null ? { item: pin, remove: true } : { item: pin, state: next };
+async function setWatchState(item, next) {
+  const body = next === null ? { item: pinOf(item), remove: true } : { item: pinOf(item), state: next };
   try {
     const res = await post("/watchlist", body);
     if (res && Array.isArray(res.items)) applyWatchlist(res);
@@ -1444,40 +1441,46 @@ function shiftMonth(month, delta) {
 }
 
 /**
- * The Calendar's plan-to-watch pin.
+ * The Calendar's plan-to-watch pin — and why it is not a watchlist row.
  *
- * It is deliberately **not** the same thing as a watchlist row. A watchlist row
- * scans everything in its state; a calendar pin is a plan and nothing else — a
- * release you saw on a date and mean to get to. So the calendar offers the one
- * state (plan to watch), it marks the pin with where it came from, and the list
- * it draws below the grid is **recent only** (the last `CAL_RECENT_DAYS`), while
- * the Watchlist card keeps every plan, whatever the date.
+ * The watchlist rows are states you progress through, and they scan whatever is
+ * in that state. A calendar pin is different: it is a plan about a *date* — a
+ * release you saw on the grid and mean to get to — so it lives in its own row
+ * (`calendar-plans`) and the grid lists only the **recent** ones (the last
+ * `CAL_RECENT_DAYS`). Putting it in the watchlist's Plan to Watch row was wrong:
+ * a plan made on a Tuesday grid is not the same list as everything you plan to
+ * watch, and mixing them made "plan to watch" mean two things.
  */
 const CAL_RECENT_DAYS = 30;
+const CAL_ROW = "calendar-plans";
 
 const keyOfItem = (i) => `${i.type}:${i.id}`;
 
-/** Was this title planned *from the calendar*? */
-const isCalendarPin = (item) =>
-  state.watchItems.some((i) => keyOfItem(i) === watchKey(item) && i.state === "planned" && i.source === "calendar");
-
-/** The calendar's own pins — plan to watch, made here, and recent. */
-function recentCalendarPins() {
+/** The calendar's own pins, newest first, recent only. */
+function calendarPins() {
   const since = Date.now() - CAL_RECENT_DAYS * 864e5;
-  return state.watchItems
-    .filter((i) => i.source === "calendar" && i.state === "planned")
+  return state.customItems
+    .filter((i) => i.row === CAL_ROW)
     .filter((i) => !i.addedAt || Date.parse(i.addedAt) >= since)
     .sort((a, b) => String(b.addedAt).localeCompare(String(a.addedAt)));
 }
 
+/** Was this title planned *from the calendar*? */
+const isCalendarPin = (item) => calendarPins().some((i) => keyOfItem(i) === watchKey(item));
+
 /** Plan the title from the calendar — or take the plan away again. */
 async function calendarPlan(item) {
-  const planned = state.watchlist[watchKey(item)] === "planned" && isCalendarPin(item);
-  await setWatchState(item, planned ? null : "planned", { source: "calendar" });
+  try {
+    const res = await post("/customrows", { row: CAL_ROW, item: pinOf(item) });
+    if (res && Array.isArray(res.items)) applyCustomRows(res);
+  } catch {
+    /* offline — the plan simply does not change */
+  }
+  render();
 }
 
 function calendarCard(m) {
-  const planned = state.watchlist[watchKey(m)] === "planned" && isCalendarPin(m);
+  const planned = isCalendarPin(m);
   return el(
     "div",
     { class: "cal-item" },
@@ -1553,12 +1556,12 @@ function renderCalendar() {
 
   /** The calendar's own recent pins — kept apart from the watchlist card. */
   function drawRecent() {
-    const items = recentCalendarPins();
+    const items = calendarPins();
     recent.replaceChildren(
       el("h3", { class: "section-title", text: "Recently planned" }),
       el("p", {
         class: "view-hint",
-        text: `Pinned on the calendar, last ${CAL_RECENT_DAYS} days, plan to watch only. The Watchlist card's rows list every Plan to Watch, Watching and Watched title instead.`,
+        text: `Pinned on the calendar, last ${CAL_RECENT_DAYS} days, plan to watch only. These stay here — the Watchlist card's rows are the states you progress through, and they list every Plan to Watch, Watching and Watched title instead.`,
       }),
       items.length
         ? el("div", { class: "grid-titles" }, ...items.map((m) => posterCard(m, { watch: true })))

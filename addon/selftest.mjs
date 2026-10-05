@@ -807,16 +807,27 @@ check(
   Boolean((await call("/customrows.json")).res.body?.rows) && Array.isArray((await call("/customrows.json")).res.body?.items),
 );
 
-// A calendar plan is plan-only and carries where it came from, so the calendar
-// can keep its own recent pins apart from the watchlist rows.
-const calendarPlan = await postTo("/watchlist", { item: { ...fightClub, source: "calendar" }, state: "planned" });
+// A calendar plan is not a watch state: it is a plan about a *date*, kept in its
+// own row, so covering a release on the grid never fills the watchlist's Plan to
+// Watch row with something you did not put there.
+const calendarPlan = await postTo("/customrows", { row: "calendar-plans", item: fightClub });
 check(
-  "a calendar plan keeps its source, so the calendar can tell its own pins apart",
-  calendarPlan.body?.items?.some((i) => i.source === "calendar" && i.state === "planned"),
-  JSON.stringify(calendarPlan.body?.items?.map((i) => [i.name, i.state, i.source])),
+  "a calendar plan goes to the calendar's own row, not to a watch state",
+  calendarPlan.body?.inRow === true && calendarPlan.body.counts["calendar-plans"] === 1 &&
+    !calendarPlan.body.items.some((i) => i.state === "planned") &&
+    (await call("/watchlist.json")).res.body.items.length === 0,
+  JSON.stringify(calendarPlan.body?.rows),
 );
-await postTo("/watchlist", { item: { ...fightClub, source: "calendar" }, remove: true });
-check("a calendar plan can be taken back off", (await call("/watchlist.json")).res.body.items.length === 0);
+check(
+  "the calendar's plan is not published as a catalog row",
+  !manifest.catalogs.some((c) => c.id.includes("calendar-plans")),
+  manifest.catalogs.filter((c) => c.id.includes("calendar")).map((c) => c.id).join(",") || "none published",
+);
+check(
+  "and it can be taken back off again",
+  (await postTo("/customrows", { row: "calendar-plans", item: fightClub })).body?.removed === true &&
+    !(await call("/customrows.json")).res.body.rows.some((r) => r.id === "calendar-plans"),
+);
 
 // --- no-key behaviour ---------------------------------------------------------
 delete process.env.TMDB_API_KEY;

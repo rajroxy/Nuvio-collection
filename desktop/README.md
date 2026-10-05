@@ -132,8 +132,9 @@ lists **films and shows together** (each card is tagged with which it is), click
 the selected day again **deselects** it, and the grid carries no caption text.
 Every release has its own **Plan to Watch** pin, and it is not a watchlist row: it
 is plan-only and the *Recently planned* list under the grid is recent-only (last
-30 days), while the Watchlist card scans every state whatever the date. The pins
-are tagged `source: "calendar"` on the server.
+30 days), while the Watchlist card scans every state whatever the date. Calendar
+plans live in their own custom row (`calendar-plans`) on the server, so pinning a
+release never fills the Watchlist card's Plan to Watch row.
 
 A tile is entered by clicking its **artwork** — not the whole tile. Back (Escape /
 ← button) returns home; Escape in Explore goes back to the collection. A
