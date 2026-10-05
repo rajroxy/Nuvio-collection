@@ -1,0 +1,22 @@
+{
+  "name": "nuvio-collections-app",
+  "productName": "Nuvio Collections",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop app for the Nuvio collection covers and catalogs. Web UI, wrapped by Electron — the same UI ports to Android TV via Capacitor.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "android:sync": "cap sync android",
+    "android:open": "cap open android",
+    "android:build": "cd android && sh ./gradlew assembleDebug",
+    "android:apk": "cd android && sh ./gradlew assembleRelease"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
+    "electron": "^31.2.0"
+  }
+}

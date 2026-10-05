@@ -1,0 +1,155 @@
+/**
+ * Minimal TMDB client for the Nuvio catalog addon.
+ *
+ * - Reads the key from TMDB_API_KEY (v3 key or v4 read token — both accepted).
+ * - Caches every response in memory so a home screen full of catalog rows only
+ *   costs a handful of upstream calls per TTL window.
+ * - Resolves genre and keyword *names* to TMDB ids at runtime, so nothing here
+ *   depends on hard-coded id tables that can drift.
+ */
+
+import { activeLanguage } from "./settings.mjs";
+
+const BASE = "https://api.themoviedb.org/3";
+const TTL_MS = Number(process.env.TMDB_CACHE_TTL_MS) || 30 * 60 * 1000;
+
+export const IMG = "https://image.tmdb.org/t/p";
+
+// Stremio calls the type "series"; TMDB calls it "tv". Every TMDB path must use
+// this mapping — using the Stremio type verbatim silently 404s every TV query.
+export const tmdbPath = (media) => (media === "movie" ? "movie" : "tv");
+
+const cache = new Map();
+
+// The key can come from Settings at runtime (the addon's settings store) or from
+// the environment. Settings wins, so pasting a key in the app takes effect
+// immediately without a restart.
+let overrideKey = "";
+export function setKey(key) {
+  const next = String(key || "");
+  if (next !== overrideKey) {
+    overrideKey = next;
+    cache.clear();
+  }
+}
+
+const apiKey = () => overrideKey || process.env.TMDB_API_KEY || "";
+
+export function hasKey() {
+  return Boolean(apiKey());
+}
+
+/**
+ * The content language rides on every request that returns titles, so changing
+ * it in Settings localises every row at once. The genre *list* is excluded: genre
+ * names are resolved to TMDB ids by their English names, and a localised list
+ * would stop `<Genre>` rows resolving. The cache is dropped when the language
+ * changes, so a switch is never served from the previous language.
+ */
+let cachedLanguage = null;
+function contentLanguage() {
+  const next = activeLanguage();
+  if (next !== cachedLanguage) {
+    cachedLanguage = next;
+    cache.clear();
+  }
+  return next;
+}
+
+async function request(path, params = {}) {
+  // Re-read the key each call so a Settings change is picked up at once.
+  const language = contentLanguage();
+  const query = language && params.language === undefined && !path.startsWith("/genre/")
+    ? { ...params, language }
+    : params;
+  const keyName = path + "?" + JSON.stringify(query);
+  const hit = cache.get(keyName);
+  if (hit && hit.expires > Date.now()) return hit.value;
+
+  const key = apiKey();
+  if (!key) throw new Error("TMDB_API_KEY is not set");
+
+  const url = new URL(BASE + path);
+  for (const [k, v] of Object.entries(query)) {
+    if (v === undefined || v === null || v === "") continue;
+    url.searchParams.set(k, String(v));
+  }
+
+  // v4 read tokens are long JWTs; v3 keys are short hex strings.
+  const headers = { accept: "application/json" };
+  if (key.length > 60) headers.authorization = `Bearer ${key}`;
+  else url.searchParams.set("api_key", key);
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`TMDB ${res.status} for ${path}${body ? ` — ${body.slice(0, 160)}` : ""}`);
+  }
+  const json = await res.json();
+  cache.set(keyName, { value: json, expires: Date.now() + TTL_MS });
+  return json;
+}
+
+export const get = request;
+
+/** name → id maps, cached per media type. */
+const genreCache = new Map();
+
+export async function genres(media) {
+  const hit = genreCache.get(media);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  const res = await request(`/genre/${tmdbPath(media)}/list`);
+  const value = res.genres ?? [];
+  genreCache.set(media, { value, expires: Date.now() + TTL_MS });
+  return value;
+}
+
+const genreId = new Map(); // "media:Name" -> id
+const keywordId = new Map();
+
+export async function resolveGenre(media, name) {
+  const k = `${media}:${name.toLowerCase()}`;
+  if (genreId.has(k)) return genreId.get(k);
+  const all = await genres(media);
+  const found = all.find((g) => g.name.toLowerCase() === name.toLowerCase());
+  const id = found ? found.id : null;
+  genreId.set(k, id);
+  return id;
+}
+
+export async function resolveKeyword(name) {
+  const k = name.toLowerCase();
+  if (keywordId.has(k)) return keywordId.get(k);
+  try {
+    const res = await request("/search/keyword", { query: name });
+    const id = res.results?.[0]?.id ?? null;
+    keywordId.set(k, id);
+    return id;
+  } catch {
+    keywordId.set(k, null);
+    return null;
+  }
+}
+
+/** TMDB list item → Stremio/Nuvio meta. */
+export function toMeta(item, type) {
+  if (!item || !item.id) return null;
+  const isMovie = type === "movie";
+  const date = isMovie ? item.release_date : item.first_air_date;
+  const meta = {
+    id: `tmdb:${item.id}`,
+    type,
+    name: (isMovie ? item.title : item.name) || item.original_title || item.original_name || "Untitled",
+    posterShape: "poster",
+  };
+  if (item.poster_path) meta.poster = `${IMG}/w500${item.poster_path}`;
+  if (item.backdrop_path) meta.background = `${IMG}/w780${item.backdrop_path}`;
+  if (date) meta.releaseInfo = String(date).slice(0, 4);
+  if (typeof item.vote_average === "number" && item.vote_average > 0) {
+    meta.imdbRating = item.vote_average.toFixed(1);
+  }
+  const embed = process.env.NUVIO_STREAM_SOURCE;
+  if (embed) meta.behaviorHints = { defaultVideoId: `tmdb:${item.id}` };
+  if (item.overview) meta.description = item.overview;
+  return meta;
+}

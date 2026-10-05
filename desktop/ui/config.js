@@ -1,0 +1,17 @@
+// Where the UI looks for the catalog server.
+//
+//   Electron desktop  → main.js passes ?api=http://127.0.0.1:<port> (nothing to do)
+//   Browser / preview → served by serve.mjs on the same origin (nothing to do)
+//   Android TV (APK)  → the app is a thin client: there is no Node server on the
+//                       device, so set NUVIO_HOST to the deployed host before
+//                       building, e.g. "https://your-addon-host.example.com".
+//
+// `npm run android:sync` copies this file into the APK, so set it first, then sync.
+window.NUVIO_HOST = "";
+
+const params = new URLSearchParams(location.search);
+const fromQuery = params.get("api");
+// Capacitor serves the app from https://localhost, so a non-empty host is the
+// only way the packaged app can reach data — an empty one shows a clear message.
+const packaged = typeof window.Capacitor !== "undefined";
+window.NUVIO_API = fromQuery || window.NUVIO_HOST || (packaged ? "" : "");

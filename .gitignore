@@ -1,0 +1,25 @@
+# Secrets — managed via Settings → Environment, never committed
+.env
+.env.local
+.env.*.local
+
+# Runtime settings written by the app (may contain provider API keys)
+addon/settings.json
+
+# Runtime state written by the app (your pinned titles, not source)
+addon/watchlist.json
+
+# Dependencies
+node_modules/
+scripts/node_modules/
+
+# Android build output — the Capacitor project itself IS committed.
+# `app/src/main/assets/public` is regenerated from desktop/ui by `npm run android:sync`.
+desktop/android/.gradle/
+desktop/android/build/
+desktop/android/app/build/
+desktop/android/local.properties
+desktop/android/app/src/main/assets/public/
+
+# OS noise
+.DS_Store

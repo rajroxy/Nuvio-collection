@@ -1,0 +1,13 @@
+{
+  "name": "nuvio-collection-covers-tooling",
+  "private": true,
+  "type": "module",
+  "description": "Generates the Nuvio collection landscape covers (animated SVG + PNG).",
+  "scripts": {
+    "generate": "node generate-covers.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "opentype.js": "^1.3.4"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "nuvio-collection-covers",
+  "private": true,
+  "type": "module",
+  "description": "Landscape (16:9) cover art for every Nuvio collection — animated SVG masters and 1920x1080 PNG exports.",
+  "scripts": {
+    "preview": "node serve.mjs",
+    "generate": "cd scripts && npm install && npm run generate",
+    "test": "node addon/selftest.mjs",
+    "test:ui": "node scripts/ui-smoke.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.2"
+  }
+}

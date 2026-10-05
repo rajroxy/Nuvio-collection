@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nuvio Collections</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn focusable" id="back" title="Back" aria-label="Back" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"></path><path d="M11 6l-6 6 6 6"></path></svg>
+    </button>
+
+    <!-- No app logo or label: the profile icon takes the top-left slot, with the
+         calendar to its right. The icon opens the switch-profile screen. -->
+    <div class="top-left">
+      <button class="icon-btn profile-btn focusable" id="profile" title="Switch profile" aria-label="Switch profile">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="8" r="3.6"></circle>
+          <path d="M5 20.5c0-3.6 3.1-5.7 7-5.7s7 2.1 7 5.7"></path>
+        </svg>
+      </button>
+      <button class="icon-btn focusable" id="calendar" title="Calendar" aria-label="Calendar">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3.5" y="5" width="17" height="15.5" rx="2.5"></rect>
+          <path d="M3.5 10h17"></path>
+          <path d="M8 3v4M16 3v4"></path>
+        </svg>
+      </button>
+      <span class="top-divider" aria-hidden="true"></span>
+    </div>
+
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+
+    <div class="top-right">
+      <button class="icon-btn focusable" id="search" title="Search" aria-label="Search">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.4"></circle>
+          <path d="M15.9 15.9l4.6 4.6"></path>
+        </svg>
+      </button>
+      <button class="icon-btn focusable" id="settings" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.3"></circle>
+          <path d="M12 2.8v2.4M12 18.8v2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M2.8 12h2.4M18.8 12h2.4M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main" class="main"></main>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <article class="modal-card" role="dialog" aria-modal="true">
+      <button class="modal-close focusable" data-close aria-label="Close">✕</button>
+      <div class="modal-hero" id="modal-hero"></div>
+      <div class="modal-body">
+        <h2 id="modal-title"></h2>
+        <p class="modal-meta" id="modal-meta"></p>
+        <p class="modal-desc" id="modal-desc"></p>
+        <div class="modal-actions">
+          <!-- Plan to watch / watching / watched. Filled in when a title opens. -->
+          <div class="modal-pins" id="modal-pins" role="group" aria-label="Watchlist"></div>
+          <button class="btn primary focusable" id="modal-sources" type="button">Find sources</button>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <script src="./config.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
