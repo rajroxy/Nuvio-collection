@@ -44,7 +44,7 @@ Routing mirrors Nuvio:
 | Switch profile | `#/profiles` | **where the app starts** — pick `Movies & Shows` or `Live TV & Sports` |
 | Home | `#/` | a **hero** panel, then **Movies / Shows** buttons, then the cards |
 | Collection | `#/c/<key>` | the collection's cover + **its catalogs as rows**, each with **Shuffle** and **Explore** |
-| Explore | `#/x/<key>/<catalogId>` | **three shuffled rows** on top, then the catalog **scrolling endlessly** |
+| Explore | `#/x/<key>/<catalogId>` | **one shuffled row** on top, then a divider, then the catalog **scrolling endlessly** |
 | Sources | `#/s/<id>/<name>` | providers as a **graph**, grouped by add-on / plugin / repo |
 | Calendar | `#/calendar` | a real **month calendar** of releases (films *and* shows) |
 | Search | `#/search` | searches **titles**, collections and catalogs |
@@ -111,12 +111,12 @@ like a button that did nothing.
 **The wheel moves the row, never the page.** Pointing at a strip and scrolling
 scrolls that strip sideways; at either end the row simply stops, so the page cannot
 be dragged away while the cursor is on the titles. The page scrolls normally
-anywhere the cursor is not over a row, and strips draw no scrollbar. Under the header sit **three sample rows**, each drawing a random 12
-titles from that catalog. They are drawn **exactly like a normal row**: no
-`Shuffle 1/2/3` labels and no control of their own. A **horizontal divider** closes
-them off from the catalog below, and there is **one Shuffle button at the top
-right of the header** which redraws all three rows at once. Everything below the
-divider is the normal, endlessly scrolling catalog.
+anywhere the cursor is not over a row, and strips draw no scrollbar. Under the
+header sits **one sample row**, drawing a random 12 titles from that catalog. It is
+drawn **exactly like a normal row**: no label of its own and no control of its own.
+A **horizontal divider** closes it off from the catalog below, and there is **one
+Shuffle button at the top right of the header** which draws a fresh sample.
+Everything below the divider is the normal, endlessly scrolling catalog.
 
 The depth comes from the server: it reads TMDB 20 titles at a time into a growing,
 10-minute cache per catalog, so each 40-title window continues where the last

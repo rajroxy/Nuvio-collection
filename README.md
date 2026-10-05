@@ -53,19 +53,30 @@ serve.mjs                   server: gallery + addon on one origin
 All 21 collections × 2 rows = **42 covers**. In the app the order is **Watchlist
 first**, then a vertical divider, then **Discover ◆ Top 10** and the rest:
 
-| # | Collection | # | Collection |
-|---|---|---|---|
-| 1 | **Watchlist** ¦ divider | 12 | Regional OTT – Top 10 |
-| 2 | **Discover ◆ Top 10** | 13 | **Popular Regional OTT** |
-| 3 | On the Board | 14 | Regional OTT |
-| 4 | Discover | 15 | Continental |
-| 5 | Popular by Genre | 16 | Countries |
-| 6 | Genres | 17 | Runtimes |
-| 7 | Popular by Decade | 18 | Based on the |
-| 8 | Decades | 19 | Moods & Vibes |
-| 9 | Genre from Decades | 20 | Themes & Tags |
-| 10 | Global OTT – Top 10 | 21 | |
-| 11 | **Popular Global OTT** | | |
+The order is the owner's list, and `npm test` asserts it key by key, so a card
+cannot drift:
+
+1. **Watchlist** (then a vertical divider)
+2. Discover ◆ Top 10
+3. On the Board
+4. Discover
+5. Popular by Genre
+6. Genres
+7. Popular by Decade
+8. Decades
+9. Genre from Decades
+10. Continental
+11. Countries
+12. Runtimes
+13. Based on the
+14. Moods & Vibes
+15. Themes & Tags
+16. Global OTT – Top 10
+17. Popular Global OTT
+18. Global OTT
+19. Regional OTT – Top 10
+20. Popular Regional OTT
+21. Regional OTT
 
 ## Design
 
@@ -286,6 +297,11 @@ It is backed by `addon/customrows.mjs` (`addon/customrows.json`, git-ignored, an
 `NUVIO_CUSTOM_FILE` overrides the path so tests never touch the real one), served
 through the ordinary catalog route, so it pages, scrolls and publishes in the
 manifest exactly like every other row.
+
+The **calendar's** plans are a *second* row in the same store (`calendar-plans`)
+and are deliberately not published as a catalog: a plan made on the grid must
+never appear in the Watchlist card, and *Add cards in watchlist* must never pick a
+calendar plan up. `npm test` asserts both.
 
 ```sh
 curl localhost:4173/customrows.json
@@ -553,17 +569,20 @@ The UI is Nuvio-shaped:
   **Plan to Watch**, **Watching**, **Watched**, and then the custom row **Add cards
   in watchlist**. Pin a title from its modal (open any title and pick a state;
   picking the current state unpins it) and it lands in the matching row, tagged
-  with its state. The three state rows scan *everything* in that state. Same rows
-  the addon publishes, so Nuvio sees them too.
+  with its state. The three state rows scan *everything* in that state — including
+  titles a *calendar* plan does not touch, because a calendar plan is not a watch
+  state and never enters this card. Same rows the addon publishes, so Nuvio sees
+  them too.
 - **Collection** — its cover, then its catalogs as rows. Each row names its catalog
   and carries an **Explore** button *on the label line* — there is no shuffle icon
   there, because reordering a card's catalogs is not what "shuffle" means.
   **Explore** scrolls endlessly, and its header carries only the card label and the
-  catalog label. Under that header sit **three sample rows** — each a random
-  12-title draw from the catalog — drawn exactly like a normal row: **no
-  `Shuffle 1/2/3` labels and no controls of their own**. A **horizontal divider**
-closes them off from the row below, and there is **one Shuffle button, at the top
-right of the header**, which redraws all three at once.
+  catalog label. Under that header sits **one sample row** — a random 12-title draw
+  from the catalog — drawn exactly like a normal row: **no label of its own and no
+  control of its own**. A **horizontal divider** closes it off from the catalog
+below, and there is **one Shuffle button, at the top right of the header**, which
+draws a fresh sample. Everything under the divider is the normal, endlessly
+scrolling catalog.
 - **Scrolling** — the wheel moves the row of cards under the cursor sideways, and
   it never falls through to the page: at either end of a row the row simply stops,
   so the screen cannot be dragged away while you are browsing titles. The page

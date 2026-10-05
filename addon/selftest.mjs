@@ -170,6 +170,30 @@ check(
 );
 check("manifest covers both media types", ["movie", "series"].every((t) => manifest.catalogs.some((c) => c.type === t)));
 
+// The card order is the owner's list, spelled out — so it can be read here and
+// cannot drift card by card.
+const CARD_ORDER_EXPECTED = [
+  "watchlist", "on-the-board", "discover-top-10", "discover", "popular-by-genre", "genres",
+  "popular-by-decade", "decades", "genre-from-decades", "continental", "countries", "runtimes",
+  "based-on-the", "moods-and-vibes", "themes-and-tags", "global-ott-top-10", "global-ott-popular",
+  "global-ott", "regional-ott-top-10", "regional-ott-popular", "regional-ott",
+];
+check(
+  "the cards are published in the owner's order, with Based on the after Runtimes",
+  COLLECTIONS.map((c) => c.key).join(",") === CARD_ORDER_EXPECTED.join(","),
+  COLLECTIONS.map((c) => c.key).join(","),
+);
+check(
+  "runtimes, Based on the, moods and themes come before the three Global OTT cards",
+  COLLECTIONS.findIndex((c) => c.key === "based-on-the") === COLLECTIONS.findIndex((c) => c.key === "runtimes") + 1 &&
+    COLLECTIONS.findIndex((c) => c.key === "global-ott-top-10") > COLLECTIONS.findIndex((c) => c.key === "themes-and-tags"),
+);
+check(
+  "and the three Regional OTT cards stay last",
+  COLLECTIONS.slice(-3).map((c) => c.key).join(",") === "regional-ott-top-10,regional-ott-popular,regional-ott",
+  COLLECTIONS.slice(-3).map((c) => c.key).join(","),
+);
+
 const inCard = (key) => manifest.catalogs.filter((c) => c.id.startsWith(`nuvio-${key}--`));
 const namesIn = (key, type = "movie") => inCard(key).filter((c) => c.type === type).map((c) => c.name);
 const allNames = manifest.catalogs.map((c) => `${c.type}:${c.name}`);
@@ -822,6 +846,15 @@ check(
   "the calendar's plan is not published as a catalog row",
   !manifest.catalogs.some((c) => c.id.includes("calendar-plans")),
   manifest.catalogs.filter((c) => c.id.includes("calendar")).map((c) => c.id).join(",") || "none published",
+);
+// The Watchlist card's own custom row must never pick a calendar plan up: the two
+// rows hold different things, and mixing them is the bug this separation exists to
+// prevent.
+const addCardsAfterCalendarPlan = await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json");
+check(
+  "a calendar plan never shows up in the 'Add cards in watchlist' row",
+  addCardsAfterCalendarPlan.res.body.metas.length === 0,
+  `${addCardsAfterCalendarPlan.res.body.metas.length} titles in the row`,
 );
 check(
   "and it can be taken back off again",

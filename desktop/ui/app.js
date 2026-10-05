@@ -981,7 +981,7 @@ function renderCard(key) {
 }
 
 /**
- * One of the three sample rows at the top of an Explore page.
+ * The sample row at the top of an Explore page.
  *
  * It is a plain row — no label, no control of its own — so it reads like the
  * catalog below it rather than like a numbered "Shuffle 1/2/3" list. The one
@@ -1044,7 +1044,7 @@ function renderExplore(key, id) {
     );
   };
 
-  // The three sample rows the header's Shuffle redraws.
+  // The single sample row the header's Shuffle redraws.
   const samples = [];
 
   const head = el(
@@ -1075,7 +1075,7 @@ function renderExplore(key, id) {
         class: "btn subtle focusable",
         type: "button",
         id: "shuffle-samples",
-        title: "Shuffle — draw three fresh samples",
+        title: "Shuffle — draw a fresh sample",
         onclick: () => samples.forEach((row) => row.reload()),
       }, shuffleIcon(), el("span", { text: " Shuffle" })),
     ),
@@ -1121,9 +1121,10 @@ function renderExplore(key, id) {
     }
   }, { rootMargin: "600px" });
 
-  // Three unlabelled sample rows on top, then a horizontal rule, then the normal
-  // endlessly scrolling catalog.
-  samples.push(shuffleRow(cat), shuffleRow(cat), shuffleRow(cat));
+  // ONE random sample on top, then a horizontal rule, then the normal endlessly
+  // scrolling catalog. It used to be three: three draws of the same catalog read
+  // as padding, and the user asked for the row-and-divider shape instead.
+  samples.push(shuffleRow(cat));
   const shuffles = el("div", { class: "explore-shuffles" }, ...samples.map((row) => row.node));
   const rule = el("div", { class: "h-divider", "aria-hidden": "true" });
 

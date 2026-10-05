@@ -251,6 +251,10 @@ const discoverRow = (suffix = "", take) => [
  * together, all the keyword cards together); this list is what you actually see.
  * The app never reorders or subsets the cards, so the order is the same on every
  * device, in both the Movies and the Shows row, and in Nuvio itself.
+ *
+ * `based-on-the` sits directly after `runtimes`: the card order is the owner's
+ * list, so "Based on the" belongs with the other shape-of-the-title cards (how
+ * long it is, what it was made from) rather than down with the keyword cards.
  */
 const CARD_ORDER = [
   "watchlist",
@@ -265,9 +269,9 @@ const CARD_ORDER = [
   "continental",
   "countries",
   "runtimes",
+  "based-on-the",
   "moods-and-vibes",
   "themes-and-tags",
-  "based-on-the",
   "global-ott-top-10",
   "global-ott-popular",
   "global-ott",

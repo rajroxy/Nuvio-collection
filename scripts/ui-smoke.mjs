@@ -375,12 +375,13 @@ check("Explore shows only those two labels in the header", $$(".explore-head .cr
 check("Explore has no cover image or extra blurb", !$(".explore .section-cover") && !/catalogs in this collection/.test(text($(".explore"))));
 check("Explore has a shuffle", $$(".explore-head .cat-tools .btn").some((b) => text(b).includes("Shuffle")));
 
-/* ------------------------- three shuffle rows above the exploring rows ---- */
-/* Three sample rows, drawn as ordinary rows: no "Shuffle 1" labels, no controls
-   of their own, one Shuffle in the header and a rule before the catalog. */
-check("Explore opens with three sample rows",
-  $$(".explore-shuffles .shuffle-row").length === 3, `${$$(".explore-shuffles .shuffle-row").length} rows`);
-check("the sample rows carry no 'Shuffle N' label",
+/* -------------------------- one sample row above the exploring rows ------ */
+/* ONE sample row, drawn as an ordinary row: no "Shuffle 1" label, no control of
+   its own, one Shuffle in the header and a rule before the catalog. */
+check("Explore opens with one sample row, then the divider, then the catalog",
+  $$(".explore-shuffles .shuffle-row").length === 1,
+  `${$$(".explore-shuffles .shuffle-row").length} rows`);
+check("the sample row carries no 'Shuffle N' label",
   !/Shuffle\s*\d/.test(text($(".explore-shuffles"))) && !$$(".explore-shuffles .cat-name").length,
   JSON.stringify(text($(".explore-shuffles")).slice(0, 80)));
 // The poster tiles are buttons (that is how a title is opened); what a sample row
@@ -392,7 +393,7 @@ check("there is exactly one shuffle button, at the top right of the header",
   $$(".explore-head .cat-tools button").length === 1 && Boolean($("#shuffle-samples svg")) &&
     $(".explore-head")?.contains($("#shuffle-samples")) === true,
   `${$$(".explore-head .cat-tools button").length} header controls`);
-check("a horizontal divider separates the three rows from the catalog",
+check("a horizontal divider separates the sample row from the catalog",
   $(".explore-shuffles")?.nextElementSibling === $(".explore .h-divider") &&
     $(".explore .h-divider")?.nextElementSibling === $(".explore .grid-titles"),
   `${$(".explore-shuffles")?.nextElementSibling?.className || "nothing"} then ${$(".explore .h-divider")?.nextElementSibling?.className || "nothing"}`);
@@ -468,11 +469,16 @@ check("and drains to the end rather than stopping after one page", drained, text
 // The one header Shuffle, on a catalog deep enough to draw a full sample from.
 const shufflesBefore = requested.filter((u) => u.includes("shuffle=")).length;
 $("#shuffle-samples").click();
-await waitFor(() => requested.filter((u) => u.includes("shuffle=")).length >= shufflesBefore + 3);
-check("the header shuffle asks for a fresh draw for every sample row",
-  requested.filter((u) => u.includes("shuffle=")).length >= shufflesBefore + 3,
+await waitFor(() => requested.filter((u) => u.includes("shuffle=")).length >= shufflesBefore + 1);
+check("the header shuffle asks for a fresh draw",
+  requested.filter((u) => u.includes("shuffle=")).length >= shufflesBefore + 1,
   `${requested.filter((u) => u.includes("shuffle=")).length - shufflesBefore} new shuffle requests`);
-check("and all three rows are refilled with a full sample",
+// The draw must not be servable from a browser cache: without the fresh `_=`
+// parameter the URL is byte-identical and the row never changes.
+check("and the draw cannot come out of the browser's cache",
+  requested.filter((u) => u.includes("shuffle=")).slice(-1)[0].includes("&_="),
+  requested.filter((u) => u.includes("shuffle=")).slice(-1)[0]);
+check("the row is refilled with a full sample",
   await waitFor(() => $$(".explore-shuffles .shuffle-row").every((r) => r.querySelectorAll(".poster").length === 12)),
   $$(".explore-shuffles .shuffle-row").map((r) => r.querySelectorAll(".poster").length).join("/"));
 check("the grid below is untouched by a row shuffle",
