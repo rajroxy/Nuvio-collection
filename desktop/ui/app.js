@@ -521,9 +521,20 @@ function posterCard(m, opts = {}) {
   );
 }
 
+/**
+ * One window of a catalog row.
+ *
+ * A watchlist (or calendar) row is your own state, so it is requested with a
+ * fresh `_=` every time and the server answers it `no-store`. Without both, the
+ * browser serves its cached copy of the row and a title you just unpinned is
+ * still on screen — which is exactly what "removing it from the watchlist does
+ * not remove it" was.
+ */
 async function fetchCatalog(catalog, skip = 0) {
   const suffix = skip ? `/skip=${skip}` : "";
-  return get(`/catalog/${apiType()}/${encodeURIComponent(catalog.id)}${suffix}.json${catalogQuery()}`);
+  const stateful = catalog.kind === "watchlist" || catalog.kind === "custom";
+  const bust = stateful ? `&_=${Date.now()}` : "";
+  return get(`/catalog/${apiType()}/${encodeURIComponent(catalog.id)}${suffix}.json${catalogQuery()}${bust}`);
 }
 
 /**
@@ -1041,9 +1052,15 @@ function renderExplore(key, id) {
   // The single sample row the header's Shuffle redraws.
   const samples = [];
 
+  // A watchlist (or calendar) catalog holds *your* titles, in your order and in
+  // full. There is nothing to draw a random sample from and nothing to shuffle, so
+  // Explore for those rows is just the header and the list — no Shuffle, no sample
+  // row, no divider.
+  const stateful = cat.kind === "watchlist" || cat.kind === "custom";
+
   const head = el(
     "header",
-    { class: "explore-head" },
+    { class: `explore-head${stateful ? " stateful" : ""}` },
     el("button", {
       class: "crumb focusable",
       type: "button",
@@ -1062,17 +1079,19 @@ function renderExplore(key, id) {
         catMenu.hidden = !catMenu.hidden;
       },
     }),
-    el(
-      "div",
-      { class: "cat-tools" },
-      el("button", {
-        class: "btn subtle focusable",
-        type: "button",
-        id: "shuffle-samples",
-        title: "Shuffle — draw a fresh sample",
-        onclick: () => samples.forEach((row) => row.reload()),
-      }, shuffleIcon(), el("span", { text: " Shuffle" })),
-    ),
+    stateful
+      ? null
+      : el(
+          "div",
+          { class: "cat-tools" },
+          el("button", {
+            class: "btn subtle focusable",
+            type: "button",
+            id: "shuffle-samples",
+            title: "Shuffle — draw a fresh sample",
+            onclick: () => samples.forEach((row) => row.reload()),
+          }, shuffleIcon(), el("span", { text: " Shuffle" })),
+        ),
   );
 
   // Endless scroll: keep paging until the catalog is exhausted.
@@ -1083,7 +1102,18 @@ function renderExplore(key, id) {
   const MAX_PAGES = 40;
 
   const loadMore = async () => {
-    if (busy || done || pages >= MAX_PAGES) return;
+    if (busy || done) return;
+    // Stop when the cap is reached instead of re-observing forever: a catalog that
+    // never runs out would otherwise keep the sentinel in view and ask the server
+    // for the next window for the rest of the session.
+    if (pages >= MAX_PAGES) {
+      done = true;
+      observer.disconnect();
+      sentinel.replaceChildren(
+        el("p", { class: "view-hint inline", text: `Showing the first ${MAX_PAGES} pages of this catalog.` }),
+      );
+      return;
+    }
     busy = true;
     try {
       const { metas } = await fetchCatalog(cat, skip);
@@ -1116,11 +1146,10 @@ function renderExplore(key, id) {
   }, { rootMargin: "600px" });
 
   // ONE random sample on top, then a horizontal rule, then the normal endlessly
-  // scrolling catalog. It used to be three: three draws of the same catalog read
-  // as padding, and the user asked for the row-and-divider shape instead.
-  samples.push(shuffleRow(cat));
-  const shuffles = el("div", { class: "explore-shuffles" }, ...samples.map((row) => row.node));
-  const rule = el("div", { class: "h-divider", "aria-hidden": "true" });
+  // scrolling catalog — for a catalog that can be sampled at all.
+  if (!stateful) samples.push(shuffleRow(cat));
+  const shuffles = stateful ? null : el("div", { class: "explore-shuffles" }, ...samples.map((row) => row.node));
+  const rule = stateful ? null : el("div", { class: "h-divider", "aria-hidden": "true" });
 
   const body = el("section", { class: "section explore" }, head, catMenu, shuffles, rule, grid, sentinel);
   // Kick off the first page once the section is in the document.
@@ -1988,25 +2017,45 @@ function paneProfile() {
     }),
 
     state.pickCards ? el("div", { class: "vis-editor" },
-      el("div", { class: "group-head" },
-        el("span", { class: "option-title", text: "Rows" }),
-        el("span", { class: "option-desc", text: "Movies and Shows, under the hero banner." }),
-      ),
-      visRow(v.rows.movie !== false, "row", "movie", "Movies", "The Movies row and its cards."),
-      visRow(v.rows.series !== false, "row", "series", "Shows", "The Shows row and its cards."),
-
-      el("div", { class: "group-head" },
-        el("span", { class: "option-title", text: "Cards" }),
-        el("span", { class: "option-desc", text: "Every card on Home, in the published order. Each card's catalog rows are indented under it." }),
-      ),
-      ...state.collections.flatMap((card) => [
-        visRow(v.cards[card.key] !== false, "card", card.key, card.title, `${rowOf(card).catalogs.length} catalog rows`),
-        ...rowOf(card).catalogs.map((cat) =>
-          visRow(v.catalogs[cat.id] !== false, "catalog", cat.id, cat.name, card.title, 1),
+      el("section", { class: "vis-section" },
+        el("div", { class: "group-head" },
+          el("span", { class: "option-title", text: "Media rows" }),
+          el("span", { class: "option-desc", text: "The Movies and Shows rows under the hero banner." }),
         ),
-      ]),
+        visRow(v.rows.movie !== false, "row", "movie", "Movies", "The Movies row and its cards."),
+        visRow(v.rows.series !== false, "row", "series", "Shows", "The Shows row and its cards."),
+      ),
+
+      el("section", { class: "vis-section" },
+        el("div", { class: "group-head" },
+          el("span", { class: "option-title", text: "Cards" }),
+          el("span", { class: "option-desc", text: `${state.collections.filter(cardVisible).length} of ${state.collections.length} cards show on Home, in the published order. Each card's catalog rows are listed inside it.` }),
+        ),
+        ...state.collections.map((card) => visCard(card, v)),
+      ),
     ) : null,
   ].filter(Boolean);
+}
+
+/**
+ * One card in the visibility editor: the card's own switch, then its catalog rows.
+ *
+ * Cards are separate blocks rather than one long list, so "which rows belong to
+ * this card?" is answered by the box they sit in — and the card's header reports
+ * how many of its rows are on, which is the number you actually want while picking.
+ */
+function visCard(card, v) {
+  const rows = rowOf(card).catalogs;
+  const shownRows = rows.filter((cat) => v.catalogs[cat.id] !== false).length;
+  const shown = v.cards[card.key] !== false;
+  return el("div", { class: `vis-card${shown ? "" : " off"}` },
+    visRow(shown, "card", card.key, card.title, rows.length ? `${shownRows} of ${rows.length} catalog rows on` : "No catalog rows yet"),
+    rows.length
+      ? el("div", { class: "vis-card-rows" },
+          ...rows.map((cat) => visRow(v.catalogs[cat.id] !== false, "catalog", cat.id, cat.name, "", 1)),
+        )
+      : null,
+  );
 }
 
 function panePosters() {

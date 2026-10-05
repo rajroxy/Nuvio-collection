@@ -128,12 +128,14 @@ window.fetch = (input, init) => {
   if (url.includes("/catalog/") && url.includes("nuvio-watchlist--")) {
     const type = url.includes("/catalog/movie/") ? "movie" : "series";
     const slug = url.slice(url.indexOf("nuvio-watchlist--") + "nuvio-watchlist--".length).split(".")[0].split("/")[0];
+    // Serve the same windowed pages the real server does, so a paging walk over
+    // these rows ends the way it does in the app instead of repeating for ever.
+    const skip = Number((url.match(/\/skip=(\d+)/) || [])[1] || 0);
     // The custom row lives in the same card, so it is answered here too.
-    if (slug === "add-cards-in-watchlist") {
-      return json200({ metas: CUSTOM.filter((i) => i.row === CUSTOM_ROW && i.type === type) });
-    }
-    const state = { "plan-to-watch": "planned", watching: "watching", watched: "watched" }[slug];
-    return json200({ metas: WATCH.items.filter((i) => i.type === type && i.state === state) });
+    const list = slug === "add-cards-in-watchlist"
+      ? CUSTOM.filter((i) => i.row === CUSTOM_ROW && i.type === type)
+      : WATCH.items.filter((i) => i.type === type && i.state === { "plan-to-watch": "planned", watching: "watching", watched: "watched" }[slug]);
+    return json200({ metas: list.slice(skip, skip + 10) });
   }
   if (url === `${BASE}/customrows.json`) return json200(customPayload());
   if (url === `${BASE}/customrows` && init?.method === "POST") {
@@ -576,6 +578,45 @@ check(
   JSON.stringify(watchRows().map((r) => [r.name, r.posters])),
 );
 
+// A watchlist row is your state, so it must be asked for uncached: a cached copy is
+// what made "unpinning does not remove it" a real bug.
+check(
+  "the watchlist rows are requested uncached",
+  requested.filter((u) => u.includes("nuvio-watchlist--")).some((u) => u.includes("&_=")),
+  requested.filter((u) => u.includes("nuvio-watchlist--")).slice(-1)[0] || "no watchlist request",
+);
+
+// Explore for a watchlist catalog: the header and the list, and nothing to shuffle.
+await window.fetch(`${BASE}/watchlist`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ item: { id: "tmdb:4242", type: "movie", name: "Planning Too", poster: "https://image.tmdb.org/t/p/w500/p.jpg" }, state: "planned" }),
+});
+await nav("#/x/watchlist/nuvio-watchlist--plan-to-watch", 700);
+await waitFor(() => $$(".explore .grid-titles .poster").length === 1, { tries: 30, ms: 250 });
+check(
+  "a watchlist catalog opens as a plain list of your titles",
+  $$(".explore .grid-titles .poster").length === 1 && text($(".explore .crumb.current")) === "Plan to Watch",
+  `${$$(".explore .grid-titles .poster").length} titles`,
+);
+check(
+  "and there is no shuffle, no sample row and no divider on it",
+  !$("#shuffle-samples") && !$(".explore .explore-shuffles") && !$(".explore .h-divider") &&
+    $$(".explore-head .cat-tools").length === 0,
+  `shuffle ${Boolean($("#shuffle-samples"))}, samples ${Boolean($(".explore .explore-shuffles"))}, divider ${Boolean($(".explore .h-divider"))}`,
+);
+check(
+  "a watchlist Explore asks for the list uncached too",
+  requested.filter((u) => u.includes("nuvio-watchlist--plan-to-watch")).some((u) => u.includes("&_=")),
+  requested.filter((u) => u.includes("nuvio-watchlist--plan-to-watch")).slice(-1)[0] || "none",
+);
+// Put the stand-in store back the way the later checks expect it.
+await window.fetch(`${BASE}/watchlist`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ remove: true, item: { id: "tmdb:4242", type: "movie" } }),
+});
+
 // There is no "add cards" row anywhere: not on the card, and not in the modal.
 check(
   "no 'Add cards in watchlist' row exists on the card",
@@ -816,6 +857,41 @@ check(
     /// indentation is inline padding, so it survives a stylesheet that jsdom never loads
     $$(".settings-pane .vis-option.vis-sub").every((n) => /padding-left/.test(n.getAttribute("style") || "")),
   `${$$(".settings-pane .vis-option.vis-sub").length} indented rows`,
+);
+
+// The editor is sectioned — a labelled block per kind of switch, and each card's
+// rows inside that card's own box — instead of one long undifferentiated list.
+check(
+  "the editor is split into named sections, media rows first",
+  $$(".settings-pane .vis-section").length === 2 &&
+    $$(".settings-pane .vis-section .group-head .option-title").map(text).join(",") === "Media rows,Cards",
+  $$(".settings-pane .vis-section .group-head .option-title").map(text).join(","),
+);
+const cardBlocks = $$(".settings-pane .vis-card");
+const cardHeaderSwitches = $$(".settings-pane .vis-card > .vis-option");
+const cardRowSwitches = $$(".settings-pane .vis-card > .vis-card-rows > .vis-option");
+check(
+  "every card is its own block, with the card's own switch at its head",
+  cardBlocks.length === published.length &&
+    cardHeaderSwitches.length === published.length &&
+    cardHeaderSwitches.every((n) => n.querySelector("input")?.getAttribute("data-vis-level") === "card"),
+  `${cardBlocks.length} blocks / ${cardHeaderSwitches.length} card switches for ${published.length} cards`,
+);
+check(
+  "each block holds only its own card's catalog rows",
+  $$(".settings-pane .vis-card-rows").length === cardBlocks.length &&
+    cardRowSwitches.length === visSwitches("catalog").length &&
+    cardRowSwitches.every((n) => n.querySelector("input")?.getAttribute("data-vis-level") === "catalog"),
+  `${$$(".settings-pane .vis-card-rows").length} row boxes / ${cardRowSwitches.length} rows of ${visSwitches("catalog").length}`,
+);
+// jsdom never loads style.css, so read the rules the way the other CSS checks do.
+const editorSectionHead = ruleFor(".vis-section > .group-head");
+const editorCards = ruleFor(".vis-card");
+const editorRows = ruleFor(".vis-card-rows");
+check(
+  "and the sections and the card blocks are actually drawn apart",
+  /margin/.test(editorSectionHead) && /border|background/.test(editorCards) && /border-left/.test(editorRows),
+  `${editorSectionHead.trim()} · ${editorCards.trim().slice(0, 60)} · ${editorRows.trim().slice(0, 60)}`,
 );
 
 // Hide the Watchlist card, then read Home back: the card is gone there, and its

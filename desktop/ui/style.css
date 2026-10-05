@@ -551,12 +551,35 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .settings-group:first-child { margin-top: 0; }
 
 /* The accent picker: one round swatch per colour, the chosen one ringed. */
-/* Settings → Profile: the per-profile visibility editor. A card's catalog rows sit
-   indented under it, so the nesting is readable without a disclosure widget. */
+/* Settings → Profile: the per-profile visibility editor, in sections. Media rows
+   first, then one bordered block per card with that card's catalog rows inside it,
+   so "which rows belong here?" is answered by the box they sit in. */
 .vis-editor { margin-top: 6px; }
-.vis-editor .group-head { margin-top: 18px; }
-.vis-option.vis-sub { opacity: 0.92; }
-.vis-option.vis-sub .option-title { font-weight: 600; }
+.vis-section + .vis-section { margin-top: 26px; }
+.vis-section > .group-head { margin-bottom: 10px; }
+
+.vis-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 6px 12px 10px;
+  margin-bottom: 10px;
+}
+.vis-card.off { opacity: 0.66; }
+.vis-card .vis-option { padding-top: 8px; padding-bottom: 8px; }
+.vis-card-rows {
+  margin: 2px 0 4px 10px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.10);
+}
+.vis-card-rows .vis-option {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.vis-card-rows .vis-option:first-child { border-top: 0; }
+.vis-option.vis-sub .option-title { font-weight: 600; font-size: 14px; }
+.vis-option.vis-sub .option-desc { display: none; }
 
 .accent-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0 4px; }
 .accent-swatch {

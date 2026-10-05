@@ -118,6 +118,7 @@ cannot drift:
 | `/settings` | GET/POST the app's settings (profile, providers, tracking, AI, **content source**, **language**, **country**), plus the language and country lists the Content pane is built from |
 | `/watchlist.json` | GET the pinned titles + per-state counts |
 | `/watchlist` | POST `{item, state}` to pin/move, or `{item, remove:true}` to unpin |
+| `/catalog/{type}/nuvio-watchlist--*.json` | your pins — requested with a cache-buster and answered `cache-control: no-store` |
 | `/ai.json` | which free AI providers exist, which is chosen, whether a key is set |
 | `/ai/ask` | POST `{prompt}` — turns a sentence into a search query via that provider |
 | `/ai/verify` | POST `{provider}` — checks that provider's stored key live |
@@ -318,6 +319,18 @@ browser answered out of its cache, and the response carried `max-age=900`. A
 shuffle is now requested with a fresh `_=<n>` parameter and answered
 `cache-control: no-store` — every JSON response declares its caching explicitly
 now, so "answers differently each time" can never be cached by accident.
+
+The same trap sat on the watchlist. Its rows were served with `max-age`, so
+unpinning a title and going back to the card showed the cached copy with the title
+still in it — "removing content does not remove it". The watchlist and custom rows
+are now requested with the same cache-buster and answered `cache-control: no-store`,
+while ordinary catalog rows keep their `max-age=900`. `npm test` asserts both halves
+next to each other so neither drifts.
+
+A watchlist row is *your* list: in **Explore** it is the header and the titles, with
+**no Shuffle, no sample row and no divider** — there is no random twelve to draw
+from a list of your own pins. (Explore also stops after 40 windows on a catalog
+that never runs out, instead of keeping the sentinel in view and re-asking for ever.)
 
 ### AI providers (free)
 
@@ -656,6 +669,10 @@ cards and catalogs for this profile*:
   for **every catalog row** inside each card (indented under it). A hidden card is
   gone from Home and its catalog rows are gone from the card; a hidden row is gone
   from the card and from its catalog chips.
+- The editor is **sectioned** rather than one long list: a *Media rows* block, then a
+  *Cards* block where each card is its own bordered box holding that card's catalog
+  rows, each box headed by its own switch and how many of its rows are on (`npm run
+  test:ui` pins the structure).
 - Picks are per profile and live in `localStorage` (`nuvio.visibility`). The same
   master switch is drawn in **Settings → AI** as *Pick the cards for you*, because
   that is where it used to live.

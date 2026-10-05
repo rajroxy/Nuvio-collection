@@ -785,6 +785,18 @@ check(
   plannedRow.res.body?.metas?.length === 1 && plannedRow.res.body.metas[0].name === "Fight Club",
   `${plannedRow.res.body?.metas?.length} titles`,
 );
+// A watchlist row is *your state*, so it must never be served from a cache: a
+// 15-minute copy is what made "unpin it and it is still there" a real bug.
+check(
+  "a watchlist row is served no-store, never from a cache",
+  plannedRow.res.headers["cache-control"] === "no-store",
+  plannedRow.res.headers["cache-control"] || "no cache-control header",
+);
+check(
+  "an ordinary catalog row is still cached, so rows are not re-fetched pointlessly",
+  /max-age=\d+/.test((await call("/catalog/movie/nuvio-genres--action.json")).res.headers["cache-control"] || ""),
+  (await call("/catalog/movie/nuvio-genres--action.json")).res.headers["cache-control"] || "none",
+);
 check("and it is served from the stored pin, not from TMDB discover", plannedRow.res.body.metas[0].id === "tmdb:550");
 check("a movie pin does not leak into the shows row", (await call("/catalog/series/nuvio-watchlist--plan-to-watch.json")).res.body.metas.length === 0);
 
@@ -817,6 +829,14 @@ check(
 check("an unknown state is refused", (await postTo("/watchlist", { item: fightClub, state: "whenever" })).statusCode === 400);
 const removed = await postTo("/watchlist", { item: sameId, remove: true });
 check("unpinning takes the title off the list", removed.body?.removed === true && removed.body.items.length === 0, `${removed.body?.items?.length} left`);
+// And the row the app draws is empty straight away — no cached copy can keep the
+// unpinned title on screen, which is what "removing it does not remove it" was.
+const emptiedRow = await call("/catalog/series/nuvio-watchlist--watched.json");
+check(
+  "the row the app reads is empty immediately after unpinning, and uncached",
+  emptiedRow.res.body.metas.length === 0 && emptiedRow.res.headers["cache-control"] === "no-store",
+  `${emptiedRow.res.body.metas.length} titles · cache-control: ${emptiedRow.res.headers["cache-control"] || "none"}`,
+);
 check("the watchlist survives a re-read (it is stored, not in memory)", Array.isArray((await call("/watchlist.json")).res.body?.items));
 const statusRow = await call("/addon-status.json");
 check("addon status reports the watchlist and the AI provider", Boolean(statusRow.res.body?.watchlist) && statusRow.res.body.aiProvider === "groq");

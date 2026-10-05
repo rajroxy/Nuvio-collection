@@ -1006,7 +1006,13 @@ export async function handleAddon(req, res, pathname, origin) {
     await enrichRatings(metas);
     // A shuffle is never cached: the whole point is that the same URL answers
     // with a different draw, so a copy in the browser would freeze the row.
-    json(res, 200, { metas }, parsed.shuffle ? 0 : 900);
+    //
+    // The watchlist and the calendar's rows are not cached either, and that is a
+    // bug fix rather than a nicety: they are *your state*, and a 15-minute copy is
+    // what made "unpinning a title does not remove it" — the browser kept serving
+    // the row as it was before the unpin.
+    const stateful = parsed.def.entry?.kind === "watchlist" || parsed.def.entry?.kind === "custom";
+    json(res, 200, { metas }, parsed.shuffle || stateful ? 0 : 900);
   } catch (err) {
     console.error(`[addon] catalog ${parsed.type}/${parsed.def.id} failed:`, err.message);
     json(res, 200, { metas: [] });

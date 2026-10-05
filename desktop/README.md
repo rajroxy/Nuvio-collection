@@ -44,7 +44,7 @@ Routing mirrors Nuvio:
 | Switch profile | `#/profiles` | **where the app starts** — pick `Movies & Shows` or `Live TV & Sports` |
 | Home | `#/` | a **hero** panel, then **Movies / Shows** buttons, then the cards |
 | Collection | `#/c/<key>` | the collection's cover + **its catalogs as rows**, each with **Shuffle** and **Explore** |
-| Explore | `#/x/<key>/<catalogId>` | **one shuffled row** on top, then a divider, then the catalog **scrolling endlessly** |
+| Explore | `#/x/<key>/<catalogId>` | **one shuffled row** on top, then a divider, then the catalog **scrolling endlessly** — a **watchlist** catalog is just its header and your titles |
 | Sources | `#/s/<id>/<name>` | providers as a **graph**, grouped by add-on / plugin / repo |
 | Calendar | `#/calendar` | a real **month calendar** of releases (films *and* shows) |
 | Search | `#/search` | searches **titles**, collections and catalogs |
@@ -64,8 +64,12 @@ section that drifts from them.
 **Profile** also holds **what this profile shows**: *pick the rows, cards and
 catalogs for this profile*, off by default. On, it gives one switch for Movies and
 Shows, one per card, and one per catalog row inside each card (indented under it),
-remembered per profile in `localStorage` (`nuvio.visibility`). The same master
-switch is drawn in **Settings → AI** as *Pick the cards for you*.
+remembered per profile in `localStorage` (`nuvio.visibility`). The editor is split
+into a **Media rows** section and a **Cards** section, and inside *Cards* each card
+is its own bordered block with its catalog rows in it — so "which rows belong to
+this card?" is answered by the box they sit in, and the block's own switch reports
+how many of its rows are on. The same master switch is drawn in **Settings → AI** as
+*Pick the cards for you*.
 
 **Appearance** is the accent colour (the whole app is tinted from `--accent-rgb` /
 `--accent-deep`, so one pick re-tints buttons, chips, borders and highlights
@@ -103,7 +107,9 @@ watchlist* row is gone from the card, from the title modal and from the addon, s
 no *add cards* catalog is published at all. Open any title and pick a state in its
 modal to pin it there (picking the state it is already in unpins it), and the card
 updates. The pins live on the server (`/watchlist` → `addon/watchlist.json`) so
-Nuvio sees the same rows.
+Nuvio sees the same rows. Those rows are requested with a cache-busting `_=<n>` and
+answered `cache-control: no-store`, so a removed title is gone the moment you come
+back — an ordinary catalog row keeps its `max-age` and is not re-fetched pointlessly.
 
 **Catalog labels are clickable** — in the hero banner and on a collection page each
 catalog name is a chip that opens that catalog inside the card.
@@ -121,7 +127,9 @@ anywhere the cursor is not over a row, and strips draw no scrollbar. Under the
 header sits **one sample row**, drawing a random 12 titles from that catalog. It is
 drawn **exactly like a normal row**: no label of its own and no control of its own.
 A **horizontal divider** closes it off from the catalog below, and there is **one
-Shuffle button at the top right of the header** which draws a fresh sample.
+Shuffle button at the top right of the header** which draws a fresh sample. A
+**watchlist** catalog has none of the three: there is no random twelve to draw from
+your own pins, so its Explore page is the header and the titles.
 Everything below the divider is the normal, endlessly scrolling catalog.
 
 The depth comes from the server: it reads TMDB 20 titles at a time into a growing,
