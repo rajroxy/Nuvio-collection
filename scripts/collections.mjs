@@ -31,6 +31,8 @@
  *   keyword       id   (verified TMDB keyword id)
  *   provider      providerId, region   (an OTT service in that region)
  *   watchlist     state: planned | watching | watched   (served from the pins)
+ *   custom        row: <row id>                       (the titles you added
+ *                 yourself — served from the custom-row store, not from TMDB)
  *
  *   `take` caps how many titles a catalog keeps. It is only used where the name
  *   promises a fixed size (a ◆ Top 10 really is ten titles) — anywhere else it
@@ -111,8 +113,25 @@ export const countryName = (code) => {
   return hit ? hit[0] : "";
 };
 
-/** The verified local services for a country, for one row type. */
-export const localServices = (code, type) => localFor(countryName(code), type);
+/**
+ * Services that belong in **every** region's Regional OTT card.
+ *
+ * Crunchyroll sat only in the Global OTT card, so anime never appeared in the
+ * regional rows even though the service is local to nearly every region the app
+ * covers — which read as "the regional cards have no anime in them". It joins the
+ * region's own list, after the local ones: a country's own services still come
+ * first. Global OTT keeps it too.
+ */
+const WORLDWIDE = (VERIFIED.platforms || [])
+  .filter((p) => p.id && p.label === "Crunchyroll")
+  .map((p) => ({ id: p.id, name: p.label }));
+
+/** The verified local services for a country, plus the worldwide ones. */
+export const localServices = (code, type) => {
+  const local = localFor(countryName(code), type);
+  const seen = new Set(local.map((s) => s.id));
+  return [...local, ...WORLDWIDE.filter((s) => !seen.has(s.id))];
+};
 
 /** The regions that actually have a verified local OTT service. */
 export const OTT_REGIONS = COUNTRIES.filter(([name]) => localFor(name, "movie").length || localFor(name, "tv").length);
@@ -137,6 +156,9 @@ const episodes = (name, max) => ({ name, kind: "episodes", max });
 const keyword = (name, id, take) => ({ name, kind: "keyword", id, take });
 const provider = (name, providerId, region, take) => ({ name, kind: "provider", providerId, region, take });
 const watchlist = (name, state) => ({ name, kind: "watchlist", state });
+// A custom row you fill yourself. It is deliberately not a watch state: nothing
+// moves a title in or out of it except you adding it and taking it away.
+const custom = (name, row) => ({ name, kind: "custom", row });
 
 /**
  * Keyword entries for one card, straight from the verified table.
@@ -223,15 +245,49 @@ const discoverRow = (suffix = "", take) => [
 ];
 
 /**
+ * The order Home shows the cards in — explicit, and the single source of truth.
+ *
+ * The array below is grouped the way the cards were written (all the OTT cards
+ * together, all the keyword cards together); this list is what you actually see.
+ * The app never reorders or subsets the cards, so the order is the same on every
+ * device, in both the Movies and the Shows row, and in Nuvio itself.
+ */
+const CARD_ORDER = [
+  "watchlist",
+  "on-the-board",
+  "discover-top-10",
+  "discover",
+  "popular-by-genre",
+  "genres",
+  "popular-by-decade",
+  "decades",
+  "genre-from-decades",
+  "continental",
+  "countries",
+  "runtimes",
+  "moods-and-vibes",
+  "themes-and-tags",
+  "based-on-the",
+  "global-ott-top-10",
+  "global-ott-popular",
+  "global-ott",
+  "regional-ott-top-10",
+  "regional-ott-popular",
+  "regional-ott",
+];
+
+/**
  * The whole card set for one country. The regional OTT cards are the only part
  * that depends on it, so this is what the addon rebuilds when the country in
  * Settings changes — a card names the catalogs inside it, and those names are
  * another country's services the moment the setting moves.
  */
-const buildCollections = (code) => [
-  // Watchlist first, then a divider, then the rest of the cards. The three rows
-  // are the states a pinned title moves through, served from the stored pins
-  // rather than from TMDB.
+const buildCollections = (code) => {
+  // The array is written card-group by card-group; `CARD_ORDER` sets the order
+  // Home shows them in. The three Watchlist rows are the states a pinned title
+  // moves through, served from the stored pins rather than from TMDB; the row
+  // after them is the custom one you fill yourself.
+  return [
   {
     key: "watchlist",
     lines: ["Watchlist"],
@@ -240,13 +296,13 @@ const buildCollections = (code) => [
       watchlist("Plan to Watch", "planned"),
       watchlist("Watching", "watching"),
       watchlist("Watched", "watched"),
+      custom("Add cards in watchlist", "add-cards"),
     ]),
   },
   {
     key: "discover-top-10",
     lines: ["Discover", "◆ Top 10"],
     scene: "spotlight-top-10",
-    divider: true,
     catalogs: both(discoverRow(" ◆ Top 10", TOP10)),
   },
   {
@@ -394,14 +450,35 @@ const buildCollections = (code) => [
     scene: "themes-and-tags",
     catalogs: { movie: keywordEntries("themes-and-tags", "movie"), show: keywordEntries("themes-and-tags", "show") },
   },
+  ];
+};
 
-];
+/**
+ * In the published order, with the vertical divider after Watchlist.
+ *
+ * The divider is a property of the card it sits *before* (the grid draws one when
+ * it reaches a card that carries the flag), so it is attached to whatever follows
+ * the Watchlist rather than hard-coded on one card that could be reordered away
+ * from it. A card the order list does not mention keeps its place at the end
+ * instead of vanishing.
+ */
+const ordered = (cards) => {
+  const rank = (c) => {
+    const i = CARD_ORDER.indexOf(c.key);
+    return i === -1 ? CARD_ORDER.length : i;
+  };
+  const sorted = [...cards].sort((a, b) => rank(a) - rank(b));
+  return sorted.map((c, i) => ({ ...c, divider: i === 1 }));
+};
+
+const buildCollectionsOrdered = (code) => ordered(buildCollections(code));
 
 /** Default country's set — what the cover art is generated for. */
-export const COLLECTIONS = buildCollections(DEFAULT_COUNTRY);
+export const COLLECTIONS = buildCollectionsOrdered(DEFAULT_COUNTRY);
 
-/** The card set for one country ("US", "IN", …). */
-export const collectionsFor = (code) => buildCollections(String(code || DEFAULT_COUNTRY).toUpperCase());
+/** The card set for one country ("US", "IN", …), in the published order. */
+export const collectionsFor = (code) =>
+  buildCollectionsOrdered(String(code || DEFAULT_COUNTRY).toUpperCase());
 
 export const title = (cat) => cat.lines.join(" ");
 

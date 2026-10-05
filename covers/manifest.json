@@ -8,20 +8,20 @@
     "png": "covers/movies/watchlist.png"
   },
   {
-    "collection": "discover-top-10",
-    "title": "Discover ◆ Top 10",
-    "subtitle": "Latest ◆ Top 10 · New Release ◆ Top 10 · Trending ◆ Top 10 · Popular ◆ Top 10 · Top Rated ◆ Top 10",
-    "row": "movie",
-    "svg": "covers/movies/discover-top-10.svg",
-    "png": "covers/movies/discover-top-10.png"
-  },
-  {
     "collection": "on-the-board",
     "title": "On the Board",
     "subtitle": "Now Playing",
     "row": "movie",
     "svg": "covers/movies/on-the-board.svg",
     "png": "covers/movies/on-the-board.png"
+  },
+  {
+    "collection": "discover-top-10",
+    "title": "Discover ◆ Top 10",
+    "subtitle": "Latest ◆ Top 10 · New Release ◆ Top 10 · Trending ◆ Top 10 · Popular ◆ Top 10 · Top Rated ◆ Top 10",
+    "row": "movie",
+    "svg": "covers/movies/discover-top-10.svg",
+    "png": "covers/movies/discover-top-10.png"
   },
   {
     "collection": "discover",
@@ -72,9 +72,57 @@
     "png": "covers/movies/genre-from-decades.png"
   },
   {
+    "collection": "continental",
+    "title": "Continental",
+    "subtitle": "Asia · Europe · North America · South America · Africa · Oceania",
+    "row": "movie",
+    "svg": "covers/movies/continental.svg",
+    "png": "covers/movies/continental.png"
+  },
+  {
+    "collection": "countries",
+    "title": "Countries",
+    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Ghana · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia",
+    "row": "movie",
+    "svg": "covers/movies/countries.svg",
+    "png": "covers/movies/countries.png"
+  },
+  {
+    "collection": "runtimes",
+    "title": "Runtimes",
+    "subtitle": "30+ mins · 60+ mins · 90+ mins · 120+ mins",
+    "row": "movie",
+    "svg": "covers/movies/runtimes.svg",
+    "png": "covers/movies/runtimes.png"
+  },
+  {
+    "collection": "moods-and-vibes",
+    "title": "Moods & Vibes",
+    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic",
+    "row": "movie",
+    "svg": "covers/movies/moods-and-vibes.svg",
+    "png": "covers/movies/moods-and-vibes.png"
+  },
+  {
+    "collection": "themes-and-tags",
+    "title": "Themes & Tags",
+    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip",
+    "row": "movie",
+    "svg": "covers/movies/themes-and-tags.svg",
+    "png": "covers/movies/themes-and-tags.png"
+  },
+  {
+    "collection": "based-on-the",
+    "title": "Based on the",
+    "subtitle": "Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories · Musicals · TV Adaptations",
+    "row": "movie",
+    "svg": "covers/movies/based-on-the.svg",
+    "png": "covers/movies/based-on-the.png"
+  },
+  {
     "collection": "global-ott-top-10",
     "title": "Global OTT ◆ Top 10",
-    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10",
+    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10 · Crunchyroll ◆ Top 10 · HIDIVE ◆ Top 10 · iQIYI ◆ Top 10 · Viki ◆ Top 10 · MUBI ◆ Top 10 · Google Play ◆ Top 10 · Plex ◆ Top 10 · Tubi ◆ Top 10 · Shudder ◆ Top 10",
     "row": "movie",
     "svg": "covers/movies/global-ott-top-10.svg",
     "png": "covers/movies/global-ott-top-10.png"
@@ -82,7 +130,7 @@
   {
     "collection": "global-ott-popular",
     "title": "Popular Global OTT",
-    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+",
+    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+ · Popular Crunchyroll · Popular HIDIVE · Popular iQIYI · Popular Viki · Popular MUBI · Popular Google Play · Popular Plex · Popular Tubi · Popular Shudder",
     "row": "movie",
     "svg": "covers/movies/global-ott-popular.svg",
     "png": "covers/movies/global-ott-popular.png"
@@ -90,7 +138,7 @@
   {
     "collection": "global-ott",
     "title": "Global OTT",
-    "subtitle": "Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+",
+    "subtitle": "Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+ · Crunchyroll · HIDIVE · iQIYI · Viki · MUBI · Google Play · Plex · Tubi · Shudder",
     "row": "movie",
     "svg": "covers/movies/global-ott.svg",
     "png": "covers/movies/global-ott.png"
@@ -120,54 +168,6 @@
     "png": "covers/movies/regional-ott.png"
   },
   {
-    "collection": "continental",
-    "title": "Continental",
-    "subtitle": "Asia · Europe · North America · South America · Africa · Oceania",
-    "row": "movie",
-    "svg": "covers/movies/continental.svg",
-    "png": "covers/movies/continental.png"
-  },
-  {
-    "collection": "countries",
-    "title": "Countries",
-    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Ghana · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia",
-    "row": "movie",
-    "svg": "covers/movies/countries.svg",
-    "png": "covers/movies/countries.png"
-  },
-  {
-    "collection": "runtimes",
-    "title": "Runtimes",
-    "subtitle": "30+ mins · 60+ mins · 90+ mins · 120+ mins",
-    "row": "movie",
-    "svg": "covers/movies/runtimes.svg",
-    "png": "covers/movies/runtimes.png"
-  },
-  {
-    "collection": "based-on-the",
-    "title": "Based on the",
-    "subtitle": "Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories · Musicals · TV Adaptations",
-    "row": "movie",
-    "svg": "covers/movies/based-on-the.svg",
-    "png": "covers/movies/based-on-the.png"
-  },
-  {
-    "collection": "moods-and-vibes",
-    "title": "Moods & Vibes",
-    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic",
-    "row": "movie",
-    "svg": "covers/movies/moods-and-vibes.svg",
-    "png": "covers/movies/moods-and-vibes.png"
-  },
-  {
-    "collection": "themes-and-tags",
-    "title": "Themes & Tags",
-    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip",
-    "row": "movie",
-    "svg": "covers/movies/themes-and-tags.svg",
-    "png": "covers/movies/themes-and-tags.png"
-  },
-  {
     "collection": "watchlist",
     "title": "Watchlist",
     "subtitle": "Plan to Watch · Watching · Watched",
@@ -176,20 +176,20 @@
     "png": "covers/shows/watchlist.png"
   },
   {
-    "collection": "discover-top-10",
-    "title": "Discover ◆ Top 10",
-    "subtitle": "Latest ◆ Top 10 · New Release ◆ Top 10 · Trending ◆ Top 10 · Popular ◆ Top 10 · Top Rated ◆ Top 10",
-    "row": "show",
-    "svg": "covers/shows/discover-top-10.svg",
-    "png": "covers/shows/discover-top-10.png"
-  },
-  {
     "collection": "on-the-board",
     "title": "On the Board",
     "subtitle": "Airing Today · Airing This Week · On the Air",
     "row": "show",
     "svg": "covers/shows/on-the-board.svg",
     "png": "covers/shows/on-the-board.png"
+  },
+  {
+    "collection": "discover-top-10",
+    "title": "Discover ◆ Top 10",
+    "subtitle": "Latest ◆ Top 10 · New Release ◆ Top 10 · Trending ◆ Top 10 · Popular ◆ Top 10 · Top Rated ◆ Top 10",
+    "row": "show",
+    "svg": "covers/shows/discover-top-10.svg",
+    "png": "covers/shows/discover-top-10.png"
   },
   {
     "collection": "discover",
@@ -240,9 +240,57 @@
     "png": "covers/shows/genre-from-decades.png"
   },
   {
+    "collection": "continental",
+    "title": "Continental",
+    "subtitle": "Asia · Europe · North America · South America · Africa · Oceania",
+    "row": "show",
+    "svg": "covers/shows/continental.svg",
+    "png": "covers/shows/continental.png"
+  },
+  {
+    "collection": "countries",
+    "title": "Countries",
+    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia",
+    "row": "show",
+    "svg": "covers/shows/countries.svg",
+    "png": "covers/shows/countries.png"
+  },
+  {
+    "collection": "runtimes",
+    "title": "Runtimes",
+    "subtitle": "4 Episodes · 6 Episodes · 8 Episodes · 10 Episodes",
+    "row": "show",
+    "svg": "covers/shows/runtimes.svg",
+    "png": "covers/shows/runtimes.png"
+  },
+  {
+    "collection": "moods-and-vibes",
+    "title": "Moods & Vibes",
+    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic",
+    "row": "show",
+    "svg": "covers/shows/moods-and-vibes.svg",
+    "png": "covers/shows/moods-and-vibes.png"
+  },
+  {
+    "collection": "themes-and-tags",
+    "title": "Themes & Tags",
+    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip",
+    "row": "show",
+    "svg": "covers/shows/themes-and-tags.svg",
+    "png": "covers/shows/themes-and-tags.png"
+  },
+  {
+    "collection": "based-on-the",
+    "title": "Based on the",
+    "subtitle": "Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories · Musicals · TV Adaptations",
+    "row": "show",
+    "svg": "covers/shows/based-on-the.svg",
+    "png": "covers/shows/based-on-the.png"
+  },
+  {
     "collection": "global-ott-top-10",
     "title": "Global OTT ◆ Top 10",
-    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10",
+    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10 · Crunchyroll ◆ Top 10 · HIDIVE ◆ Top 10 · iQIYI ◆ Top 10 · Viki ◆ Top 10 · MUBI ◆ Top 10 · Google Play ◆ Top 10 · Plex ◆ Top 10 · Tubi ◆ Top 10 · Shudder ◆ Top 10",
     "row": "show",
     "svg": "covers/shows/global-ott-top-10.svg",
     "png": "covers/shows/global-ott-top-10.png"
@@ -250,7 +298,7 @@
   {
     "collection": "global-ott-popular",
     "title": "Popular Global OTT",
-    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+",
+    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+ · Popular Crunchyroll · Popular HIDIVE · Popular iQIYI · Popular Viki · Popular MUBI · Popular Google Play · Popular Plex · Popular Tubi · Popular Shudder",
     "row": "show",
     "svg": "covers/shows/global-ott-popular.svg",
     "png": "covers/shows/global-ott-popular.png"
@@ -258,7 +306,7 @@
   {
     "collection": "global-ott",
     "title": "Global OTT",
-    "subtitle": "Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+",
+    "subtitle": "Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+ · Crunchyroll · HIDIVE · iQIYI · Viki · MUBI · Google Play · Plex · Tubi · Shudder",
     "row": "show",
     "svg": "covers/shows/global-ott.svg",
     "png": "covers/shows/global-ott.png"
@@ -286,53 +334,5 @@
     "row": "show",
     "svg": "covers/shows/regional-ott.svg",
     "png": "covers/shows/regional-ott.png"
-  },
-  {
-    "collection": "continental",
-    "title": "Continental",
-    "subtitle": "Asia · Europe · North America · South America · Africa · Oceania",
-    "row": "show",
-    "svg": "covers/shows/continental.svg",
-    "png": "covers/shows/continental.png"
-  },
-  {
-    "collection": "countries",
-    "title": "Countries",
-    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia",
-    "row": "show",
-    "svg": "covers/shows/countries.svg",
-    "png": "covers/shows/countries.png"
-  },
-  {
-    "collection": "runtimes",
-    "title": "Runtimes",
-    "subtitle": "4 Episodes · 6 Episodes · 8 Episodes · 10 Episodes",
-    "row": "show",
-    "svg": "covers/shows/runtimes.svg",
-    "png": "covers/shows/runtimes.png"
-  },
-  {
-    "collection": "based-on-the",
-    "title": "Based on the",
-    "subtitle": "Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories · Musicals · TV Adaptations",
-    "row": "show",
-    "svg": "covers/shows/based-on-the.svg",
-    "png": "covers/shows/based-on-the.png"
-  },
-  {
-    "collection": "moods-and-vibes",
-    "title": "Moods & Vibes",
-    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic",
-    "row": "show",
-    "svg": "covers/shows/moods-and-vibes.svg",
-    "png": "covers/shows/moods-and-vibes.png"
-  },
-  {
-    "collection": "themes-and-tags",
-    "title": "Themes & Tags",
-    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip",
-    "row": "show",
-    "svg": "covers/shows/themes-and-tags.svg",
-    "png": "covers/shows/themes-and-tags.png"
   }
 ]

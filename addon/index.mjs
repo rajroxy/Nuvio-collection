@@ -19,8 +19,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { COUNTRIES, collectionsFor, localServices, title as collectionTitle } from "../scripts/collections.mjs";
-import { get, hasKey, toMeta, tmdbPath, setKey } from "./tmdb.mjs";
-import { askAI, verifyAI, aiState } from "./ai.mjs";
+import { get, hasKey, toMeta, tmdbPath, setKey, resolveGenre } from "./tmdb.mjs";
+import { askAI, verifyAI, aiModels, aiProviderName, aiState } from "./ai.mjs";
 import {
   STATES,
   STATE_LABEL,
@@ -31,6 +31,16 @@ import {
   unpin as watchlistUnpin,
   metasFor as watchlistMetas,
 } from "./watchlist.mjs";
+import {
+  DEFAULT_ROW,
+  items as customItems,
+  list as customList,
+  rows as customRows,
+  counts as customCounts,
+  add as customAdd,
+  remove as customRemove,
+  metasFor as customMetas,
+} from "./customrows.mjs";
 import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog } from "./catalogs.mjs";
 import { activeCountry, activeContentSource, activeLanguage, getSettings, updateSettings, publicSettings, tmdbKey, providerKeys } from "./settings.mjs";
 import { enrichRatings, verifyProvider } from "./providers.mjs";
@@ -78,6 +88,237 @@ function readBody(req, limit = 64 * 1024) {
 
 /* ----------------------------------------------------------------- manifest */
 
+/* ------------------------------------------------------------------ search */
+
+const SEARCH_TYPES = ["movie", "series"];
+
+/**
+ * The search screen's filter vocabulary.
+ *
+ * Categories are genres, named per row type, because TMDB's movie and TV genre
+ * sets are different: TV has no Romance, Horror or Thriller, and nothing called
+ * Fantasy (it is "Sci-Fi & Fantasy"). A category a row type does not have is not
+ * offered for that type, and choosing it while browsing excludes that row rather
+ * than quietly dropping the filter and showing everything.
+ */
+const SEARCH_CATEGORIES = [
+  //  label        movie genre        TV genre
+  ["Romance", "Romance", null],
+  ["Action", "Action", "Action & Adventure"],
+  ["Fantasy", "Fantasy", "Sci-Fi & Fantasy"],
+  ["Animation", "Animation", "Animation"],
+  ["Suspense", "Thriller", null],
+  ["Sci-Fi", "Science Fiction", "Sci-Fi & Fantasy"],
+  ["Horror", "Horror", null],
+  ["Comedy", "Comedy", "Comedy"],
+  ["Crime", "Crime", "Crime"],
+  ["Adventure", "Adventure", "Action & Adventure"],
+  ["Thriller", "Thriller", null],
+  ["Drama", "Drama", "Drama"],
+  ["Mystery", "Mystery", "Mystery"],
+  ["Family", "Family", "Family"],
+  ["History", "History", "War & Politics"],
+  ["War", "War", "War & Politics"],
+  ["Western", "Western", "Western"],
+  ["Documentary", "Documentary", "Documentary"],
+  ["Reality", null, "Reality"],
+  ["Kids", null, "Kids"],
+];
+
+/**
+ * The regions the panel browses by, as TMDB origin-country filters.
+ *
+ * "Europe" and "Other" are sets, because a continent is not a country. "Other"
+ * means the rest of the industries people watch here rather than "everything not
+ * listed" — TMDB can include countries but cannot exclude them, so a literal
+ * complement is not expressible.
+ */
+const SEARCH_REGIONS = [
+  ["all", "All regions", ""],
+  ["US", "America", "US"],
+  ["KR", "Korea", "KR"],
+  ["GB", "U.K", "GB"],
+  ["JP", "Japan", "JP"],
+  ["TH", "Thailand", "TH"],
+  ["CN", "China", "CN"],
+  ["IN", "India", "IN"],
+  ["AU", "Australia", "AU"],
+  ["EU", "Europe", "GB|DE|FR|IT|ES|NL|SE|NO|DK|PL|BE|IE|PT|FI|CZ|AT|CH|GR"],
+  ["other", "Other", "HK|TW|PH|ID|VN|SG|MY|TR|BR|MX|AR|CL|CO|ZA|NG|EG|IL|SA|AE|NZ|RU|UA|PK|BD|LK|NP|KE"],
+];
+
+const regionCodes = (id) => (SEARCH_REGIONS.find(([code]) => code === id) || [])[2] || "";
+
+/** The period choices: the last eleven years, then the decade buckets, then "Before". */
+function periodChoices() {
+  const thisYear = new Date().getUTCFullYear();
+  const years = Array.from({ length: 11 }, (_, i) => {
+    const y = String(thisYear - i);
+    return [y, y];
+  });
+  return [["all", "All Time Periods"], ...years, ["2015-2011", "2015-2011"], ["2010-2000", "2010-2000"], ["before", "Before"]];
+}
+
+const SEARCH_SORTS = [
+  ["popularity", "Popularity"],
+  ["recent", "Recent"],
+  ["rating", "High Rating"],
+];
+
+const SEARCH_FILTERS = {
+  types: [["", "All"], ["series", "TV Series"], ["movie", "Movie"]],
+  regions: SEARCH_REGIONS.map(([code, label]) => [code, label]),
+  categories: {
+    movie: SEARCH_CATEGORIES.filter(([, movie]) => movie).map(([label]) => label),
+    series: SEARCH_CATEGORIES.filter(([, , tv]) => tv).map(([label]) => label),
+  },
+  periods: periodChoices(),
+  sorts: SEARCH_SORTS,
+};
+
+/** The genre name behind a category label for one row type (null when it has none). */
+const categoryGenre = (label, type) => {
+  const row = SEARCH_CATEGORIES.find(([name]) => name === label);
+  if (!row) return null;
+  return (type === "movie" ? row[1] : row[2]) || null;
+};
+
+const parseFilters = (params) => {
+  const type = params.get("type");
+  return {
+    type: type === "movie" || type === "series" ? type : "",
+    region: params.get("region") || "all",
+    category: params.get("category") || "all",
+    period: params.get("period") || "all",
+    sort: SEARCH_SORTS.some(([id]) => id === params.get("sort")) ? params.get("sort") : "popularity",
+  };
+};
+
+const hasFilters = (f) =>
+  Boolean(f.type) ||
+  f.region !== "all" ||
+  f.category !== "all" ||
+  f.period !== "all" ||
+  f.sort !== "popularity";
+
+const filtersPayload = (f) => ({ ...f, active: hasFilters(f) });
+
+/** The release year TMDB reports for a search result. */
+const resultYear = (item, type) => {
+  const date = type === "movie" ? item.release_date : item.first_air_date;
+  const year = Number(String(date || "").slice(0, 4));
+  return Number.isFinite(year) && year > 1800 ? year : null;
+};
+
+/** Does a year fall in the chosen period ("2026", "2015-2011", "before")? */
+function inPeriod(year, period) {
+  if (!period || period === "all") return true;
+  if (period === "before") return year !== null && year <= 1999;
+  if (/^\d{4}-\d{4}$/.test(period)) {
+    const [a, b] = period.split("-").map(Number);
+    const from = Math.min(a, b);
+    const to = Math.max(a, b);
+    return year !== null && year >= from && year <= to;
+  }
+  return year === Number(period);
+}
+
+/** The discover parameters behind a period choice. */
+function periodParams(period, type) {
+  const field = type === "movie" ? "primary_release_date" : "first_air_date";
+  if (!period || period === "all") return {};
+  if (/^\d{4}$/.test(period)) {
+    // The dedicated year parameter is the only one that is exact for both types.
+    return type === "movie" ? { primary_release_year: period } : { first_air_date_year: period };
+  }
+  if (/^\d{4}-\d{4}$/.test(period)) {
+    const [a, b] = period.split("-").map(Number);
+    const from = Math.min(a, b);
+    const to = Math.max(a, b);
+    return { [`${field}.gte`]: `${from}-01-01`, [`${field}.lte`]: `${to}-12-31` };
+  }
+  return { [`${field}.lte`]: "1999-12-31" };
+}
+
+/** Sort choices, in TMDB's language. */
+function sortParams(sort, type) {
+  if (sort === "recent") return { sort_by: `${type === "movie" ? "primary_release_date" : "first_air_date"}.desc` };
+  if (sort === "rating") return { sort_by: "vote_average.desc" };
+  return { sort_by: "popularity.desc" };
+}
+
+/**
+ * A title query, narrowed by whatever of the filters TMDB's search can honour.
+ *
+ * Search results carry their genre ids and their date, so the category and the
+ * period can be applied to them; they carry **no origin country**, so the region
+ * filter can only apply while browsing (the app says so on screen).
+ */
+async function searchTitles(query, f, { adult = false } = {}) {
+  const types = f.type ? [f.type] : SEARCH_TYPES;
+  const lists = await Promise.all(
+    types.map(async (type) => {
+      const data = await get(`/search/${tmdbPath(type)}`, {
+        query,
+        ...(adult ? { include_adult: true } : {}),
+      }).catch(() => ({ results: [] }));
+      let items = data.results ?? [];
+      const genreName = categoryGenre(f.category, type);
+      if (f.category !== "all" && genreName) {
+        const id = await resolveGenre(type, genreName);
+        if (id) items = items.filter((it) => (it.genre_ids || []).includes(id));
+      }
+      if (f.period !== "all") items = items.filter((it) => inPeriod(resultYear(it, type), f.period));
+      return sortItems(items, type, f.sort).slice(0, 12).map((it) => toMeta(it, type)).filter(Boolean);
+    }),
+  );
+  return lists.flat();
+}
+
+/** Sort search results locally, since a search cannot be asked for an order. */
+function sortItems(items, type, sort) {
+  const year = (it) => resultYear(it, type) || 0;
+  if (sort === "recent") return [...items].sort((a, b) => year(b) - year(a));
+  if (sort === "rating") return [...items].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+  return [...items].sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+}
+
+/**
+ * Browsing with no text: TMDB discover, with every filter applied.
+ *
+ * This is the panel's real job — "Korean romance series, high rating" is a
+ * discover query, not a search.
+ */
+async function browseTitles(f, { adult = false } = {}) {
+  const types = f.type ? [f.type] : SEARCH_TYPES;
+  const lists = await Promise.all(
+    types.map(async (type) => {
+      const genreName = categoryGenre(f.category, type);
+      // The chosen category does not exist for this row type: an empty row is the
+      // honest answer, not every title in it.
+      if (f.category !== "all" && !genreName) return [];
+      const params = {
+        ...sortParams(f.sort, type),
+        ...periodParams(f.period, type),
+        // A rating sort needs a floor to mean anything: one 9.8 with two votes
+        // would otherwise lead the row.
+        "vote_count.gte": f.sort === "rating" ? 50 : 5,
+      };
+      const region = regionCodes(f.region);
+      if (region) params.with_origin_country = region;
+      if (genreName) {
+        const id = await resolveGenre(type, genreName);
+        if (!id) return [];
+        params.with_genres = id;
+      }
+      if (adult) params.include_adult = true;
+      const data = await get(`/discover/${tmdbPath(type)}`, params).catch(() => ({ results: [] }));
+      return (data.results ?? []).slice(0, 12).map((it) => toMeta(it, type)).filter(Boolean);
+    }),
+  );
+  return lists.flat();
+}
+
 export function buildManifest(base) {
   const root = base.replace(/\/$/, "");
   const s = getSettings();
@@ -122,10 +363,11 @@ function collectionsPayload(root) {
     const row = (type) => ({
       cover: `${root}/covers/${type === "movie" ? "movies" : "shows"}/${c.key}.png`,
       // `kind`/`state` let the app explain an empty row properly (a watchlist row
-      // says how to fill it, a TMDB row says the catalog came back empty).
+      // says how to fill it, a TMDB row says the catalog came back empty), and
+      // `row` names the custom row so the app can add a title to it.
       catalogs: defs
         .filter((d) => d.type === type)
-        .map((d) => ({ id: d.id, name: d.name, kind: d.entry?.kind || "", state: d.entry?.state || "" })),
+        .map((d) => ({ id: d.id, name: d.name, kind: d.entry?.kind || "", state: d.entry?.state || "", row: d.entry?.row || "" })),
     });
     // `divider` marks the card that is preceded by a vertical rule in the app.
     return { key: c.key, title: collectionTitle(c), divider: Boolean(c.divider), movie: row("movie"), series: row("series") };
@@ -273,6 +515,8 @@ export async function catalogShuffle(media, def, count, opts = {}) {
   let pool;
   if (specs.length === 1 && specs[0].watchlist) {
     pool = watchlistMetas(specs[0].watchlist, media, 0, 300);
+  } else if (specs.length === 1 && specs[0].custom) {
+    pool = customMetas(specs[0].custom, media, 0, 300);
   } else if (specs.length === 1 && specs[0].episodes) {
     pool = await episodeMetas(media, specs[0].episodes, language);
   } else {
@@ -342,6 +586,11 @@ export async function catalogMetas(media, def, skip, opts = {}) {
     return watchlistMetas(specs[0].watchlist, media, skip, PAGE_SIZE);
   }
 
+  // A custom row is served from the titles you put in it, the same way.
+  if (specs.length === 1 && specs[0].custom) {
+    return customMetas(specs[0].custom, media, skip, PAGE_SIZE);
+  }
+
   // A pool that only grows: page 2 continues where page 1 stopped, and repeat
   // requests are served from memory. `take` catalogues (the ◆ Top 10 rows) stop
   // at their length, because a Top 10 really does hold ten titles.
@@ -372,7 +621,9 @@ const json = (res, status, body, maxAge = 0) => {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
-    ...(maxAge ? { "cache-control": `max-age=${maxAge}` } : {}),
+    // Anything that answers differently each time says so explicitly — an absent
+    // header still lets a browser reuse a heuristic copy.
+    "cache-control": maxAge ? `max-age=${maxAge}` : "no-store",
   });
   res.end(payload);
 };
@@ -419,6 +670,14 @@ function watchlistPayload() {
     counts: watchlistCounts(),
     states: STATES.map((id) => ({ id, label: STATE_LABEL[id] || id })),
   };
+}
+
+/**
+ * The custom rows as the app reads them: every stored title (tagged with its
+ * row so one read is enough), plus how many titles each row holds.
+ */
+function customPayload() {
+  return { rows: customRows(), counts: customCounts(), items: customItems() };
 }
 
 /**
@@ -562,6 +821,7 @@ export async function handleAddon(req, res, pathname, origin) {
       regionalServices: localServices(activeCountry(), "movie").length + localServices(activeCountry(), "tv").length,
       watchlistFile: fs.existsSync(WATCHLIST_FILE),
       watchlist: watchlistCounts(),
+      customRows: customCounts(),
       aiProvider: aiState().provider,
       aiReady: aiState().ready,
     });
@@ -597,13 +857,40 @@ export async function handleAddon(req, res, pathname, origin) {
     return true;
   }
 
+  // Custom rows: the titles you added yourself, after the watchlist states.
+  if (pathname === "/customrows.json" || pathname === "/customrows") {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      res.end();
+      return true;
+    }
+    if (req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const row = body.row || DEFAULT_ROW;
+        const item = body.item || {};
+        if (body.remove) json(res, 200, { ...customRemove(row, item), ...customPayload() });
+        else json(res, 200, { ...customAdd(row, item), ...customPayload() });
+      } catch (err) {
+        json(res, 400, { ok: false, text: String(err?.message || err) });
+      }
+      return true;
+    }
+    json(res, 200, customPayload());
+    return true;
+  }
+
   // The AI provider state (never the keys) and its two live calls.
   if (pathname === "/ai.json") {
     json(res, 200, aiState());
     return true;
   }
 
-  if (pathname === "/ai/ask" || pathname === "/ai/verify") {
+  if (pathname === "/ai/ask" || pathname === "/ai/verify" || pathname === "/ai/models") {
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "access-control-allow-origin": "*",
@@ -615,9 +902,12 @@ export async function handleAddon(req, res, pathname, origin) {
     }
     try {
       const body = await readBody(req);
+      const provider = String(body.provider || "");
       const result = pathname === "/ai/ask"
         ? await askAI(String(body.prompt || ""))
-        : await verifyAI(String(body.provider || ""), body.key ? String(body.key) : undefined);
+        : pathname === "/ai/models"
+          ? await aiModels(provider || aiProviderName())
+          : await verifyAI(provider, body.key ? String(body.key) : undefined);
       json(res, 200, result);
     } catch (err) {
       json(res, 400, { ok: false, text: String(err?.message || err) });
@@ -632,29 +922,34 @@ export async function handleAddon(req, res, pathname, origin) {
     const params = new URL(req.url ?? "/", "http://localhost").searchParams;
     const query = (params.get("q") || "").trim();
     const adult = params.get("adult") === "1";
+    const filters = parseFilters(params);
+    // A screen with no text and no filter is an empty screen, not a query that
+    // happens to match nothing.
+    const browsing = !query && hasFilters(filters);
     setKey(tmdbKey());
-    if (!query || !hasKey()) {
-      json(res, 200, { query, metas: [] });
+    if ((!query && !browsing) || !hasKey()) {
+      json(res, 200, { query, metas: [], filters: filtersPayload(filters) });
       return true;
     }
     try {
-      const only = params.get("type");
-      const types = only === "movie" || only === "series" ? [only] : ["movie", "series"];
-      const lists = await Promise.all(
-        types.map(async (type) => {
-          const data = await get(`/search/${tmdbPath(type)}`, { query, ...(adult ? { include_adult: true } : {}) }).catch(() => ({ results: [] }));
-          return (data.results ?? []).slice(0, 12).map((item) => toMeta(item, type)).filter(Boolean);
-        }),
-      );
-      const metas = lists.flat();
+      const metas = query
+        ? await searchTitles(query, filters, { adult })
+        : await browseTitles(filters, { adult });
       await applyPosters(metas);
       await applyContentSource(metas);
       await enrichRatings(metas);
-      json(res, 200, { query, metas }, 300);
+      json(res, 200, { query, metas, filters: filtersPayload(filters) }, 300);
     } catch (err) {
-      console.error(`[addon] search ${query} failed:`, err.message);
-      json(res, 200, { query, metas: [] });
+      console.error(`[addon] search ${query || "(browse)"} failed:`, err.message);
+      json(res, 200, { query, metas: [], filters: filtersPayload(filters) });
     }
+    return true;
+  }
+
+  // The filter panel's own vocabulary — what the search screen draws its rows
+  // from, so the app never hard-codes a genre name TMDB does not know.
+  if (pathname === "/search/filters.json") {
+    json(res, 200, { filters: SEARCH_FILTERS }, 3600);
     return true;
   }
 
@@ -701,7 +996,9 @@ export async function handleAddon(req, res, pathname, origin) {
     await applyPosters(metas);
     await applyContentSource(metas);
     await enrichRatings(metas);
-    json(res, 200, { metas }, 900);
+    // A shuffle is never cached: the whole point is that the same URL answers
+    // with a different draw, so a copy in the browser would freeze the row.
+    json(res, 200, { metas }, parsed.shuffle ? 0 : 900);
   } catch (err) {
     console.error(`[addon] catalog ${parsed.type}/${parsed.def.id} failed:`, err.message);
     json(res, 200, { metas: [] });

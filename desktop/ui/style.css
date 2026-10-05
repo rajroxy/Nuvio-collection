@@ -6,9 +6,42 @@
   --text: #e8eaf2;
   --muted: rgba(231, 235, 243, 0.55);
   --faint: rgba(231, 235, 243, 0.28);
+  /* The accent is one colour with three parts: the flat colour, the RGB triple
+     every translucent tint is built from, and the deeper shade the gradients fall
+     to. Settings → Appearance rewrites all three, so the whole app re-tints. */
   --accent: #c8a96a;
+  --accent-rgb: 200, 169, 106;
+  --accent-deep: var(--accent-deep);
   --poster-w: 172px;
   --radius: 14px;
+}
+
+/* ------------------------------------------------------------------- motion */
+
+/* Settings → Appearance. `motion-off` stops everything; `motion-full` animates
+   even on a device that asks for reduced motion; the default follows the system. */
+.motion-off *,
+.motion-off *::before,
+.motion-off *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not(.motion-full) *,
+  html:not(.motion-full) *::before,
+  html:not(.motion-full) *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* A new screen arrives rather than appearing — cheap, and it makes navigation
+   legible (the eye sees that the page changed). */
+#main.view-in > * { animation: view-in 0.34s cubic-bezier(0.22, 0.7, 0.3, 1) both; }
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
 }
 
 * { box-sizing: border-box; }
@@ -50,7 +83,7 @@ body {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: linear-gradient(160deg, var(--accent), #8a6f38);
+  background: linear-gradient(160deg, var(--accent), var(--accent-deep));
   color: #14110a;
   font-weight: 900;
   font-size: 13px;
@@ -64,7 +97,7 @@ body {
   gap: 14px;
   padding: 16px 18px;
   margin-bottom: 16px;
-  border: 1px solid rgba(200, 169, 106, 0.28);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
   border-radius: var(--radius);
   background: var(--panel-2);
 }
@@ -111,10 +144,10 @@ body {
 
 .profile-tile:hover, .profile-tile:focus-visible {
   transform: translateY(-3px);
-  border-color: rgba(200, 169, 106, 0.55);
+  border-color: rgba(var(--accent-rgb), 0.55);
 }
 
-.profile-tile.active { border-color: rgba(200, 169, 106, 0.75); background: var(--panel-2); }
+.profile-tile.active { border-color: rgba(var(--accent-rgb), 0.75); background: var(--panel-2); }
 
 .profile-tile .avatar { width: 84px; height: 84px; font-size: 32px; }
 .profile-tile-name { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
@@ -134,7 +167,7 @@ body {
   cursor: pointer;
 }
 
-.tab[aria-selected="true"] { background: rgba(200, 169, 106, 0.16); color: #fff; }
+.tab[aria-selected="true"] { background: rgba(var(--accent-rgb), 0.16); color: #fff; }
 
 /* Vertical rule after the calendar, separating the controls from the nav. */
 .top-divider {
@@ -180,7 +213,7 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.icon-btn:hover { border-color: rgba(200, 169, 106, 0.55); }
+.icon-btn:hover { border-color: rgba(var(--accent-rgb), 0.55); }
 .glyph { font-size: 14px; line-height: 1; }
 
 /* -------------------------------------------------------------------- main */
@@ -203,6 +236,18 @@ body {
   gap: 18px;
   overflow-x: auto;
   padding-bottom: 12px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.icons.rows::-webkit-scrollbar { height: 0; display: none; }
+
+/* Briefly marks the row a catalog chip jumped to. */
+.cat-row.row-flash > .cat-head .cat-name { color: var(--accent); }
+.cat-row.row-flash { animation: row-flash 1.2s ease-out; }
+@keyframes row-flash {
+  0% { background: rgba(var(--accent-rgb), 0.16); }
+  100% { background: transparent; }
 }
 
 .icons.rows .icon-box { flex: none; width: 300px; }
@@ -220,7 +265,7 @@ body {
   transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
-.icon-box:hover { transform: translateY(-3px); border-color: rgba(200, 169, 106, 0.45); }
+.icon-box:hover { transform: translateY(-3px); border-color: rgba(var(--accent-rgb), 0.45); }
 
 /* Only the artwork opens a collection — so the artwork is the button. */
 .icon-art {
@@ -246,9 +291,9 @@ body {
 .section-cover { width: 220px; border-radius: var(--radius); border: 1px solid rgba(255, 255, 255, 0.08); }
 .section-head h2 { margin: 0 0 8px; font-size: 30px; font-weight: 800; letter-spacing: -0.025em; }
 
-.chip { font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px; background: rgba(200, 169, 106, 0.13); color: #e8dfc8; border: 0; font-family: inherit; }
+.chip { font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.13); color: #e8dfc8; border: 0; font-family: inherit; }
 button.chip { cursor: pointer; }
-button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
+button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 
 .cat-row { margin-bottom: 28px; }
 
@@ -294,10 +339,10 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
   white-space: nowrap;
 }
 
-.btn:hover { border-color: rgba(200, 169, 106, 0.55); }
+.btn:hover { border-color: rgba(var(--accent-rgb), 0.55); }
 
 .btn.primary {
-  background: linear-gradient(160deg, var(--accent), #a3873f);
+  background: linear-gradient(160deg, var(--accent), var(--accent-deep));
   color: #14110a;
   border-color: transparent;
   padding: 11px 22px;
@@ -321,7 +366,7 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
   background:
-    radial-gradient(120% 140% at 88% 20%, rgba(200, 169, 106, 0.14), transparent 60%),
+    radial-gradient(120% 140% at 88% 20%, rgba(var(--accent-rgb), 0.14), transparent 60%),
     var(--panel);
   overflow: hidden;
 }
@@ -354,7 +399,68 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
 
 /* ---------------------------------------------------------------- search */
 
-.search-input { width: min(560px, 100%); margin: 10px 0 22px; }
+/* ------------------------------------------------------------------- search */
+
+/* The bar is long, and the filter control sits inside it on the left — the funnel
+   is part of the field, not a button floating next to it. */
+.search-wrap { position: relative; margin: 10px 0 18px; max-width: 1040px; }
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+.search-bar:focus-within { border-color: rgba(var(--accent-rgb), 0.55); }
+.search-input { flex: 1; width: auto; margin: 0; border: 0; background: transparent; padding: 10px 6px; font-size: 15px; }
+.search-input:focus { outline: none; }
+.search-filter-btn { flex: none; }
+.search-filter-btn.on { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.5); }
+
+/* Suggestions under the bar, as you type. */
+.search-suggest {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #101219;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  max-height: 340px;
+  overflow-y: auto;
+}
+.search-suggest[hidden] { display: none; }
+.suggest-item { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.suggest-item:hover, .suggest-item:focus-visible { background: rgba(var(--accent-rgb), 0.14); outline: none; }
+.suggest-kind { flex: none; width: 78px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.suggest-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The filter panel: one row of choices per line, the way the reference does it. */
+.search-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 22px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.search-filters[hidden] { display: none; }
+.filter-row { display: flex; align-items: flex-start; gap: 14px; }
+.filter-label { flex: none; width: 92px; padding-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
+.filter-options { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.filter-chip { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; padding: 3px 2px; cursor: pointer; }
+.filter-chip:hover { color: var(--text); }
+.filter-chip.active { color: var(--accent); font-weight: 700; }
+.filter-chip.active::after { content: ""; display: block; height: 1px; margin-top: 3px; background: var(--accent); }
 .result-head { margin: 22px 0 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 .result-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .result {
@@ -362,7 +468,7 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
   padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius); background: var(--panel); color: inherit; cursor: pointer;
 }
-.result:hover { border-color: rgba(200, 169, 106, 0.5); }
+.result:hover { border-color: rgba(var(--accent-rgb), 0.5); }
 .result-name { font-size: 14px; font-weight: 700; }
 .result-sub { font-size: 12px; color: var(--muted); }
 
@@ -385,7 +491,7 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
 .source-providers { padding: 14px 16px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
 .source-providers-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.chip { font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px; background: rgba(200, 169, 106, 0.13); color: #e8dfc8; }
+.chip { font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.13); color: #e8dfc8; }
 .empty-panel { padding: 26px; border: 1px dashed rgba(255, 255, 255, 0.16); border-radius: var(--radius); display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
 
 /* ------------------------------------------------------------- providers */
@@ -401,7 +507,7 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
 .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .switch .slider { width: 44px; height: 24px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); transition: background 0.15s ease; position: relative; cursor: pointer; }
 .switch .slider::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #e8eaf2; transition: transform 0.15s ease; }
-.switch input:checked + .slider { background: rgba(200, 169, 106, 0.6); }
+.switch input:checked + .slider { background: rgba(var(--accent-rgb), 0.6); }
 .switch input:checked + .slider::after { transform: translateX(20px); }
 
 .provider-check { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
@@ -410,6 +516,61 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
 .ai-ask { padding: 16px 18px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius); background: var(--panel); }
 .ai-ask-form { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .ai-ask-form .text-input { flex: 1; }
+
+/* The models a provider reported, as pickable chips. */
+.model-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.model-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  cursor: pointer;
+}
+.model-chip:hover { color: var(--text); border-color: rgba(var(--accent-rgb), 0.5); }
+.model-chip.suggested { border-color: rgba(var(--accent-rgb), 0.45); color: #e8dfc8; }
+
+/* A named group inside a settings pane, with its own rule under it. */
+.group-head { display: flex; flex-direction: column; gap: 2px; margin: 22px 0 12px; }
+.group-head .option-title { font-size: 15px; font-weight: 800; }
+.group-head .option-desc { margin: 0; }
+.tracking-divider { margin: 22px 0 6px; }
+
+/* Settings navigation: a group name above its tabs. */
+.settings-group {
+  display: block;
+  margin: 18px 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.settings-group:first-child { margin-top: 0; }
+
+/* The accent picker: one round swatch per colour, the chosen one ringed. */
+.accent-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0 4px; }
+.accent-swatch {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--swatch);
+  cursor: pointer;
+  position: relative;
+}
+.accent-swatch:hover { transform: translateY(-2px); }
+.accent-swatch.active { border-color: #fff; }
+.accent-swatch.active::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+}
 
 /* ------------------------------------------------------------------ explore */
 
@@ -460,9 +621,11 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
 .source-status.bad { color: #e39a9a; }
 .source-actions { display: flex; gap: 8px; flex: none; }
 
-.strip { display: flex; gap: 14px; overflow-x: auto; padding: 6px 4px 14px; scrollbar-width: thin; }
-.strip::-webkit-scrollbar { height: 8px; }
-.strip::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 4px; }
+/* No scrollbar is drawn on a row: the row scrolls with the wheel (see
+   `horizontalWheel` in app.js) and with the D-pad, and a chunky bar under every
+   row was the busiest thing on Home. */
+.strip { display: flex; gap: 14px; overflow-x: auto; padding: 6px 4px 14px; scrollbar-width: none; -ms-overflow-style: none; }
+.strip::-webkit-scrollbar { height: 0; display: none; }
 
 .poster {
   flex: none;
@@ -504,7 +667,7 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
   font-size: 14px; font-weight: 600; padding: 10px 14px; border-radius: 10px; cursor: pointer;
 }
 .settings-tab:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
-.settings-tab.active { background: rgba(200, 169, 106, 0.16); color: #fff; }
+.settings-tab.active { background: rgba(var(--accent-rgb), 0.16); color: #fff; }
 .settings-pane { min-width: 0; }
 
 .setting h3 {
@@ -528,7 +691,7 @@ button.chip:hover { background: rgba(200, 169, 106, 0.26); color: #fff; }
   cursor: pointer;
 }
 
-.option:has(input:checked) { border-color: rgba(200, 169, 106, 0.6); background: rgba(200, 169, 106, 0.06); }
+.option:has(input:checked) { border-color: rgba(var(--accent-rgb), 0.6); background: rgba(var(--accent-rgb), 0.06); }
 .option input { margin-top: 3px; accent-color: var(--accent); width: 18px; height: 18px; }
 .option-body { display: block; flex: 1; }
 .option-title { display: block; font-size: 15px; font-weight: 700; }
@@ -589,10 +752,10 @@ button:focus-visible,
 .row-switch { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); margin: 26px 0 6px; }
 .row-btn { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 700; padding: 9px 22px; border-radius: 999px; cursor: pointer; }
 .row-btn:hover { color: var(--text); }
-.row-btn.active { background: linear-gradient(160deg, var(--accent), #a3873f); color: #14110a; }
+.row-btn.active { background: linear-gradient(160deg, var(--accent), var(--accent-deep)); color: #14110a; }
 
 /* The vertical divider between Watchlist and the rest of the cards. */
-.v-divider { align-self: stretch; width: 1px; min-height: 120px; margin: 0 6px; background: linear-gradient(180deg, rgba(200, 169, 106, 0.08), rgba(200, 169, 106, 0.9) 18%, rgba(200, 169, 106, 0.9) 82%, rgba(200, 169, 106, 0.08)); }
+.v-divider { align-self: stretch; width: 1px; min-height: 120px; margin: 0 6px; background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.08), rgba(var(--accent-rgb), 0.9) 18%, rgba(var(--accent-rgb), 0.9) 82%, rgba(var(--accent-rgb), 0.08)); }
 .icons.rows .v-divider { flex: none; }
 
 .view-hint.inline { display: inline; margin: 0 0 0 12px; }
@@ -612,7 +775,7 @@ button:focus-visible,
 .explore-head .cat-tools { margin-left: auto; }
 .cat-menu { position: absolute; z-index: 30; margin-top: 44px; max-height: 320px; overflow: auto; min-width: 260px; padding: 6px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius); background: var(--panel-2); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55); }
 .menu-item { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 9px; cursor: pointer; }
-.menu-item:hover, .menu-item.active { background: rgba(200, 169, 106, 0.14); }
+.menu-item:hover, .menu-item.active { background: rgba(var(--accent-rgb), 0.14); }
 .sentinel { min-height: 60px; padding: 20px 0; text-align: center; }
 
 /* The sample rows read like the catalog rows below them — no label of their own
@@ -622,7 +785,7 @@ button:focus-visible,
 .h-divider {
   height: 1px;
   margin: 4px 0 22px;
-  background: linear-gradient(90deg, rgba(200, 169, 106, 0.08), rgba(200, 169, 106, 0.65) 12%, rgba(200, 169, 106, 0.65) 88%, rgba(200, 169, 106, 0.08));
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.08), rgba(var(--accent-rgb), 0.65) 12%, rgba(var(--accent-rgb), 0.65) 88%, rgba(var(--accent-rgb), 0.08));
 }
 
 /* ----------------------------------------------------------------- calendar */
@@ -638,13 +801,24 @@ button:focus-visible,
   border-radius: 12px; background: var(--panel); color: inherit; font: inherit; cursor: pointer;
 }
 .cal-cell.blank { border: 0; background: transparent; cursor: default; }
-.cal-cell:hover { border-color: rgba(200, 169, 106, 0.5); }
-.cal-cell.today { border-color: rgba(200, 169, 106, 0.7); }
-.cal-cell.selected { background: rgba(200, 169, 106, 0.14); border-color: var(--accent); }
+.cal-cell:hover { border-color: rgba(var(--accent-rgb), 0.5); }
+.cal-cell.today { border-color: rgba(var(--accent-rgb), 0.7); }
+.cal-cell.selected { background: rgba(var(--accent-rgb), 0.14); border-color: var(--accent); }
 .cal-day { font-size: 14px; font-weight: 800; }
 .cal-count { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
 .cal-count.empty { color: transparent; }
-.cal-detail { margin-bottom: 60px; }
+.cal-detail { margin-bottom: 40px; }
+
+/* A release on the calendar is a poster *and* its own Plan to Watch pin — the
+   calendar pin is plan-only, and it is not the same thing as a watchlist row. */
+.grid-titles .cal-item { display: flex; flex-direction: column; gap: 8px; }
+.grid-titles .cal-item .poster { width: auto; }
+.btn.pin.cal-pin { font-size: 12px; padding: 7px 10px; align-self: stretch; justify-content: center; }
+
+/* Recently planned — the calendar's own pins, recent only. */
+.cal-recent { margin-bottom: 60px; }
+.cal-recent .section-title { margin-bottom: 6px; }
+.cal-recent .view-hint { margin-bottom: 16px; }
 
 /* ------------------------------------------------------------- watchlist */
 
@@ -654,11 +828,22 @@ button:focus-visible,
 .modal-pins { display: flex; flex-wrap: wrap; gap: 10px; margin-right: 4px; }
 .btn.pin { border-color: rgba(255, 255, 255, 0.16); }
 .btn.pin.active {
-  background: linear-gradient(160deg, var(--accent), #a3873f);
+  background: linear-gradient(160deg, var(--accent), var(--accent-deep));
   color: #14110a;
   border-color: transparent;
   font-weight: 800;
 }
+
+/* The custom row sits apart from the three states — a line, not another pin. */
+.pin-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 26px;
+  margin: 0 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.btn.pin.custom { border-style: dashed; border-color: rgba(var(--accent-rgb), 0.5); }
+.btn.pin.custom.active { border-style: solid; }
 
 /* The state tag drawn on a title inside a watchlist row. */
 .watch-tag {
@@ -670,7 +855,7 @@ button:focus-visible,
   text-transform: uppercase;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(200, 169, 106, 0.20);
+  background: rgba(var(--accent-rgb), 0.20);
   color: #e8dfc8;
 }
 .watch-tag.watched { background: rgba(143, 214, 148, 0.16); color: #8fd694; }
@@ -678,7 +863,7 @@ button:focus-visible,
 /* ---------------------------------------------------------------------- AI */
 
 .ai-provider-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ai-provider.active { border-color: rgba(200, 169, 106, 0.55); }
+.ai-provider.active { border-color: rgba(var(--accent-rgb), 0.55); }
 .badge.free { background: rgba(143, 214, 148, 0.14); color: #8fd694; }
 .badge.free + .badge { margin-left: 6px; }
 .ai-signup { font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; }

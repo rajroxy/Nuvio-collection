@@ -36,12 +36,21 @@ export const isState = (value) => STATES.includes(String(value || ""));
 
 const keyOf = (item) => `${item?.type === "movie" ? "movie" : "series"}:${String(item?.id || "")}`;
 
-/** Only the fields the app draws are kept — a pin is not a copy of TMDB. */
-function clean(item, state) {
+/**
+ * Only the fields the app draws are kept — a pin is not a copy of TMDB.
+ *
+ * Exported because a custom row stores the same shape: a stored title is the
+ * same object whether it sits in a watch state or in a row you built yourself.
+ * `source` records where the pin came from (`"calendar"` for a plan made on the
+ * Calendar screen), which is what lets the calendar show its own recent pins
+ * without touching the watchlist rows.
+ */
+export function cleanItem(item, state) {
   const id = String(item?.id || "");
   if (!id) return null;
-  const out = { id, type: item.type === "movie" ? "movie" : "series", name: String(item.name || "Untitled"), state };
-  for (const field of ["poster", "background", "releaseInfo", "imdbRating", "description"]) {
+  const out = { id, type: item.type === "movie" ? "movie" : "series", name: String(item.name || "Untitled") };
+  if (state) out.state = state;
+  for (const field of ["poster", "background", "releaseInfo", "imdbRating", "description", "source"]) {
     if (item[field]) out[field] = String(item[field]);
   }
   if (item.hasBetterPoster) out.hasBetterPoster = true;
@@ -49,6 +58,9 @@ function clean(item, state) {
   out.updatedAt = new Date().toISOString();
   return out;
 }
+
+/** Only the fields the app draws are kept — a pin is not a copy of TMDB. */
+const clean = (item, state) => cleanItem(item, state);
 
 let cache = null;
 

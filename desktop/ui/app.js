@@ -37,6 +37,8 @@ const KEY = {
   country: "nuvio.country",
   contentSource: "nuvio.contentSource",
   section: "nuvio.settingsSection",
+  accent: "nuvio.accent",
+  motion: "nuvio.motion",
 };
 
 const PINNED = /◆ Top 10|Airing Today|Airing This Week|On the Air|Now Playing|^Latest|^New Release|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
@@ -56,17 +58,76 @@ const LAYOUTS = [
   ["rows", "Single row", "Collections in one horizontal row you scroll."],
 ];
 
+/**
+ * The accent the whole app is painted in.
+ *
+ * `rgb` is what every translucent gold tint is built from (`rgba(var(--accent-rgb), …)`),
+ * so changing one pick re-tints buttons, chips, borders and highlights together
+ * instead of leaving half the UI gold. Gold stays the default — it is the app's
+ * own colour — but it is no longer the only one.
+ */
+const ACCENTS = [
+  ["gold", "Gold", "200, 169, 106", "#c8a96a", "#a3873f"],
+  ["amber", "Amber", "224, 160, 84", "#e0a054", "#b3762c"],
+  ["violet", "Violet", "157, 137, 232", "#9d89e8", "#6f5bbf"],
+  ["blue", "Blue", "112, 166, 232", "#70a6e8", "#3f74bd"],
+  ["teal", "Teal", "90, 200, 186", "#5ac8ba", "#2f978a"],
+  ["green", "Green", "123, 200, 132", "#7bc884", "#4e9a58"],
+  ["rose", "Rose", "228, 120, 152", "#e47898", "#b04d6b"],
+  ["slate", "Slate", "160, 172, 190", "#a0acbe", "#6f7c8e"],
+];
+
+const accentOf = (id) => ACCENTS.find(([key]) => key === id) || ACCENTS[0];
+
+/**
+ * How much the app moves.
+ *
+ * "auto" follows the system's reduced-motion preference, "full" always animates,
+ * "off" never does. It is one switch, and it covers every transition the app has
+ * (view changes, hover lifts, row flashes) so the setting is not a half-truth.
+ */
+const MOTIONS = [
+  ["auto", "Follow system", "Animate, unless this device asks for reduced motion."],
+  ["full", "Always animate", "Smooth view transitions and hover motion, whatever the system prefers."],
+  ["off", "No animation", "Nothing moves — for slow devices and for people who do not want it."],
+];
+
 const PROVIDERS = [
   ["tmdb", "TMDB", "Powers every catalog row and title metadata — pasting a key and enabling it changes the live contents immediately, with the same catalog names."],
   ["tvdb", "TVDB", "Extra series metadata (episode art, air dates)."],
   ["mdblist", "MDBList", "Aggregated ratings — enabling it replaces each title's rating with MDBList's."],
 ];
 
-const TRACKERS = [
-  ["simkl", "SIMKL", "Watched history and lists."],
-  ["trakt", "Trakt", "Scrobbling and watched history."],
-  ["letterboxd", "Letterboxd", "Film diary and lists."],
+/**
+ * Tracking services, in two groups.
+ *
+ * Film & TV first (including the two anime databases, because they track the same
+ * shows), then a divider, then the drama trackers — a different catalogue of
+ * titles entirely, so it reads as its own group rather than one long list.
+ */
+const TRACKER_GROUPS = [
+  {
+    title: "Film & TV",
+    hint: "Watched history, scrobbling and lists.",
+    services: [
+      ["trakt", "Trakt", "Scrobbling and watched history for films and shows."],
+      ["simkl", "SIMKL", "Watched history across films, shows and anime."],
+      ["myanimelist", "MyAnimeList", "Anime lists and watched episodes — MAL."],
+      ["anilist", "AniList", "Anime and manga lists, with airing progress."],
+      ["letterboxd", "Letterboxd", "Film diary and lists."],
+    ],
+  },
+  {
+    title: "Asian drama",
+    hint: "Drama trackers, where the titles are its own catalogue.",
+    divider: true,
+    services: [
+      ["mydramalist", "MyDramaList", "Asian drama lists, ratings and watched episodes — MDL."],
+    ],
+  },
 ];
+
+const TRACKERS = TRACKER_GROUPS.flatMap((group) => group.services);
 
 // The AI providers whose free tier can back the Ask box. Each one is called by
 // the server with the key pasted here — the browser never talks to a provider
@@ -89,18 +150,53 @@ const PLUGIN_TYPES = [
 const SOURCE_TYPES = [...ADDON_TYPES, ...PLUGIN_TYPES];
 const typeLabel = (t) => SOURCE_TYPES.find(([v]) => v === t)?.[1] ?? t;
 
-const SETTINGS_SECTIONS = [
-  ["profile", "Profile"],
-  ["posters", "Posters"],
-  ["providers", "Providers"],
-  ["tracking", "Tracking"],
-  ["ai", "AI"],
-  ["content", "Content"],
-  ["addons", "Add-ons"],
-  ["plugins", "Plugins"],
-  ["layout", "Layout"],
-  ["server", "Server"],
+/**
+ * Settings, as groups of tabs.
+ *
+ * It used to be one flat row of ten names in no particular order (Profile,
+ * Posters, Providers, Tracking, AI, Content, Add-ons, Plugins, Layout, Server),
+ * which hid the two things you actually come here to change: what the catalogs
+ * show, and who they are read from. Now the sections are grouped — what you see,
+ * who it comes from, how it is tracked, and the app itself — with the group name
+ * above its tabs.
+ */
+const SETTINGS_GROUPS = [
+  {
+    group: "What you see",
+    sections: [
+      ["content", "Content"],
+      ["layout", "Layout"],
+      ["posters", "Posters"],
+      ["appearance", "Appearance"],
+    ],
+  },
+  {
+    group: "Where it comes from",
+    sections: [
+      ["providers", "Providers"],
+      ["addons", "Add-ons"],
+      ["plugins", "Plugins"],
+    ],
+  },
+  {
+    group: "Tracking & assistant",
+    sections: [
+      ["tracking", "Tracking"],
+      ["ai", "AI"],
+    ],
+  },
+  {
+    group: "This app",
+    sections: [
+      ["profile", "Profile"],
+      ["server", "Server"],
+    ],
+  },
 ];
+
+// The flat list, in the order the groups define — this is what "which tab is
+// active" and "what does an unknown section fall back to" are answered from.
+const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((g) => g.sections);
 
 const readJSON = (key, fallback) => {
   try {
@@ -120,7 +216,14 @@ const state = {
   profile: localStorage.getItem(KEY.profile) || PROFILES[0],
   profiles: PROFILES,
   providers: readJSON(KEY.providers, { tmdb: { enabled: true }, tvdb: { enabled: false }, mdblist: { enabled: false } }),
-  tracking: readJSON(KEY.tracking, { simkl: { enabled: false }, trakt: { enabled: false }, letterboxd: { enabled: false } }),
+  tracking: readJSON(KEY.tracking, {
+    trakt: { enabled: false },
+    simkl: { enabled: false },
+    myanimelist: { enabled: false },
+    anilist: { enabled: false },
+    letterboxd: { enabled: false },
+    mydramalist: { enabled: false },
+  }),
   posters: readJSON(KEY.posters, { enabled: true, pattern: "" }),
   ai: readJSON(KEY.ai, {
     enabled: true,
@@ -129,11 +232,15 @@ const state = {
     hasKey: {},
     enhanceArtwork: true,
     enhanceMissing: true,
-    autoPickCards: false,
   }),
   // id → watch state, mirrored from the server so the modal can show the state
   // a title is already pinned in.
   watchlist: {},
+  // Every pin, with its state and where it was made — the calendar needs to
+  // tell its own plan-to-watch pins apart from the watchlist rows.
+  watchItems: [],
+  // The custom rows you fill yourself: which row each stored title is in.
+  customItems: [],
   sources: readJSON(KEY.sources, []),
   // App language and the country whose services the regional OTT cards show.
   language: localStorage.getItem(KEY.language) || "en-US",
@@ -142,12 +249,15 @@ const state = {
   // "tvdb". Row membership is always TMDB's — this picks whose titles, artwork
   // and translations every catalog shows.
   contentSource: localStorage.getItem(KEY.contentSource) || "tmdb",
-  // The choices the server offers (languages, countries).
+  // The choices the server offers (languages, countries), and the search screen's
+  // filter vocabulary (regions, categories per row type, periods, sorts).
   options: { languages: [], countries: [] },
+  searchVocab: null,
   settingsSection: localStorage.getItem(KEY.section) || "profile",
+  accent: localStorage.getItem(KEY.accent) || "gold",
+  motion: localStorage.getItem(KEY.motion) || "auto",
   collections: [],
   order: {},
-  picks: null,
   calendar: { month: new Date().toISOString().slice(0, 7), day: null },
 };
 
@@ -169,8 +279,46 @@ const pinOf = (m) => ({
 
 function applyWatchlist(payload) {
   const map = {};
-  for (const item of payload?.items || []) map[`${item.type}:${item.id}`] = item.state;
+  const items = payload?.items || [];
+  for (const item of items) map[`${item.type}:${item.id}`] = item.state;
   state.watchlist = map;
+  state.watchItems = items;
+}
+
+function applyCustomRows(payload) {
+  state.customItems = payload?.items || [];
+}
+
+/**
+ * The custom row the Watchlist card publishes after its three states.
+ *
+ * It is read from the cards rather than hard-coded, so the row's name and id
+ * come from the one place that defines them (`scripts/collections.mjs`) — the
+ * same definition the addon publishes to Nuvio.
+ */
+function customRow() {
+  for (const card of state.collections) {
+    for (const row of [card.movie, card.series]) {
+      const hit = (row?.catalogs || []).find((c) => c.kind === "custom" && c.row);
+      if (hit) return { row: hit.row, name: hit.name, card: card.key };
+    }
+  }
+  return null;
+}
+
+const inCustomRow = (row, item) =>
+  state.customItems.some((i) => i.row === row && `${i.type}:${i.id}` === watchKey(item));
+
+/** Add a title to a custom row, or take it out when it is already there. */
+async function toggleCustomRow(row, item) {
+  try {
+    const res = await post("/customrows", { row, item: pinOf(item) });
+    if (res && Array.isArray(res.items)) applyCustomRows(res);
+  } catch {
+    /* offline — the row simply does not change */
+  }
+  modal.open(item);
+  render();
 }
 
 const rowKey = () => state.row;
@@ -267,8 +415,11 @@ function tmdbUpscale(url) {
  * Move a title between watch states (or off the list when `next` is null) and
  * redraw — both the modal's buttons and the watchlist rows behind it.
  */
-async function setWatchState(item, next) {
-  const body = next === null ? { item: pinOf(item), remove: true } : { item: pinOf(item), state: next };
+async function setWatchState(item, next, opts = {}) {
+  // `source` travels with the pin so the Calendar can tell a plan made on the
+  // Calendar apart from a watchlist row — it never changes what the rows hold.
+  const pin = opts.source ? { ...pinOf(item), source: opts.source } : pinOf(item);
+  const body = next === null ? { item: pin, remove: true } : { item: pin, state: next };
   try {
     const res = await post("/watchlist", body);
     if (res && Array.isArray(res.items)) applyWatchlist(res);
@@ -343,6 +494,10 @@ const modal = {
     // Pin the title to a watch state. Clicking the state it is already in
     // unpins it, so a mis-tap is one click to undo.
     const current = state.watchlist[watchKey(item)] || "";
+    // The custom row is not a state — it is the list you keep yourself — so it
+    // is drawn apart from the three, after a divider.
+    const rowInfo = customRow();
+    const inRow = rowInfo ? inCustomRow(rowInfo.row, item) : false;
     document.getElementById("modal-pins").replaceChildren(
       ...WATCH_STATES.map(([id, label]) =>
         el("button", {
@@ -355,6 +510,20 @@ const modal = {
           onclick: () => setWatchState(item, current === id ? null : id),
         }),
       ),
+      ...(rowInfo
+        ? [
+            el("span", { class: "pin-divider", "aria-hidden": "true" }),
+            el("button", {
+              class: `btn pin custom focusable${inRow ? " active" : ""}`,
+              type: "button",
+              id: "pin-custom-row",
+              "aria-pressed": String(inRow),
+              title: inRow ? `In ${rowInfo.name} — click to remove` : `Add to ${rowInfo.name}`,
+              text: inRow ? `In ${rowInfo.name} · remove` : `＋ ${rowInfo.name}`,
+              onclick: () => toggleCustomRow(rowInfo.row, item),
+            }),
+          ]
+        : []),
     );
   },
   close() {
@@ -402,6 +571,9 @@ async function fetchCatalog(catalog, skip = 0) {
 function emptyRowText(catalog) {
   if (catalog.kind === "watchlist") {
     return `${catalog.name} is empty — open a title and pin it as ${catalog.state || "planned"}.`;
+  }
+  if (catalog.kind === "custom") {
+    return `${catalog.name} is empty — open any title and add it to this row.`;
   }
   return "No titles returned for this catalog.";
 }
@@ -467,15 +639,48 @@ function lazyStrip(catalog) {
   return strip;
 }
 
-/** A clickable catalog-name chip that opens that catalog inside the card. */
+/**
+ * A clickable catalog-name chip.
+ *
+ * Clicking a chip takes you to the row itself: it opens the card and scrolls that
+ * catalog's row into view. It used to drop straight into Explore, which skipped
+ * the other rows of the collection you were looking at.
+ */
 function catalogChip(card, cat) {
   return el("button", {
     class: "chip focusable",
     type: "button",
-    title: `Open ${cat.name}`,
+    title: `Go to ${cat.name}`,
     text: cat.name,
-    onclick: () => go(`#/x/${encodeURIComponent(card.key)}/${encodeURIComponent(cat.id)}`),
+    onclick: () => openRow(card.key, cat.id),
   });
+}
+
+/**
+ * Open a card and bring one of its rows to the top of the screen.
+ *
+ * The page renders asynchronously (each row fetches its own titles), so the scroll
+ * is retried over a few frames until the row exists — and it is a no-op when we are
+ * already on that card.
+ */
+function openRow(key, catalogId) {
+  const here = parseHash();
+  if (here.view !== "card" || here.key !== key) go(`#/c/${encodeURIComponent(key)}`);
+  const find = () => document.querySelector(`.cat-row[data-catalog="${CSS.escape(catalogId)}"]`);
+  let tries = 0;
+  const jump = () => {
+    const node = find();
+    if (node) {
+      // Guarded: a bare DOM implementation (jsdom, an old WebView) has no
+      // scrollIntoView, and jumping is a nicety, not a requirement.
+      if (typeof node.scrollIntoView === "function") node.scrollIntoView({ block: "start", behavior: "smooth" });
+      node.classList.add("row-flash");
+      setTimeout(() => node.classList.remove("row-flash"), 1200);
+      return;
+    }
+    if (tries++ < 40) requestAnimationFrame(jump);
+  };
+  requestAnimationFrame(jump);
 }
 
 /* ---------------------------------------------------------------- routing */
@@ -652,23 +857,15 @@ function iconBox(c, row) {
   );
 }
 
+/**
+ * Every card, in the published order.
+ *
+ * Home used to be able to show a random subset ("Pick the cards for you"), which
+ * is what made the grid look like it had been rearranged: cards were missing and
+ * their order was not the one the covers were designed around. The order is now
+ * fixed in `scripts/collections.mjs` and Home shows all of it, always.
+ */
 function collectionList() {
-  if (state.ai?.enabled && state.ai?.autoPickCards) {
-    if (!state.picks) {
-      // "Pick the cards for you" chooses *which* cards appear — never their
-      // order. Shuffling the card order here is what made Home look scrambled:
-      // the picks are re-read in the published, canonical order instead.
-      const keys = state.collections.map((c) => c.key);
-      for (let i = keys.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [keys[i], keys[j]] = [keys[j], keys[i]];
-      }
-      const chosen = new Set(keys.slice(0, 8));
-      state.picks = state.collections.filter((c) => chosen.has(c.key)).map((c) => c.key);
-    }
-    const picked = state.picks.map((k) => cardByKey(k)).filter(Boolean);
-    if (picked.length) return picked;
-  }
   return state.collections;
 }
 
@@ -697,7 +894,6 @@ function rowSwitch() {
         onclick: () => {
           setRow(value);
           state.order = {};
-          state.picks = null;
           render();
         },
       }),
@@ -706,37 +902,31 @@ function rowSwitch() {
 }
 
 function renderHome() {
-  const nodes = [heroBlock(), rowSwitch()];
-  if (state.ai?.enabled && state.ai?.autoPickCards) {
-    nodes.push(
-      el("div", { class: "home-head" },
-        el("h2", { class: "section-title", text: "Picked for you" }),
-        el("button", {
-          class: "btn subtle focusable",
-          type: "button",
-          text: "↻ New picks",
-          onclick: () => {
-            state.picks = null;
-            render();
-          },
-        }),
-      ),
-    );
-  } else {
-    // Just the heading — no hint line under it.
-    nodes.push(el("div", { class: "home-head" },
+  // Just the heading — no hint line under it, and no "Picked for you".
+  return [
+    heroBlock(),
+    rowSwitch(),
+    el("div", { class: "home-head" },
       el("h2", { class: "section-title", text: state.row === "movie" ? "Movies" : "Shows" }),
-    ));
-  }
-  nodes.push(collectionGrid(state.row));
-  return nodes.filter(Boolean);
+    ),
+    collectionGrid(state.row),
+  ].filter(Boolean);
 }
 
 /** One catalog row on a collection page: label, shuffle, explore. */
+/**
+ * One catalog row on a collection page: the catalog's name and Explore.
+ *
+ * There is no shuffle icon beside Explore. A shuffle here could only reorder the
+ * rows of the collection — which is what it used to do, and what "shuffle" never
+ * meant: the obvious reading is "redraw *this* catalog's titles", and that is what
+ * Explore's own Shuffle does. So the rows stay in their published order and the
+ * only shuffle lives in Explore, over the titles.
+ */
 function catalogRow(card, cat) {
   return el(
     "div",
-    { class: "cat-row" },
+    { class: "cat-row", "data-catalog": cat.id },
     el(
       "header",
       { class: "cat-head" },
@@ -750,16 +940,6 @@ function catalogRow(card, cat) {
       el(
         "div",
         { class: "cat-tools" },
-        el("button", {
-          class: "icon-btn small focusable",
-          type: "button",
-          title: "Shuffle this collection's catalogs",
-          "aria-label": "Shuffle catalogs",
-          onclick: () => {
-            applyShuffle(card.key, rowOf(card).catalogs);
-            render();
-          },
-        }, shuffleIcon()),
         el("button", {
           class: "btn explore focusable",
           type: "button",
@@ -815,8 +995,11 @@ function shuffleRow(cat) {
   const load = async () => {
     strip.replaceChildren(...Array.from({ length: 5 }, () => el("div", { class: "placeholder" })));
     try {
+      // The `_` is a fresh number per draw, and the server answers a shuffle with
+      // no-store. Without it this URL is byte-identical every time, the browser
+      // serves its cached copy, and Shuffle looks like a button that does nothing.
       const { metas } = await get(
-        `/catalog/${apiType()}/${encodeURIComponent(cat.id)}/shuffle=12.json${catalogQuery()}`,
+        `/catalog/${apiType()}/${encodeURIComponent(cat.id)}/shuffle=12.json${catalogQuery()}&_=${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
       );
       strip.replaceChildren();
       if (!metas.length) {
@@ -991,31 +1174,158 @@ function searchResults(query) {
   return nodes;
 }
 
-function renderSearch(query) {
+// A drawn funnel, like the rest of the controls.
+const filterIcon = () =>
+  el(
+    "span",
+    { class: "glyph", "aria-hidden": "true" },
+    el(
+      "svg",
+      { viewBox: "0 0 24 24" },
+      el("path", { d: "M3 5h18" }),
+      el("path", { d: "M6 12h12" }),
+      el("path", { d: "M10 19h4" }),
+    ),
+  );
+
+/** The query string of the search screen, which *is* its state. */
+function searchParams() {
+  const hash = location.hash;
+  const at = hash.indexOf("?");
+  return new URLSearchParams(at === -1 ? "" : hash.slice(at + 1));
+}
+
+/** Used only if the server predates the vocabulary route, so the panel still works. */
+const SEARCH_FALLBACK = {
+  types: [["", "All"], ["series", "TV Series"], ["movie", "Movie"]],
+  regions: [["all", "All regions"], ["US", "America"], ["KR", "Korea"], ["GB", "U.K"], ["JP", "Japan"], ["TH", "Thailand"], ["CN", "China"], ["IN", "India"], ["AU", "Australia"], ["EU", "Europe"], ["other", "Other"]],
+  categories: { movie: [], series: [] },
+  periods: [["all", "All Time Periods"], ["before", "Before"]],
+  sorts: [["popularity", "Popularity"], ["recent", "Recent"], ["rating", "High Rating"]],
+};
+
+/** One labelled row of filter chips. */
+function filterRow(label, choices, active, onPick) {
+  return el(
+    "div",
+    { class: "filter-row" },
+    el("span", { class: "filter-label", text: label }),
+    el(
+      "div",
+      { class: "filter-options" },
+      ...choices.map(([value, text]) =>
+        el("button", {
+          class: `filter-chip focusable${value === active ? " active" : ""}`,
+          type: "button",
+          text,
+          "aria-pressed": String(value === active),
+          onclick: () => onPick(value),
+        }),
+      ),
+    ),
+  );
+}
+
+/**
+ * The search screen.
+ *
+ * The bar is wide, carries the filter control on its left, and suggests as you
+ * type: collections and catalogs from the cards this row already has, plus titles
+ * from TMDB. The filters are the screen's state — they live in the URL, so a
+ * filtered browse is shareable and the Back button undoes a filter.
+ */
+function renderSearch() {
+  const params = searchParams();
+  const query = params.get("q") || "";
+  const filters = {
+    type: params.get("type") || "",
+    region: params.get("region") || "all",
+    category: params.get("category") || "all",
+    period: params.get("period") || "all",
+    sort: params.get("sort") || "popularity",
+  };
+  const vocab = state.searchVocab || SEARCH_FALLBACK;
+
   const input = el("input", {
     class: "text-input focusable search-input",
     type: "search",
     placeholder: "Search titles, collections and catalogs…",
-    value: query || "",
+    value: query,
     id: "search-input",
+    autocomplete: "off",
   });
+
   // Titles come from TMDB through the server. This is what the Ask box feeds:
   // "a lonely detective in the rain" only means something if search can find
   // *titles*, not just collection names.
   const titles = el("div", { class: "search-titles", id: "search-titles" });
+  const suggestions = el("div", { class: "search-suggest", id: "search-suggest", hidden: true });
   let timer = null;
 
-  const loadTitles = async (value) => {
-    const text = (value || "").trim();
-    if (!text) {
+  const suggestRow = (kind, label, onclick) =>
+    el(
+      "button",
+      { class: "suggest-item focusable", type: "button", onclick },
+      el("span", { class: "suggest-kind", text: kind }),
+      el("span", { class: "suggest-text", text: label }),
+    );
+
+  /** Collections and catalogs matching what has been typed so far. */
+  const localSuggestions = (text) => {
+    const needle = text.trim().toLowerCase();
+    if (!needle) return [];
+    const cards = state.collections.filter((c) => c.title.toLowerCase().includes(needle)).slice(0, 4);
+    const cats = allCatalogs()
+      .filter(({ cat }) => cat.name.toLowerCase().includes(needle))
+      .slice(0, 4);
+    return [
+      ...cards.map((c) => suggestRow("Collection", c.title, () => go(`#/c/${encodeURIComponent(c.key)}`))),
+      ...cats.map(({ card, cat }) =>
+        suggestRow("Catalog", `${cat.name} — ${card.title}`, () => openRow(card.key, cat.id)),
+      ),
+    ];
+  };
+
+  const drawSuggestions = (text, metas = []) => {
+    const nodes = [
+      ...localSuggestions(text),
+      ...metas.slice(0, 5).map((m) => suggestRow("Title", m.name, () => modal.open(m))),
+    ];
+    suggestions.replaceChildren(...nodes);
+    suggestions.hidden = !nodes.length;
+  };
+
+  const resultQuery = () => {
+    const p = new URLSearchParams();
+    if (query.trim()) p.set("q", query.trim());
+    if (filters.type) p.set("type", filters.type);
+    if (filters.region !== "all") p.set("region", filters.region);
+    if (filters.category !== "all") p.set("category", filters.category);
+    if (filters.period !== "all") p.set("period", filters.period);
+    if (filters.sort !== "popularity") p.set("sort", filters.sort);
+    if (!state.safe) p.set("adult", "1");
+    return p.toString();
+  };
+
+  const loadTitles = async (text) => {
+    const trimmed = (text || "").trim();
+    const qs = resultQuery();
+    if (!qs) {
       titles.replaceChildren();
+      drawSuggestions(trimmed);
       return;
     }
     titles.replaceChildren(el("p", { class: "view-hint", text: "Searching titles…" }));
     try {
-      const { metas } = await get(`/search.json?q=${encodeURIComponent(text)}${catalogQuery().replace("?", "&")}`);
+      const { metas } = await get(`/search.json?${qs}`);
       titles.replaceChildren();
-      if (!metas.length) return;
+      drawSuggestions(trimmed, metas);
+      if (!metas.length) {
+        titles.append(
+          el("p", { class: "view-hint", text: "Nothing matched. Try fewer filters, or a different region." }),
+        );
+        return;
+      }
       titles.append(el("h3", { class: "result-head", text: `Titles (${metas.length})` }));
       titles.append(el("div", { class: "grid-titles" }, ...metas.map((m) => posterCard(m))));
     } catch {
@@ -1027,22 +1337,101 @@ function renderSearch(query) {
     const results = document.getElementById("search-results");
     if (results) results.replaceChildren(...searchResults(value));
     clearTimeout(timer);
+    drawSuggestions(value);
     timer = setTimeout(() => loadTitles(value), 250);
   };
 
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") location.hash = `#/search?q=${encodeURIComponent(input.value)}`;
+    if (e.key === "Escape") {
+      suggestions.hidden = true;
+      return;
+    }
+    if (e.key === "Enter") {
+      suggestions.hidden = true;
+      const p = new URLSearchParams(resultQuery());
+      p.set("q", input.value.trim());
+      go(`#/search?${p.toString()}`);
+    }
   });
   input.addEventListener("input", () => refresh(input.value));
-  if ((query || "").trim()) queueMicrotask(() => loadTitles(query));
+
+  // Changing a filter keeps the text you have typed and re-reads the row from the
+  // server — this is a new URL, so it is also a new request and a new history entry.
+  const pick = (name, value) => {
+    const p = new URLSearchParams(resultQuery());
+    const next = name === "type" ? { ...filters, type: value } : { ...filters, [name]: value };
+    for (const key of ["region", "category", "period", "sort"]) {
+      if (next[key] && next[key] !== "all" && !(key === "sort" && next[key] === "popularity")) p.set(key, next[key]);
+      else p.delete(key);
+    }
+    if (next.type) p.set("type", next.type);
+    else p.delete("type");
+    // Whatever is in the box right now, not what the URL was rendered from.
+    const text = document.getElementById("search-input")?.value ?? query;
+    if (text.trim()) p.set("q", text.trim());
+    go(`#/search?${p.toString()}`);
+  };
+
+  // Categories are per row type — TV has no Romance, Horror or Thriller — so with
+  // no type chosen only the categories both rows have are offered, rather than a
+  // list that would empty one of the two rows.
+  const categoryList = filters.type
+    ? vocab.categories?.[filters.type] || []
+    : (vocab.categories?.movie || []).filter((c) => (vocab.categories?.series || []).includes(c));
+
+  const panel = el(
+    "section",
+    { class: "search-filters", id: "search-filters", hidden: !filtersActive(filters) },
+    filterRow("Type", vocab.types, filters.type, (v) => pick("type", v)),
+    filterRow("Region", vocab.regions, filters.region, (v) => pick("region", v)),
+    categoryList.length
+      ? filterRow(
+          "Category",
+          [["all", "All Categories"], ...categoryList.map((c) => [c, c])],
+          filters.category,
+          (v) => pick("category", v),
+        )
+      : null,
+    filterRow("Time", vocab.periods, filters.period, (v) => pick("period", v)),
+    filterRow("Sort", vocab.sorts, filters.sort, (v) => pick("sort", v)),
+  );
+
+  const filterBtn = el(
+    "button",
+    {
+      class: `icon-btn focusable search-filter-btn${filtersActive(filters) ? " on" : ""}`,
+      type: "button",
+      id: "search-filter-btn",
+      title: "Filters",
+      "aria-label": "Filters",
+      "aria-expanded": String(!panel.hidden),
+      onclick: () => {
+        panel.hidden = !panel.hidden;
+        filterBtn.setAttribute("aria-expanded", String(!panel.hidden));
+      },
+    },
+    filterIcon(),
+  );
+
+  if (resultQuery()) queueMicrotask(() => loadTitles(query));
 
   return [
     el("h1", { class: "view-title", text: "Search" }),
-    input,
+    el("div", { class: "search-wrap" }, el("div", { class: "search-bar" }, filterBtn, input, suggestions)),
+    filters.region !== "all" && query.trim()
+      ? el("p", {
+          class: "view-hint",
+          text: "TMDB search results carry no origin country, so the region filter applies when browsing — clear the text box to browse by region.",
+        })
+      : null,
+    panel,
     titles,
     el("div", { class: "search-results", id: "search-results" }, ...searchResults(query)),
-  ];
+  ].filter(Boolean);
 }
+
+const filtersActive = (f) =>
+  Boolean(f.type) || f.region !== "all" || f.category !== "all" || f.period !== "all" || f.sort !== "popularity";
 
 /* ----------------------------------------------------------------- calendar */
 
@@ -1054,11 +1443,63 @@ function shiftMonth(month, delta) {
   return d.toISOString().slice(0, 7);
 }
 
+/**
+ * The Calendar's plan-to-watch pin.
+ *
+ * It is deliberately **not** the same thing as a watchlist row. A watchlist row
+ * scans everything in its state; a calendar pin is a plan and nothing else — a
+ * release you saw on a date and mean to get to. So the calendar offers the one
+ * state (plan to watch), it marks the pin with where it came from, and the list
+ * it draws below the grid is **recent only** (the last `CAL_RECENT_DAYS`), while
+ * the Watchlist card keeps every plan, whatever the date.
+ */
+const CAL_RECENT_DAYS = 30;
+
+const keyOfItem = (i) => `${i.type}:${i.id}`;
+
+/** Was this title planned *from the calendar*? */
+const isCalendarPin = (item) =>
+  state.watchItems.some((i) => keyOfItem(i) === watchKey(item) && i.state === "planned" && i.source === "calendar");
+
+/** The calendar's own pins — plan to watch, made here, and recent. */
+function recentCalendarPins() {
+  const since = Date.now() - CAL_RECENT_DAYS * 864e5;
+  return state.watchItems
+    .filter((i) => i.source === "calendar" && i.state === "planned")
+    .filter((i) => !i.addedAt || Date.parse(i.addedAt) >= since)
+    .sort((a, b) => String(b.addedAt).localeCompare(String(a.addedAt)));
+}
+
+/** Plan the title from the calendar — or take the plan away again. */
+async function calendarPlan(item) {
+  const planned = state.watchlist[watchKey(item)] === "planned" && isCalendarPin(item);
+  await setWatchState(item, planned ? null : "planned", { source: "calendar" });
+}
+
+function calendarCard(m) {
+  const planned = state.watchlist[watchKey(m)] === "planned" && isCalendarPin(m);
+  return el(
+    "div",
+    { class: "cal-item" },
+    posterCard(m, { kind: true }),
+    el("button", {
+      class: `btn pin cal-pin focusable${planned ? " active" : ""}`,
+      type: "button",
+      "data-cal-pin": keyOfItem(m),
+      "aria-pressed": String(planned),
+      title: planned ? "Planned from the calendar — click to remove" : "Plan to watch (calendar pin)",
+      text: planned ? "Plan to Watch · pinned" : "Plan to Watch",
+      onclick: () => calendarPlan(m),
+    }),
+  );
+}
+
 function renderCalendar() {
   const { month } = state.calendar;
   const [year, mon] = month.split("-").map(Number);
   const grid = el("div", { class: "cal-grid" });
   const detail = el("div", { class: "cal-detail" });
+  const recent = el("section", { class: "cal-recent" });
 
   // The month grid is drawn immediately; the titles arrive from the server.
   const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
@@ -1105,13 +1546,29 @@ function renderCalendar() {
     const items = byDate.get(iso) || [];
     detail.replaceChildren(
       items.length
-        ? el("div", { class: "grid-titles" }, ...items.map((m) => posterCard(m, { kind: true })))
+        ? el("div", { class: "grid-titles" }, ...items.map((m) => calendarCard(m)))
         : el("p", { class: "empty", text: "Nothing releases on this day." }),
+    );
+  }
+
+  /** The calendar's own recent pins — kept apart from the watchlist card. */
+  function drawRecent() {
+    const items = recentCalendarPins();
+    recent.replaceChildren(
+      el("h3", { class: "section-title", text: "Recently planned" }),
+      el("p", {
+        class: "view-hint",
+        text: `Pinned on the calendar, last ${CAL_RECENT_DAYS} days, plan to watch only. The Watchlist card's rows list every Plan to Watch, Watching and Watched title instead.`,
+      }),
+      items.length
+        ? el("div", { class: "grid-titles" }, ...items.map((m) => posterCard(m, { watch: true })))
+        : el("p", { class: "empty", text: "Nothing planned from the calendar yet — pin a release above." }),
     );
   }
 
   drawGrid();
   drawDetail();
+  drawRecent();
 
   // A day holds films *and* series, so both rows are read for the month.
   Promise.all(
@@ -1151,6 +1608,7 @@ function renderCalendar() {
     ),
     grid,
     detail,
+    recent,
   ];
 }
 
@@ -1281,7 +1739,9 @@ function renderSources(id, name) {
         ),
         provs.length
           ? el("div", { class: "chips" }, ...provs.map((p) => el("span", { class: "chip", text: p })))
-          : el("p", { class: "option-desc", text: "No providers read yet — press Providers in Settings." }),
+          : s.status && !s.status.ok
+            ? el("p", { class: "option-desc", text: s.status.text })
+            : el("p", { class: "option-desc", text: "Reading this source's providers…" }),
       );
     })));
   }
@@ -1547,16 +2007,49 @@ function panePosters() {
 }
 
 function paneProviders() {
+  // Which provider supplies the content *inside* a row lives here, next to the
+  // keys that make it possible — it used to be a second copy of the same switch
+  // in Content, which is exactly what "why is TMDB in two places?" means.
+  const tvdbReady = Boolean(state.providers.tvdb?.enabled && state.providers.tvdb?.hasKey);
+  const sourceRow = (value, title, desc) =>
+    radioRow(state.contentSource === value, "contentSource", title, desc, () => {
+      state.contentSource = value;
+      localStorage.setItem(KEY.contentSource, value);
+      pushSettings({ content: { source: value } });
+      render();
+    });
+
   return [
     el("p", { class: "option-desc", text: "Paste a key and enable a provider. Catalogs keep the same names; the provider changes the contents behind them." }),
     ...PROVIDERS.map(([name, label, desc]) => keyRow("providers", name, label, desc, state.providers, KEY.providers)),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Content source" }),
+      el("span", { class: "option-desc", text: "Which enabled provider supplies the titles inside a row." }),
+    ),
+    sourceRow("tmdb", "TMDB", "Default. Every row is TMDB's — its titles, its translations, its artwork."),
+    sourceRow(
+      "tvdb",
+      "TVDB",
+      tvdbReady
+        ? "Every catalog shows TVDB's titles, translations, years and artwork instead. The rows themselves are still chosen by TMDB, which is what can build them."
+        : "Needs the TVDB key above. Without one the app keeps serving TMDB content rather than empty rows.",
+    ),
   ];
 }
 
 function paneTracking() {
   return [
-    el("p", { class: "option-desc", text: "Connect a service to track what you watch." }),
-    ...TRACKERS.map(([name, label, desc]) => keyRow("tracking", name, label, desc, state.tracking, KEY.tracking)),
+    el("p", { class: "option-desc", text: "Connect a service to track what you watch. Each key is stored on the server — the page only ever learns whether one is set." }),
+    ...TRACKER_GROUPS.flatMap((group) => [
+      // The divider belongs *before* the group it separates, the way the rule on a
+      // collection page sits above the row it introduces.
+      group.divider ? el("div", { class: "h-divider tracking-divider", "aria-hidden": "true" }) : null,
+      el("div", { class: "group-head" },
+        el("span", { class: "option-title", text: group.title }),
+        el("span", { class: "option-desc", text: group.hint }),
+      ),
+      ...group.services.map(([name, label, desc]) => keyRow("tracking", name, label, desc, state.tracking, KEY.tracking)),
+    ].filter(Boolean)),
   ];
 }
 
@@ -1568,6 +2061,33 @@ function paneTracking() {
 function aiProviderRow(slug, label, signup, note) {
   const hasKey = Boolean(state.ai.hasKey?.[slug]);
   const active = state.ai.provider === slug;
+  // The models the provider reported, filled in by Test connection / Load models.
+  const modelList = el("div", { class: "model-list", id: `ai-${slug}-models` });
+  /**
+   * Show the models as pickable chips.
+   *
+   * Clicking one sets it as the model in use — the model box below stops being a
+   * name you have to know and becomes a name you picked from what the provider
+   * actually serves today.
+   */
+  const drawModels = (models, recommended = "") => {
+    modelList.replaceChildren(
+      ...models.slice(0, 24).map((id) =>
+        el("button", {
+          class: `model-chip focusable${id === state.ai.model || id === recommended ? " suggested" : ""}`,
+          type: "button",
+          text: id,
+          title: `Use ${id}`,
+          onclick: async () => {
+            state.ai.model = id;
+            writeJSON(KEY.ai, state.ai);
+            await pushSettings({ ai: { model: id } });
+            render();
+          },
+        }),
+      ),
+    );
+  };
   const input = el("input", {
     class: "text-input focusable",
     type: "password",
@@ -1632,26 +2152,50 @@ function aiProviderRow(slug, label, signup, note) {
         : null,
     ),
     el("div", { class: "provider-check" },
+      // Test connection, and load the models in the same call: a model list only
+      // comes back from a key that works, so one button answers both questions.
       el("button", {
         class: "btn subtle focusable",
         type: "button",
-        text: "Check key",
+        text: "Test connection",
         onclick: async () => {
           status.className = "source-status";
-          status.textContent = "Checking…";
+          status.textContent = "Testing…";
+          modelList.replaceChildren();
           try {
             const res = await post("/ai/verify", { provider: slug });
             status.className = `source-status ${res?.ok ? "ok" : "bad"}`;
             status.textContent = res?.text || (res?.ok ? "connected" : "not connected");
+            drawModels(res?.chat || []);
           } catch (err) {
             status.className = "source-status bad";
             status.textContent = `could not check — ${err.message}`;
           }
         },
       }),
+      el("button", {
+        class: "btn subtle focusable",
+        type: "button",
+        text: "Load models",
+        onclick: async () => {
+          status.className = "source-status";
+          status.textContent = "Loading models…";
+          modelList.replaceChildren();
+          try {
+            const res = await post("/ai/models", { provider: slug });
+            status.className = `source-status ${res?.ok ? "ok" : "bad"}`;
+            status.textContent = res?.text || "no models";
+            drawModels(res?.chat || [], res?.recommended);
+          } catch (err) {
+            status.className = "source-status bad";
+            status.textContent = `could not list models — ${err.message}`;
+          }
+        },
+      }),
       el("a", { class: "ai-signup", href: signup, target: "_blank", rel: "noreferrer", text: "Get a free key" }),
       status,
     ),
+    modelList,
   );
 }
 
@@ -1674,13 +2218,6 @@ function paneAi() {
         state.ai.enhanceMissing = e.target.checked;
         writeJSON(KEY.ai, state.ai);
         pushSettings({ ai: { enhanceMissing: state.ai.enhanceMissing } });
-        render();
-      }),
-      toggleRow(state.ai.autoPickCards, "Pick the cards for you", "Shows a random set of collections on Home instead of the full grid.", (e) => {
-        state.ai.autoPickCards = e.target.checked;
-        state.picks = null;
-        writeJSON(KEY.ai, state.ai);
-        pushSettings({ ai: { autoPickCards: state.ai.autoPickCards } });
         render();
       }),
       el("p", { class: "option-desc", text: "Pick a free provider and paste its API key. The key is stored on the server, never in the page, and the Ask box falls back to a plain search when no key is set." }),
@@ -1715,6 +2252,7 @@ function paneAi() {
   ];
 }
 
+
 // Used only when the server predates the options payload, so the selects are
 // never empty.
 const FALLBACK_LANGUAGES = [["en-US", "English (US)"], ["hi-IN", "Hindi"], ["es-ES", "Spanish"]];
@@ -1728,25 +2266,12 @@ const FALLBACK_COUNTRIES = [["US", "United States"], ["IN", "India"], ["GB", "Un
  * which is also the primary subtitle language.
  */
 function paneContent() {
-  const languages = state.options.languages?.length
-    ? state.options.languages.map((l) => [l.code, l.label])
-    : FALLBACK_LANGUAGES;
   const countries = state.options.countries?.length
     ? state.options.countries.map((c) => [
         c.code,
         c.services ? `${c.name} — ${c.services} service${c.services === 1 ? "" : "s"}` : `${c.name} — no local service`,
       ])
     : FALLBACK_COUNTRIES;
-
-  const language = el("select", { class: "text-input focusable", id: "app-language" },
-    ...languages.map(([code, label]) => el("option", { value: code, text: label })));
-  language.value = state.language;
-  language.addEventListener("change", async () => {
-    state.language = language.value;
-    localStorage.setItem(KEY.language, state.language);
-    await pushSettings({ language: state.language });
-    render();
-  });
 
   const country = el("select", { class: "text-input focusable", id: "app-country" },
     ...countries.map(([code, label]) => el("option", { value: code, text: label })));
@@ -1768,36 +2293,13 @@ function paneContent() {
       : "No local service was verified for this country — the Regional OTT cards will be empty."
     : "";
 
-  // Who supplies the content inside a row. TMDB is the only provider that can
-  // generate a row at all (its discover endpoint answers "90s action on
-  // Netflix"); TVDB supplies a title's name, translation, year and artwork. So
-  // this chooses the content *source*, never the row list.
-  const tvdbReady = Boolean(state.providers.tvdb?.enabled && state.providers.tvdb?.hasKey);
-  const contentSourceRow = (value, title, desc) =>
-    radioRow(state.contentSource === value, "contentSource", title, desc, () => {
-      state.contentSource = value;
-      localStorage.setItem(KEY.contentSource, value);
-      pushSettings({ content: { source: value } });
-      render();
-    });
-
+  // The source of the content inside a row is *not* chosen here any more: it is
+  // chosen next to the providers it belongs to (Settings → Providers), where the
+  // keys that make it possible live. Two copies of one switch was one too many.
   return [
-    contentSourceRow(
-      "tmdb",
-      "TMDB",
-      "Default. Every row is TMDB's — its titles, its translations, its artwork.",
-    ),
-    contentSourceRow(
-      "tvdb",
-      "TVDB",
-      tvdbReady
-        ? "Every catalog shows TVDB's titles, translations, years and artwork instead. The rows themselves are still chosen by TMDB, which is what can build them."
-        : "Needs a TVDB key (Settings → Providers). Without one the app keeps serving TMDB content rather than empty rows.",
-    ),
     el("div", { class: "provider" },
-      el("span", { class: "option-title", text: "App language" }),
-      el("p", { class: "option-desc", text: "The language every catalog row is served in — titles, names and overviews — and the primary subtitle language a player should prefer. TMDB falls back to English where a title has no translation." }),
-      el("div", { class: "source-form" }, language),
+      el("span", { class: "option-title", text: "Language" }),
+      el("p", { class: "option-desc", text: "Rows are served in English. The language setting used to sit here and read as if it moved the regional OTT cards too, which it never did — so it is gone rather than misleading." }),
     ),
     el("div", { class: "provider" },
       el("span", { class: "option-title", text: "Country" }),
@@ -1811,6 +2313,64 @@ function paneContent() {
     radioRow(!state.safe, "safe", "NSFW", "Include adult titles where TMDB supports it.", () => {
       state.safe = false; writeJSON(KEY.safe, false); pushSettings({ safe: false }); render();
     }),
+  ];
+}
+
+/**
+ * Paint the accent and the motion setting onto the document.
+ *
+ * Both are applied as CSS custom properties / one root class, so every rule in
+ * the stylesheet follows them and nothing has to be re-rendered to re-tint.
+ */
+function applyTheme() {
+  const [, , rgb, base, deep] = accentOf(state.accent);
+  const root = document.documentElement;
+  root.style.setProperty("--accent", base);
+  root.style.setProperty("--accent-rgb", rgb);
+  root.style.setProperty("--accent-deep", deep);
+  root.classList.toggle("motion-off", state.motion === "off");
+  root.classList.toggle("motion-full", state.motion === "full");
+}
+
+/** Settings → Appearance: the accent colour, and how much the app moves. */
+function paneAppearance() {
+  return [
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "Accent colour" }),
+      el("p", { class: "option-desc", text: "The colour the app is painted in — buttons, chips, highlights, borders. Gold is the default; pick another and the whole app follows." }),
+      el("div", { class: "accent-row" },
+        ...ACCENTS.map(([id, label, , base]) =>
+          el("button", {
+            class: `accent-swatch focusable${state.accent === id ? " active" : ""}`,
+            type: "button",
+            id: `accent-${id}`,
+            title: label,
+            "aria-label": label,
+            "aria-pressed": String(state.accent === id),
+            style: `--swatch: ${base}`,
+            onclick: () => {
+              state.accent = id;
+              localStorage.setItem(KEY.accent, id);
+              applyTheme();
+              render();
+            },
+          }),
+        ),
+      ),
+      el("div", { class: "provider-check" }, el("span", { class: "source-status", text: `Accent: ${accentOf(state.accent)[1]}` })),
+    ),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Motion" }),
+      el("span", { class: "option-desc", text: "Transitions between screens, hover lifts and the row highlight." }),
+    ),
+    ...MOTIONS.map(([value, title, desc]) =>
+      radioRow(state.motion === value, "motion", title, desc, () => {
+        state.motion = value;
+        localStorage.setItem(KEY.motion, value);
+        applyTheme();
+        render();
+      }),
+    ),
   ];
 }
 
@@ -1864,11 +2424,13 @@ function saveSources() {
  * of in the page is what makes third-party sources work: a browser is blocked by
  * CORS from reading another host's manifest.json.
  */
-async function inspectSource(index) {
+async function inspectSource(index, { quiet = false } = {}) {
   const source = state.sources[index];
   if (!source) return;
-  source.status = { ok: false, text: "Checking…" };
-  render();
+  if (!quiet) {
+    source.status = { ok: false, text: "Checking…" };
+    render();
+  }
   try {
     const res = await post("/api/source", { type: source.type, url: source.url });
     source.providers = res.providers || [];
@@ -1878,7 +2440,7 @@ async function inspectSource(index) {
     source.status = { ok: false, text: `could not check — ${err.message}` };
   }
   saveSources();
-  render();
+  if (!quiet) render();
 }
 
 function sourceRow(source, index) {
@@ -1921,6 +2483,7 @@ function renderSettings() {
     addons: () => sourceSection("Add-ons", "An add-on URL is read on the server (manifest.json), so it works even when the host sends no CORS headers.", ADDON_TYPES, addons),
     plugins: () => sourceSection("Plugins & repositories", "A CloudStream repository is read on the server (repo.json → plugins.json) and every plugin is listed as a provider.", PLUGIN_TYPES, plugins),
     layout: paneLayout,
+    appearance: paneAppearance,
     server: paneServer,
   };
 
@@ -1928,19 +2491,22 @@ function renderSettings() {
   const active = SETTINGS_SECTIONS.find(([id]) => id === section) || SETTINGS_SECTIONS[0];
 
   const nav = el("nav", { class: "settings-nav", "aria-label": "Settings sections" },
-    ...SETTINGS_SECTIONS.map(([id, label]) =>
-      el("button", {
-        class: `settings-tab focusable${id === active[0] ? " active" : ""}`,
-        type: "button",
-        "aria-current": id === active[0] ? "true" : false,
-        text: label,
-        onclick: () => {
-          state.settingsSection = id;
-          localStorage.setItem(KEY.section, id);
-          render();
-        },
-      }),
-    ),
+    ...SETTINGS_GROUPS.flatMap((group) => [
+      el("span", { class: "settings-group", text: group.group }),
+      ...group.sections.map(([id, label]) =>
+        el("button", {
+          class: `settings-tab focusable${id === active[0] ? " active" : ""}`,
+          type: "button",
+          "aria-current": id === active[0] ? "true" : false,
+          text: label,
+          onclick: () => {
+            state.settingsSection = id;
+            localStorage.setItem(KEY.section, id);
+            render();
+          },
+        }),
+      ),
+    ]),
   );
 
   const body = el("section", { class: "setting" },
@@ -1999,16 +2565,55 @@ function render() {
   else if (view === "explore") nodes = renderExplore(key, id);
   else if (view === "sources") nodes = renderSources(id, name);
   else if (view === "settings") nodes = renderSettings();
-  else if (view === "search") nodes = renderSearch(new URLSearchParams(location.hash.split("?")[1] || "").get("q") || "");
+  else if (view === "search") nodes = renderSearch();
   else if (view === "calendar") nodes = renderCalendar();
   else nodes = renderHome();
 
-  document.getElementById("main").replaceChildren(...nodes);
+  const main = document.getElementById("main");
+  main.replaceChildren(...nodes);
+  // One class, animation defined in the stylesheet: the new screen arrives
+  // instead of appearing, and "no animation" removes it entirely.
+  main.classList.remove("view-in");
+  void main.offsetWidth;
+  main.classList.add("view-in");
   renderTabs();
   window.scrollTo({ top: 0 });
 }
 
 /* ------------------------------------------------------------ keyboard nav */
+
+/**
+ * Wheel over the titles scrolls the titles — and only the titles.
+ *
+ * Pointing at a row and scrolling is how you browse cards, so the wheel moves
+ * the row under the cursor *instead of* the page. That stays true at either end
+ * of the row as well: the page must not start scrolling because the row ran out,
+ * which used to drag the whole screen away the moment a row ended. The page
+ * scrolls normally anywhere the cursor is not over a row of titles.
+ *
+ * Shift+wheel and trackpad horizontal gestures keep their normal meaning.
+ */
+const ROW_SELECTOR = ".strip, .icons.rows";
+
+function horizontalWheel() {
+  document.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+      // A menu, the modal or a dropdown keeps its own scrolling.
+      if (e.target?.closest?.(".cat-menu, .modal-card, .settings-nav, .search-suggest")) return;
+      const row = e.target?.closest?.(ROW_SELECTOR);
+      // A row that has nothing clipped scrolls nowhere — leave that to the page.
+      if (!row || row.scrollWidth - row.clientWidth <= 1) return;
+      const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      // The page never moves while the cursor is on the titles: the row takes the
+      // wheel to its end and then simply stops.
+      e.preventDefault();
+      row.scrollLeft = Math.max(0, Math.min(row.scrollWidth - row.clientWidth, row.scrollLeft + delta));
+    },
+    { passive: false },
+  );
+}
 
 function setupInput() {
   document.getElementById("back").addEventListener("click", () => {
@@ -2034,6 +2639,7 @@ function setupInput() {
 
   for (const node of document.querySelectorAll("[data-close]")) node.addEventListener("click", () => modal.close());
   window.addEventListener("hashchange", render);
+  horizontalWheel();
 
   document.addEventListener("keydown", (e) => {
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName ?? "");
@@ -2089,12 +2695,12 @@ async function refreshCollections() {
   } catch {
     /* keep the cards already on screen */
   }
-  state.picks = null;
   state.order = {};
 }
 
 async function boot() {
   modal.root = document.getElementById("modal");
+  applyTheme();
   setupInput();
 
   try {
@@ -2117,6 +2723,41 @@ async function boot() {
     applyWatchlist(await get("/watchlist.json"));
   } catch {
     /* server without the watchlist route */
+  }
+
+  // And the custom rows decide what the row after them holds.
+  try {
+    applyCustomRows(await get("/customrows.json"));
+  } catch {
+    /* server without the custom-row route */
+  }
+
+  // The search screen's filter vocabulary: the regions, the categories that exist
+  // per row type, the periods and the sorts — from the server, so the panel can
+  // never offer a genre TMDB does not have.
+  try {
+    const { filters } = await get("/search/filters.json");
+    if (filters) state.searchVocab = filters;
+  } catch {
+    /* an older server: the panel falls back to a short list */
+  }
+
+  // Read every stored source again, on every start.
+  //
+  // "0 providers" was stored state: a source added when the read failed kept its
+  // empty provider list forever, so it looked like add-ons and repos never worked
+  // however many times you pressed the button. Re-reading them at boot means one
+  // refresh fixes every source, and the list is only ever as stale as this page.
+  if (state.sources.length) {
+    // Sequential: a dozen parallel third-party fetches is a burst a lot of hosts
+    // rate-limit, and this is not on the critical path.
+    (async () => {
+      for (let i = 0; i < state.sources.length; i++) {
+        if (!state.sources[i]?.url) continue;
+        await inspectSource(i, { quiet: true }).catch(() => {});
+      }
+      render();
+    })();
   }
 
   // The app always opens on the switch-profile screen, the way Nuvio does —

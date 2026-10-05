@@ -41,10 +41,15 @@ const DEFAULTS = {
   // TVDB and needs the TVDB provider enabled with a key, or it falls back.
   content: { source: "tmdb" },
   // Tracking services (watched history, scrobbling). Stored for the native app.
+  // The anime databases track the same shows as the film ones, so they sit in the
+  // same group; the drama tracker is its own catalogue and its own group.
   tracking: {
-    simkl: { enabled: false, key: "" },
     trakt: { enabled: false, key: "" },
+    simkl: { enabled: false, key: "" },
+    myanimelist: { enabled: false, key: "" },
+    anilist: { enabled: false, key: "" },
     letterboxd: { enabled: false, key: "" },
+    mydramalist: { enabled: false, key: "" },
   },
   // Poster artwork. BetterPosters (bttr.cc) serves enhanced, tagged posters keyed
   // by IMDb id; the pattern is editable so another service can be dropped in.
@@ -68,8 +73,6 @@ const DEFAULTS = {
     enhanceArtwork: true,
     // Apply that same treatment to titles the poster service could not cover.
     enhanceMissing: true,
-    // Pick the collections/cards for you (in the normal card order).
-    autoPickCards: false,
   },
 };
 
@@ -141,7 +144,6 @@ export function publicSettings() {
       ),
       enhanceArtwork: s.ai?.enhanceArtwork !== false,
       enhanceMissing: s.ai?.enhanceMissing !== false,
-      autoPickCards: Boolean(s.ai?.autoPickCards),
     },
   };
 }

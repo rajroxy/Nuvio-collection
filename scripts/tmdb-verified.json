@@ -74,6 +74,106 @@
       "tmdbTvName": "Paramount Plus Premium",
       "movieCount": 20,
       "tvCount": 20
+    },
+    {
+      "label": "Crunchyroll",
+      "accepted": [
+        "Crunchyroll"
+      ],
+      "id": 283,
+      "tmdbMovieName": "Crunchyroll",
+      "tmdbTvName": "Crunchyroll",
+      "movieCount": 20,
+      "tvCount": 20
+    },
+    {
+      "label": "HIDIVE",
+      "accepted": [
+        "HiDive",
+        "HIDIVE"
+      ],
+      "id": 430,
+      "tmdbMovieName": "HiDive",
+      "tmdbTvName": "HiDive",
+      "movieCount": 20,
+      "tvCount": 20
+    },
+    {
+      "label": "iQIYI",
+      "accepted": [
+        "iQIYI"
+      ],
+      "id": 581,
+      "tmdbMovieName": "iQIYI",
+      "tmdbTvName": "iQIYI",
+      "movieCount": 11,
+      "tvCount": 20
+    },
+    {
+      "label": "Viki",
+      "accepted": [
+        "Rakuten Viki"
+      ],
+      "id": 344,
+      "tmdbMovieName": "Rakuten Viki",
+      "tmdbTvName": "Rakuten Viki",
+      "movieCount": 20,
+      "tvCount": 20
+    },
+    {
+      "label": "MUBI",
+      "accepted": [
+        "MUBI"
+      ],
+      "id": 11,
+      "tmdbMovieName": "MUBI",
+      "tmdbTvName": "MUBI",
+      "movieCount": 20,
+      "tvCount": 7
+    },
+    {
+      "label": "Google Play",
+      "accepted": [
+        "Google Play Movies"
+      ],
+      "id": 3,
+      "tmdbMovieName": "Google Play Movies",
+      "tmdbTvName": "Google Play Movies",
+      "movieCount": 20,
+      "tvCount": 20
+    },
+    {
+      "label": "Plex",
+      "accepted": [
+        "Plex"
+      ],
+      "id": 538,
+      "tmdbMovieName": "Plex",
+      "tmdbTvName": "Plex",
+      "movieCount": 20,
+      "tvCount": 20
+    },
+    {
+      "label": "Tubi",
+      "accepted": [
+        "Tubi TV"
+      ],
+      "id": 73,
+      "tmdbMovieName": "Tubi TV",
+      "tmdbTvName": "Tubi TV",
+      "movieCount": 20,
+      "tvCount": 20
+    },
+    {
+      "label": "Shudder",
+      "accepted": [
+        "Shudder"
+      ],
+      "id": 99,
+      "tmdbMovieName": "Shudder",
+      "tmdbTvName": "Shudder",
+      "movieCount": 20,
+      "tvCount": 20
     }
   ],
   "regions": {

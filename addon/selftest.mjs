@@ -10,8 +10,10 @@ process.env.TMDB_API_KEY = process.env.TMDB_API_KEY || "test-key-for-selftest";
 // Never write the real settings or watchlist file — those tests hit throwaway paths.
 process.env.NUVIO_SETTINGS_FILE = process.env.NUVIO_SETTINGS_FILE || "/tmp/nuvio-settings-selftest.json";
 process.env.NUVIO_WATCHLIST_FILE = process.env.NUVIO_WATCHLIST_FILE || "/tmp/nuvio-watchlist-selftest.json";
-// Start from an empty watchlist so the pin tests are deterministic.
+process.env.NUVIO_CUSTOM_FILE = process.env.NUVIO_CUSTOM_FILE || "/tmp/nuvio-customrows-selftest.json";
+// Start from an empty watchlist and custom-row set so those tests are deterministic.
 fs.rmSync(process.env.NUVIO_WATCHLIST_FILE, { force: true });
+fs.rmSync(process.env.NUVIO_CUSTOM_FILE, { force: true });
 
 import fs from "node:fs";
 
@@ -23,6 +25,10 @@ const item = () => ({
   release_date: "2019-05-01",
   first_air_date: "2019-05-01",
   vote_average: 7.4,
+  // Real search/discover results carry their genre ids; the category filter reads
+  // exactly this field, so the stub has to carry it too.
+  genre_ids: [28, 35],
+  popularity: 100 - seq,
   overview: "An overview.",
   poster_path: "/poster.jpg",
   backdrop_path: "/backdrop.jpg",
@@ -69,7 +75,15 @@ globalThis.fetch = async (url) => {
     if (u.endsWith("/repo.json")) return jsonRes({ name: "Example Repo", description: "a test repo", pluginLists: ["plugins.json"] });
     if (u.endsWith("/plugins.json")) return jsonRes([{ name: "Netflix" }, { name: "Anime World" }]);
   }
-  if (u.includes("/genre/")) return jsonRes({ genres: [{ id: 28, name: "Action" }, { id: 35, name: "Comedy" }] });
+  if (u.includes("/genre/")) {
+    return jsonRes({
+      genres: [
+        { id: 28, name: "Action" }, { id: 35, name: "Comedy" }, { id: 18, name: "Drama" },
+        { id: 10749, name: "Romance" }, { id: 10765, name: "Sci-Fi & Fantasy" }, { id: 16, name: "Animation" },
+        { id: 10759, name: "Action & Adventure" },
+      ],
+    });
+  }
   if (u.includes("/search/keyword")) return jsonRes({ results: [] });
   if (u.includes("/search/movie") || u.includes("/search/tv")) return jsonRes({ results: Array.from({ length: 6 }, item) });
   if (/\/(movie|tv)\/\d+/.test(u)) return jsonRes({ ...item(), number_of_episodes: 6, runtime: 100 });
@@ -412,7 +426,7 @@ check(
 
 const posted = await (async () => {
   const res = fakeRes();
-  const payload = JSON.stringify({ profile: "Live TV & Sports", ai: { autoPickCards: true } });
+  const payload = JSON.stringify({ profile: "Live TV & Sports", ai: { enhanceArtwork: true, enhanceMissing: true } });
   const req = {
     method: "POST",
     headers: { host: "localhost:4173" },
@@ -425,7 +439,15 @@ const posted = await (async () => {
   const handled = await handleAddon(req, res, "/settings", "http://localhost:4173");
   return { handled, res };
 })();
-check("POST /settings persists profile and AI options", posted.handled && posted.res.statusCode === 200 && posted.res.body?.profile === "Live TV & Sports" && posted.res.body?.ai?.autoPickCards === true);
+// "Pick the cards for you" is gone: Home always shows every card, in the published
+// order, so the AI options that remain are the ones about artwork and posters.
+check(
+  "POST /settings persists the profile and the AI options",
+  posted.handled && posted.res.statusCode === 200 && posted.res.body?.profile === "Live TV & Sports" &&
+    posted.res.body?.ai?.enhanceArtwork === true && posted.res.body?.ai?.enhanceMissing === true &&
+    posted.res.body?.ai?.autoPickCards === undefined,
+  JSON.stringify(posted.res.body?.ai),
+);
 // The Content pane builds its two selects from this payload.
 check(
   "settings offer the app language and country choices",
@@ -616,6 +638,49 @@ check(
 check("title search looks in both movies and shows", calls.some((u) => u.includes("/search/movie")) && calls.some((u) => u.includes("/search/tv")));
 check("an empty title search is a no-op, not a crash", (await call("/search.json?q=")).res.body?.metas?.length === 0);
 
+// --- the search screen's filters ---------------------------------------------
+const vocab = await call("/search/filters.json");
+check(
+  "the search screen is offered its filter vocabulary",
+  vocab.res.body?.filters?.regions?.length >= 9 &&
+    vocab.res.body.filters.categories.movie.includes("Romance") &&
+    vocab.res.body.filters.categories.series.includes("Romance") === false &&
+    vocab.res.body.filters.periods.length > 10 &&
+    vocab.res.body.filters.sorts.map(([id]) => id).join(",") === "popularity,recent,rating",
+  `${vocab.res.body?.filters?.categories?.series?.length} series categories`,
+);
+check(
+  "TV has no Romance genre, so it is not offered for that row",
+  !vocab.res.body.filters.categories.series.includes("Romance") && vocab.res.body.filters.categories.series.includes("Drama"),
+);
+
+// Browsing with no text at all: that is what the panel is for.
+const browseKr = await call("/search.json?type=series&region=KR&category=Drama&sort=rating");
+check(
+  "browsing applies the filters as a TMDB discover query",
+  calls.some((u) => u.includes("/discover/tv") && u.includes("with_origin_country=KR") && u.includes("with_genres=18") && u.includes("vote_average.desc")),
+  calls.filter((u) => u.includes("/discover/tv")).slice(-1)[0],
+);
+check("and returns titles", browseKr.res.body?.metas?.length > 0, `${browseKr.res.body?.metas?.length}`);
+check("no text and no filters returns nothing", (await call("/search.json")).res.body?.metas?.length === 0);
+await call("/search.json?period=1990-1980&type=movie");
+check("a period filter maps to a date range", calls.some((u) => u.includes("primary_release_date.gte=1980-01-01") && u.includes("primary_release_date.lte=1990-12-31")));
+await call("/search.json?period=before&type=movie");
+check("and 'Before' means before 2000", calls.some((u) => u.includes("primary_release_date.lte=1999-12-31")));
+check(
+  "a category the row type does not have yields an empty row, not every title",
+  (await call("/search.json?type=series&category=Romance")).res.body?.metas?.length === 0,
+);
+
+// A text query is narrowed by what search can honour: genre ids and the year.
+check(
+  "a text query is narrowed by the category",
+  (await call("/search.json?q=action&type=movie&category=Romance")).res.body?.metas?.length === 0,
+);
+const searchAction = await call("/search.json?q=action&type=movie&category=Action");
+check("and keeps the titles that match it", searchAction.res.body?.metas?.length > 0, `${searchAction.res.body?.metas?.length} titles`);
+check("the response reports the filters it used", searchAction.res.body?.filters?.category === "Action" && searchAction.res.body.filters.active === true);
+
 // --- AI providers -------------------------------------------------------------
 const aiInfo = await call("/ai.json");
 check(
@@ -704,6 +769,54 @@ check("unpinning takes the title off the list", removed.body?.removed === true &
 check("the watchlist survives a re-read (it is stored, not in memory)", Array.isArray((await call("/watchlist.json")).res.body?.items));
 const statusRow = await call("/addon-status.json");
 check("addon status reports the watchlist and the AI provider", Boolean(statusRow.res.body?.watchlist) && statusRow.res.body.aiProvider === "groq");
+
+// --- the custom row after the states ------------------------------------------
+// The row after the watchlist states is the one you fill yourself: nothing moves
+// a title in or out of it except you adding it and taking it away.
+check(
+  "the watchlist card publishes a custom row after its three states",
+  ["movie", "series"].every((type) =>
+    manifest.catalogs.some((c) => c.type === type && c.id === "nuvio-watchlist--add-cards-in-watchlist"),
+  ),
+  manifest.catalogs.filter((c) => c.id.includes("add-cards")).map((c) => `${c.type}:${c.name}`).join(","),
+);
+const customEmpty = await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json");
+check("an empty custom row is an empty catalog, not a 404", customEmpty.handled && customEmpty.res.statusCode === 200 && customEmpty.res.body.metas.length === 0);
+const customAdd = await postTo("/customrows", { row: "add-cards", item: fightClub });
+check(
+  "adding a title to the custom row stores it there",
+  customAdd.body?.ok === true && customAdd.body.inRow === true && customAdd.body.counts["add-cards"] === 1,
+  JSON.stringify(customAdd.body?.counts),
+);
+check(
+  "and the row serves it as a normal catalog",
+  (await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json")).res.body.metas[0]?.name === "Fight Club",
+);
+check(
+  "a custom row is not a watch state — it does not touch the watchlist",
+  (await call("/watchlist.json")).res.body.items.length === 0,
+  `${(await call("/watchlist.json")).res.body.items.length} pins`,
+);
+check(
+  "adding the same title again takes it back out",
+  (await postTo("/customrows", { row: "add-cards", item: fightClub })).body?.removed === true &&
+    !(await call("/catalog/movie/nuvio-watchlist--add-cards-in-watchlist.json")).res.body.metas.length,
+);
+check(
+  "the custom row survives a re-read (it is stored, not in memory)",
+  Boolean((await call("/customrows.json")).res.body?.rows) && Array.isArray((await call("/customrows.json")).res.body?.items),
+);
+
+// A calendar plan is plan-only and carries where it came from, so the calendar
+// can keep its own recent pins apart from the watchlist rows.
+const calendarPlan = await postTo("/watchlist", { item: { ...fightClub, source: "calendar" }, state: "planned" });
+check(
+  "a calendar plan keeps its source, so the calendar can tell its own pins apart",
+  calendarPlan.body?.items?.some((i) => i.source === "calendar" && i.state === "planned"),
+  JSON.stringify(calendarPlan.body?.items?.map((i) => [i.name, i.state, i.source])),
+);
+await postTo("/watchlist", { item: { ...fightClub, source: "calendar" }, remove: true });
+check("a calendar plan can be taken back off", (await call("/watchlist.json")).res.body.items.length === 0);
 
 // --- no-key behaviour ---------------------------------------------------------
 delete process.env.TMDB_API_KEY;

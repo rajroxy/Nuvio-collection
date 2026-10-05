@@ -36,6 +36,9 @@ try {
 // countries, so the run feeds the real payload through instead of a fixture that
 // could drift away from what the addon actually offers.
 const liveSettings = await (await fetch(`${BASE}/settings`)).json().catch(() => ({}));
+// Same for the search screen's filter vocabulary: the panel is checked against the
+// real list the server offers.
+const liveFilters = await (await fetch(`${BASE}/search/filters.json`)).json().then((r) => r.filters).catch(() => null);
 
 // The month the calendar opens on, and the days in it that hold *both* a film
 // and a show — the calendar used to read only the current row's type.
@@ -70,6 +73,15 @@ const STUBS = {
   [`${BASE}/api/source`]: { ok: true, kind: "repo", name: "Example Repo", providers: ["Netflix", "Anime World", "Torrentio"], message: "3 plugins" },
   [`${BASE}/providers/verify`]: { ok: true, text: "connected · 4 rating sources" },
   [`${BASE}/posters/check`]: { ok: true, text: "posters ok (HTTP 200)" },
+  // The model list is answered here too: the live server would call the provider
+  // with the real key, which a smoke test has no business doing.
+  [`${BASE}/ai/models`]: {
+    ok: true,
+    models: ["openai/gpt-oss-20b", "llama-3.3-70b-versatile", "whisper-large-v3"],
+    chat: ["openai/gpt-oss-20b", "llama-3.3-70b-versatile"],
+    recommended: "openai/gpt-oss-20b",
+    text: "3 models · 2 for chat · Groq Cloud",
+  },
 };
 
 // An in-memory stand-in for the server's watchlist, so pinning a title in the
@@ -86,6 +98,16 @@ const WATCH_STATES = [
   { id: "watched", label: "Watched" },
 ];
 const watchPayload = () => ({ items: WATCH.items, counts: watchCounts(), states: WATCH_STATES });
+
+// The custom row you fill yourself, standing in for `addon/customrows.json` so a
+// smoke run never writes the real one.
+const CUSTOM_ROW = "add-cards";
+let CUSTOM = [];
+const customPayload = () => {
+  const rows = [...new Set(CUSTOM.map((i) => i.row))].map((id) => ({ id, count: CUSTOM.filter((i) => i.row === id).length }));
+  return { rows, counts: Object.fromEntries(rows.map((r) => [r.id, r.count])), items: CUSTOM };
+};
+const inCustom = (row, item) => CUSTOM.some((i) => i.row === row && `${i.type}:${i.id}` === `${item.type}:${item.id}`);
 const json200 = (body) => Promise.resolve({ ok: true, status: 200, json: async () => body });
 
 window.fetch = (input, init) => {
@@ -106,8 +128,20 @@ window.fetch = (input, init) => {
   if (url.includes("/catalog/") && url.includes("nuvio-watchlist--")) {
     const type = url.includes("/catalog/movie/") ? "movie" : "series";
     const slug = url.slice(url.indexOf("nuvio-watchlist--") + "nuvio-watchlist--".length).split(".")[0].split("/")[0];
+    // The custom row lives in the same card, so it is answered here too.
+    if (slug === "add-cards-in-watchlist") {
+      return json200({ metas: CUSTOM.filter((i) => i.row === CUSTOM_ROW && i.type === type) });
+    }
     const state = { "plan-to-watch": "planned", watching: "watching", watched: "watched" }[slug];
     return json200({ metas: WATCH.items.filter((i) => i.type === type && i.state === state) });
+  }
+  if (url === `${BASE}/customrows.json`) return json200(customPayload());
+  if (url === `${BASE}/customrows` && init?.method === "POST") {
+    const body = JSON.parse(init.body || "{}");
+    const row = body.row || CUSTOM_ROW;
+    if (inCustom(row, body.item)) CUSTOM = CUSTOM.filter((i) => !(i.row === row && `${i.type}:${i.id}` === `${body.item.type}:${body.item.id}`));
+    else CUSTOM.push({ ...body.item, row, state: undefined });
+    return json200({ ok: true, ...customPayload() });
   }
   if (STUBS[url]) return json200(STUBS[url]);
   // Settings are answered locally too: the app mirrors them into its own state
@@ -207,8 +241,11 @@ const ruleFor = (sel) => {
   const m = css.match(new RegExp(`\\${sel.slice(0, 1)}${sel.slice(1)}\\s*\\{([^}]*)\\}`));
   return m ? m[1] : "";
 };
-// Alpha of the strongest colour stop in a rule's background.
-const peakAlpha = (body) => Math.max(0, ...[...body.matchAll(/rgba?\([^)]*?,\s*([\d.]+)\s*\)/g)].map((m) => Number(m[1])),
+// Alpha of the strongest colour stop in a rule's background. Tints are written
+// as `rgba(var(--accent-rgb), a)` since the accent became a setting, so the
+// token form counts too — otherwise every divider would read as invisible.
+const peakAlpha = (body) => Math.max(0,
+  ...[...body.matchAll(/rgba?\(\s*(?:var\(--accent-rgb\)|[^()]*?)\s*,\s*([\d.]+)\s*\)/g)].map((m) => Number(m[1])),
   ...(body.includes("#") && !body.includes("rgba") ? [1] : [0]));
 const dividerChecks = [[".top-divider", ruleFor(".top-divider")], [".v-divider", ruleFor(".v-divider")]];
 for (const [sel, body] of dividerChecks) {
@@ -292,6 +329,14 @@ check(
   $$(".icon-box .icon-name").map(text).join(" | ") === published.join(" | "),
   $$(".icon-box .icon-name").map(text).slice(0, 5).join(", "),
 );
+// Every card, in the order the addon publishes — no "picks", no subset. The grid
+// used to be able to show a random eight, which read as "my cards were rearranged".
+check(
+  "Home shows every card, not a picked subset",
+  $$(".icon-box .icon-name").length === published.length && published.length >= 20,
+  `${$$(".icon-box .icon-name").length} of ${published.length}`,
+);
+check("Home has no 'Picked for you'", !window.document.body.textContent.includes("Picked for you"));
 
 const heroArtBefore = $(".hero-art")?.getAttribute("style");
 $$(".row-switch .row-btn")[1].click();
@@ -302,11 +347,27 @@ $$(".row-switch .row-btn")[0].click();
 await settle(120);
 check("clicking Movies swaps back", text($(".section-title")) === "Movies");
 
-/* ------------------------------------------------- hero label -> catalog */
+/* ----------------------------------------------- hero label -> its row */
+/* A catalog label jumps to that row on the card; it no longer skips past the
+   other rows into Explore. */
+const heroChip = text($$(".hero-cats button.chip")[0]);
 $$(".hero-cats button.chip")[0].click();
 // A row is slower now: each title resolves an IMDb id for its better poster.
+await settle(700);
+check("a hero catalog label stays on the card", window.location.hash.startsWith("#/c/"), window.location.hash);
+check("and jumps to the row it names",
+  $$(".cat-row .cat-name").some((n) => text(n) === heroChip), heroChip);
+check("the rows are in the published order, not shuffled by a control",
+  $$(".cat-row .cat-name").map(text).join(" | ") ===
+    (await (await fetch(`${BASE}/collections.json`)).json())
+      .find((c) => c.movie?.catalogs?.some((x) => x.name === heroChip))
+      ?.movie.catalogs.map((x) => x.name).join(" | "),
+  $$(".cat-row .cat-name").map(text).join(", "),
+);
+// Enter Explore the way a user does: the row's own button.
+$$(".cat-row .btn.explore")[0].click();
 await settle(1200);
-check("a hero catalog label opens that catalog", window.location.hash.startsWith("#/x/"), window.location.hash);
+check("a row's Explore opens that catalog", window.location.hash.startsWith("#/x/"), window.location.hash);
 check("Explore shows the card label and the catalog label",
   Boolean($(".explore-head .crumb")) && Boolean($(".explore-head .crumb.current")),
   text($(".explore-head")));
@@ -355,12 +416,26 @@ await settle(160);
 check("a collection opens from its artwork", $$(".cat-row").length > 0, `${$$(".cat-row").length} rows`);
 check("collection cover is shown", ($(".section-cover")?.getAttribute("src") || "").includes("/covers/"));
 check("collection catalog labels are clickable", $$(".cats button.chip").length === $$(".cats .chip").length && $$(".cats button.chip").length > 0);
-check("every row has a Shuffle and an Explore", $$(".cat-row .cat-tools .icon-btn.small").length === $$(".cat-row").length && $$(".cat-row .cat-tools .btn.explore").length === $$(".cat-row").length);
+// A row carries its catalog's name and Explore — and no shuffle. A shuffle there
+// could only reorder the rows, which is not what "shuffle" means to anyone using
+// it: they expect that catalog's titles to be redrawn, which is Explore's job.
+check("every row names its catalog and offers Explore",
+  $$(".cat-row .cat-name").length === $$(".cat-row").length &&
+    $$(".cat-row .cat-tools .btn.explore").length === $$(".cat-row").length,
+  `${$$(".cat-row").length} rows`);
+check("no shuffle icon beside Explore",
+  $$(".cat-row .cat-tools .icon-btn").length === 0,
+  `${$$(".cat-row .cat-tools .icon-btn").length} icons`);
 check("no section-level shuffle button", $$(".section-actions .btn").length === 0);
 check("no 'Load more' anywhere", !window.document.body.textContent.includes("Load more"));
+// A catalog chip goes to that row instead of dropping into Explore.
+const chipLabel = text($$(".cats button.chip")[0]);
 $$(".cats button.chip")[0].click();
-await settle(1200);
-check("a collection catalog label opens that catalog", window.location.hash.startsWith("#/x/"), window.location.hash);
+await settle(300);
+check("a collection catalog label stays on the card", window.location.hash.startsWith("#/c/"), window.location.hash);
+check("and the row it names is on the page",
+  $$(".cat-row .cat-name").some((n) => text(n) === chipLabel),
+  chipLabel);
 
 /* ---------------------------------------- a catalog row keeps scrolling --- */
 // A strip used to stop dead after its first window — that is what "this card
@@ -436,8 +511,15 @@ pinRow.querySelector(".poster").click();
 await settle(160);
 check(
   "the title modal offers the three watch states",
-  $$("#modal-pins .btn.pin").map(text).join(",") === "Plan to Watch,Watching,Watched",
+  $$("#modal-pins .btn.pin:not(.custom)").map(text).join(",") === "Plan to Watch,Watching,Watched",
   $$("#modal-pins .btn.pin").map(text).join(","),
+);
+check(
+  "and the custom row's own button, apart from the states",
+  text($("#pin-custom-row")) === "＋ Add cards in watchlist" &&
+    Boolean($("#modal-pins .pin-divider")) &&
+    $("#modal-pins .pin-divider").nextElementSibling?.id === "pin-custom-row",
+  $$("#modal-pins .btn.pin").map((b) => `${b.id}:${text(b)}`).join(" | "),
 );
 $("#pin-planned").click();
 await settle(400);
@@ -457,7 +539,21 @@ const watchRows = () =>
   }));
 await waitFor(() => watchRows()[0]?.posters === 1, { tries: 60, ms: 250 });
 const rows = watchRows();
-check("the Watchlist card lists its three states", rows.map((r) => r.name).join(",") === "Plan to Watch,Watching,Watched", rows.map((r) => r.name).join(","));
+check(
+  "the Watchlist card lists its three states, then the custom row",
+  rows.map((r) => r.name).join(",") === "Plan to Watch,Watching,Watched,Add cards in watchlist",
+  rows.map((r) => r.name).join(","),
+);
+check(
+  "the custom row is the one after the watched row",
+  rows.length === 4 && String($$(".cat-row")[3]?.dataset.catalog || "").includes("add-cards-in-watchlist"),
+  $$(".cat-row").map((r) => r.dataset.catalog).join(","),
+);
+check(
+  "an empty custom row says how to fill it, not that the catalog failed",
+  rows[3]?.posters === 0 && /add it to this row/.test(rows[3]?.text || ""),
+  JSON.stringify(rows[3]?.text?.slice(0, 90)),
+);
 check("the pinned title lands in Plan to Watch", rows[0]?.posters === 1, JSON.stringify(rows.map((r) => [r.name, r.posters])));
 check("an empty state explains how to fill it", rows[1]?.posters === 0 && /is empty/.test(rows[1]?.text || ""), JSON.stringify(rows[1]?.text?.slice(0, 90)));
 check("a pinned card carries its state tag", /Plan to Watch/.test(rows[0]?.tags || ""), JSON.stringify(rows[0]?.tags?.slice(0, 70)));
@@ -485,6 +581,25 @@ check(
   watchRows().every((r) => r.posters === 0),
   JSON.stringify(watchRows().map((r) => [r.name, r.posters])),
 );
+
+// The custom row is filled by hand: a title in it is not a watch state, so it
+// must not appear in any of the three state rows.
+await nav("#/c/discover", 600);
+const customSource = $$(".cat-row .strip").find((s) => s.querySelectorAll(".poster").length > 0);
+await waitFor(() => customSource.querySelectorAll(".poster").length > 0, { tries: 60, ms: 250 });
+customSource.querySelector(".poster").click();
+await settle(160);
+$("#pin-custom-row").click();
+await settle(400);
+check("adding a title to the custom row marks the button", $("#pin-custom-row")?.classList.contains("active") === true, $("#pin-custom-row")?.className);
+await nav("#/c/watchlist", 700);
+await waitFor(() => watchRows()[3]?.posters === 1, { tries: 60, ms: 250 });
+check(
+  "the title you add lands in the custom row",
+  watchRows()[3]?.posters === 1 && watchRows().slice(0, 3).every((r) => r.posters === 0),
+  JSON.stringify(watchRows().map((r) => [r.name, r.posters])),
+);
+
 
 /* ---------------------------------------------------------------- calendar */
 await nav("#/calendar", 260);
@@ -519,6 +634,36 @@ if (bothDay) {
     listed && /Movie/.test(captions) && /Series/.test(captions),
     captions,
   );
+  // The calendar's own pin: plan to watch only, marked as a calendar pin, and
+  // kept apart from the watchlist card's rows — which scan every state.
+  check(
+    "every release on the day offers the calendar's plan pin",
+    $$(".cal-detail .cal-item").length === $$(".cal-detail .poster").length && $$(".cal-detail .cal-pin").length > 1,
+    `${$$(".cal-detail .cal-pin").length} pins for ${$$(".cal-detail .poster").length} titles`,
+  );
+  check(
+    "the calendar pin is plan to watch, and nothing else",
+    $$(".cal-detail .cal-pin").every((b) => text(b).replace(" · pinned", "") === "Plan to Watch"),
+    $$(".cal-detail .cal-pin").map(text).join(","),
+  );
+  $$(".cal-detail .cal-pin")[0].click();
+  await settle(400);
+  check(
+    "planning a release marks the calendar pin",
+    $$(".cal-detail .cal-pin.active").length === 1,
+    $$(".cal-detail .cal-pin").map((b) => `${text(b)}:${b.className}`).join(" | "),
+  );
+  check(
+    "and it shows in Recently planned, which says it is recent-only",
+    $$(".cal-recent .poster").length === 1 && /last 30 days/.test(text($(".cal-recent"))) && /Watchlist card/.test(text($(".cal-recent"))),
+    text($(".cal-recent"))?.slice(0, 160),
+  );
+  check(
+    "the calendar's plan is marked as coming from the calendar",
+    WATCH.items.length >= 1 && WATCH.items.every((i) => i.state === "planned" && i.source === "calendar"),
+    JSON.stringify(WATCH.items.map((i) => [i.name, i.state, i.source])),
+  );
+
   // Clicking the selected day again deselects it.
   const selectedCell = $$(".cal-cell.selected")[0];
   selectedCell?.click();
@@ -539,18 +684,103 @@ check("calendar days can be selected", (() => {
 })());
 
 /* ------------------------------------------------------------ search */
-await nav("#/search?q=india", 140);
+await nav("#/search?q=india", 200);
 check("search finds results", $$(".result-list .result").length > 0, `${$$(".result-list .result").length} results`);
-await nav("#/search?q=zzzzzznope", 120);
+await nav("#/search?q=zzzzzznope", 200);
 check("search reports no match for nonsense", window.document.body.textContent.includes("Nothing matched"));
+
+/* The search screen: a long bar, the filter control inside it on the left,
+   suggestions as you type, and the panel of Type/Region/Category/Time/Sort. */
+await nav("#/search", 160);
+const bar = $(".search-bar");
+// jsdom does not load the linked stylesheet, so this one is read from the file.
+check("the search bar is a long field, not a narrow input",
+  /display:\s*flex/.test(ruleFor(".search-bar")) &&
+    /flex:\s*1/.test(ruleFor(".search-input")) &&
+    /max-width:\s*1040px/.test(ruleFor(".search-wrap")),
+  `bar: ${ruleFor(".search-bar").trim().slice(0, 40)} · input: ${ruleFor(".search-input").trim().slice(0, 30)}`);
+check("the filter control is inside the bar, on its left",
+  bar?.firstElementChild?.id === "search-filter-btn" && Boolean($("#search-filter-btn svg")),
+  bar?.firstElementChild?.id || "nothing");
+
+// Typing suggests, before you have asked for anything.
+const searchInput = $("#search-input");
+searchInput.value = "india";
+searchInput.dispatchEvent(new window.Event("input"));
+await settle(400);
+check("typing shows autocomplete suggestions",
+  !$("#search-suggest")?.hidden && $$("#search-suggest .suggest-item").length > 0,
+  `${$$("#search-suggest .suggest-item").length} suggestions`);
+check("a suggestion names what kind of thing it is",
+  $$("#search-suggest .suggest-kind").every((k) => ["Collection", "Catalog", "Title"].includes(text(k))),
+  $$("#search-suggest .suggest-kind").map(text).join(","));
+$$("#search-suggest .suggest-item")[0].click();
+await settle(300);
+check("a suggestion goes somewhere real",
+  window.location.hash.startsWith("#/c/") || window.location.hash.startsWith("#/x/"), window.location.hash);
+
+// The panel.
+await nav("#/search", 160);
+$("#search-filter-btn").click();
+await settle(140);
+check("the filter button opens the filter panel", $("#search-filters") && !$("#search-filters").hidden);
+check("the panel offers Type, Region, Category, Time and Sort",
+  $$("#search-filters .filter-row .filter-label").map(text).join(",") === "Type,Region,Category,Time,Sort",
+  $$("#search-filters .filter-row .filter-label").map(text).join(","));
+// One row of chips, as labels.
+const filterChips = (i) => [
+  ...($$("#search-filters .filter-row")[i]?.querySelectorAll(".filter-chip") || []),
+].map(text);
+check("the region row lists All regions and the industries people watch",
+  filterChips(1).length >= 9 && filterChips(1).length === (liveFilters?.regions?.length ?? 0),
+  `${filterChips(1).length} regions of ${liveFilters?.regions?.length}`);
+check("the time row offers years, decade buckets and Before",
+  filterChips(3).length > 12 && filterChips(3).includes("Before"),
+  `${filterChips(3).length} periods`);
+check("with no type chosen, only the categories both rows have are offered",
+  !filterChips(2).includes("Romance") && filterChips(2).includes("Drama"),
+  filterChips(2).join(","));
+
+// Picking a filter is a URL — so it is shareable, reloadable and undoable.
+$$("#search-filters .filter-chip").find((c) => text(c) === "Korea").click();
+await settle(300);
+check("picking a region puts it in the URL", window.location.hash.includes("region=KR"), window.location.hash);
+check("and the panel says it is active", $$("#search-filters .filter-chip.active").some((c) => text(c) === "Korea"));
+await nav("#/search?type=series", 200);
+check("with TV Series chosen the category row offers the TV genres",
+  // +1 for the "All Categories" chip at the head of the row.
+  filterChips(2).length === (liveFilters?.categories?.series?.length ?? 0) + 1 && filterChips(2).includes("Drama"),
+  filterChips(2).join(","));
+await nav("#/search?type=movie&category=Action&period=before&sort=rating", 700);
+check("a filtered browse asks the server for it",
+  requested.some((u) => u.includes("/search.json?") && u.includes("category=Action") && u.includes("sort=rating")),
+  requested.filter((u) => u.includes("/search.json")).slice(-1)[0] || "no search request");
 
 /* -------------------------------------------------------------- settings */
 await nav("#/settings", 140);
-check("settings is organised into sections, starting with Profile",
-  $$(".settings-nav .settings-tab").map(text).join(",") === "Profile,Posters,Providers,Tracking,AI,Content,Add-ons,Plugins,Layout,Server",
+const settingsTab = async (label) => {
+  $$(".settings-nav .settings-tab").find((b) => text(b) === label)?.click();
+  await settle(90);
+};
+check("settings is grouped, and every section sits under a group",
+  $$(".settings-nav .settings-group").map(text).join(",") ===
+    "What you see,Where it comes from,Tracking & assistant,This app",
+  $$(".settings-nav .settings-group").map(text).join(","));
+check("the tabs run what-you-see, where-it-comes-from, tracking, this-app",
+  $$(".settings-nav .settings-tab").map(text).join(",") ===
+    "Content,Layout,Posters,Appearance,Providers,Add-ons,Plugins,Tracking,AI,Profile,Server",
   $$(".settings-nav .settings-tab").map(text).join(","));
+check("each group name sits directly above its first tab",
+  $$(".settings-nav .settings-group").every((g) => {
+    const next = g.nextElementSibling;
+    return next && next.classList.contains("settings-tab");
+  }));
 check("an unknown stored section falls back to the first pane",
-  text($$(".settings-nav .settings-tab.active")[0]) === "Profile", text($$(".settings-nav .settings-tab.active")[0]));
+  text($$(".settings-nav .settings-tab.active")[0]) === "Content", text($$(".settings-nav .settings-tab.active")[0]));
+await settingsTab("Profile");
+check("Profile is still a section, just grouped under This app",
+  text($$(".settings-nav .settings-tab.active")[0]) === "Profile",
+  text($$(".settings-nav .settings-tab.active")[0]));
 check("the Profile pane shows the current profile",
   text($(".current-profile-name")) === "Movies & Shows" && /Current profile/i.test(text($(".current-profile"))),
   text($(".current-profile")));
@@ -560,10 +790,6 @@ check("the Profile pane lists only the active profile",
     !text($$(".settings-pane")[0]).includes("Live TV & Sports") &&
     $$(".settings-pane .profile-choices, .settings-pane .btn").length === 0,
   JSON.stringify(text($$(".settings-pane")[0])));
-const settingsTab = async (label) => {
-  $$(".settings-nav .settings-tab").find((b) => text(b) === label)?.click();
-  await settle(90);
-};
 await settingsTab("Providers");
 check("providers are TMDB, TVDB, MDBList", $$(".provider .option-title").map(text).join(",") === "TMDB,TVDB,MDBList", $$(".provider .option-title").map(text).join(","));
 check("each provider has a switch and a key box", $$(".provider .switch").length === 3 && $$(".provider .text-input[type=password]").length === 3);
@@ -575,8 +801,26 @@ check("saving a key checks the connection live", $$(".provider-check .source-sta
 check("the key is never kept in the browser", !(window.localStorage.getItem("nuvio.providers") || "").includes("smoke-tvdb-key"));
 
 await settingsTab("Tracking");
-check("AniList is gone from tracking", !$$(".provider .option-title").map(text).includes("AniList"), $$(".provider .option-title").map(text).join(","));
-check("tracking has SIMKL, Trakt and Letterboxd", $$(".provider .option-title").map(text).join(",") === "SIMKL,Trakt,Letterboxd");
+check(
+  "tracking is grouped: film & TV, then a divider, then asian drama",
+  $$(".settings-pane .group-head .option-title").map(text).join(",") === "Film & TV,Asian drama",
+  $$(".settings-pane .group-head .option-title").map(text).join(","),
+);
+check(
+  "the anime databases sit with the film trackers",
+  $$(".provider .option-title").map(text).join(",") === "Trakt,SIMKL,MyAnimeList,AniList,Letterboxd,MyDramaList",
+  $$(".provider .option-title").map(text).join(","),
+);
+check(
+  "a divider separates the drama group from the film & TV group",
+  Boolean($(".settings-pane .tracking-divider")) &&
+    /Letterboxd/.test(text($(".settings-pane .tracking-divider").previousElementSibling)) &&
+    /Asian drama/.test(text($(".settings-pane .tracking-divider").nextElementSibling)) &&
+    /MyDramaList/.test(text($(".settings-pane"))),
+  text($(".settings-pane .tracking-divider").previousElementSibling).slice(0, 40),
+);
+check("every tracker has a switch and a key box",
+  $$(".provider .switch").length === 6 && $$(".provider .text-input[type=password]").length === 6);
 
 await settingsTab("Posters");
 check("Posters offers the service and its API box", Boolean($("#poster-pattern")) && Boolean($("#poster-key")));
@@ -586,7 +830,13 @@ await settle(200);
 check("the poster service can be checked live", $$(".poster-check, .provider-check .source-status").some((s) => text(s).includes("posters ok")) || $$(".provider-check .source-status").some((s) => text(s).includes("ok")), $$(".provider-check .source-status").map(text).join(" | "));
 
 await settingsTab("AI");
-check("AI has enable, artwork, missing-poster and auto-pick options", $$(".option").length >= 4, `${$$(".option").length} options`);
+// "Pick the cards for you" is gone: Home always shows every card, in the published
+// order, so it is not offered any more.
+check(
+  "AI has enable, artwork and missing-poster options — and no card-picking option",
+  $$(".settings-pane .option").length >= 3 && !window.document.body.textContent.includes("Pick the cards for you"),
+  `${$$(".settings-pane .option").length} options`,
+);
 check("AI offers the fallback for posters without a better poster", window.document.body.textContent.includes("without a better poster"));
 check("AI has a text ask and a voice button", Boolean($("#ai-ask")) && $$(".ai-ask-form .btn").some((b) => text(b).includes("Voice")));
 
@@ -605,6 +855,29 @@ check(
   `${$$(".ai-provider").length} providers`,
 );
 check("AI has a model box", Boolean($("#ai-model")));
+// "Test connection" and "Load models" — the two things the AI section was
+// missing: whether the key works, and what the provider actually serves today.
+check(
+  "every AI provider can test its connection and list its models",
+  $$(".ai-provider .btn").filter((b) => text(b) === "Test connection").length === 4 &&
+    $$(".ai-provider .btn").filter((b) => text(b) === "Load models").length === 4,
+  $$(".ai-provider .btn").map(text).filter((t) => /Test|Load/.test(t)).join(","),
+);
+const modelRequests = requested.filter((u) => u.includes("/ai/models")).length;
+$$(".ai-provider .btn").find((b) => text(b) === "Load models")?.click();
+await settle(400);
+check("loading models asks the server for the provider's real list",
+  requested.filter((u) => u.includes("/ai/models")).length > modelRequests,
+  `${requested.filter((u) => u.includes("/ai/models")).length} requests`);
+check("the models it serves are offered as pickable chips",
+  $$(".model-list .model-chip").length > 0 && $$(".model-list .model-chip").every((c) => text(c) === "openai/gpt-oss-20b" || !/whisper/.test(text(c))),
+  `${$$(".model-list .model-chip").map(text).join(", ")}`);
+// Picking one sets the model in use — the point of listing them.
+$$(".model-list .model-chip").find((c) => text(c) === "llama-3.3-70b-versatile")?.click();
+await settle(300);
+check("picking a model sets it as the model in use",
+  posted.some((p) => p.ai?.model === "llama-3.3-70b-versatile"),
+  JSON.stringify(posted.slice(-2)));
 const groqKey = $("#ai-groq-key");
 groqKey.value = "smoke-groq-key";
 $$(".ai-provider")[0].querySelector(".btn.primary").click();
@@ -616,66 +889,75 @@ check(
 );
 check("the AI key is never kept in the browser", !(window.localStorage.getItem("nuvio.ai") || "").includes("smoke-groq-key"));
 
-/* "Pick the cards for you" chooses cards — it must not reorder them. */
-const pickOption = $$(".settings-pane .option").find((o) => text(o).includes("Pick the cards for you"));
-pickOption?.querySelector("input")?.click();
-await settle(180);
+// Home is the same grid whatever the AI settings say — even after a settings
+// round-trip, which is where the old "picks" could come back.
 await nav("#/", 220);
-const pickedTitles = $$(".icon-box .icon-name").map(text);
-const isSubsequence = (sub, all) => {
-  let i = 0;
-  for (const item of all) if (item === sub[i]) i++;
-  return i === sub.length;
-};
+const homeTitles = $$(".icon-box .icon-name").map(text);
 check(
-  "the AI-picked cards keep the published card order",
-  pickedTitles.length === 8 && isSubsequence(pickedTitles, published),
-  `${pickedTitles.length} cards: ${pickedTitles.join(", ")}`,
+  "Home is still every card, in the published order",
+  homeTitles.length === published.length && homeTitles.join(" | ") === published.join(" | "),
+  `${homeTitles.length} of ${published.length}`,
 );
 await nav("#/settings", 140);
 await settingsTab("AI");
 $$(".settings-pane .option").find((o) => text(o).includes("Pick the cards for you"))?.querySelector("input")?.click();
 await settle(160);
 
-/* ------------------------------------------------- language and country ---- */
-/* Two settings in one: the language every row is served in (and the primary
-   subtitle language), and the country whose services the three Regional OTT
-   cards show. Both are chosen from lists the server supplies. */
+/* --------------------------------------------------------- country ------ */
+/* The language *picker* is gone: it read as if it moved the regional OTT cards
+   and it never did — rows are served in the language the server holds, and that
+   language still rides on every catalog request. The country stays, because the
+   three Regional OTT cards really do follow it. */
 await settingsTab("Content");
-check("Content offers an app language and a country", Boolean($("#app-language")) && Boolean($("#app-country")));
-// Which provider supplies the content inside the rows.
+check(
+  "Content offers the country, and no longer offers a language picker",
+  Boolean($("#app-country")) && !$("#app-language"),
+  $$(".settings-pane .option-title, .settings-pane .group-head .option-title").map(text).join(","),
+);
+check(
+  "and it no longer repeats the content source, which lives with the providers",
+  $$(".settings-pane .option").filter((o) => o.querySelector("input[name=contentSource]")).length === 0,
+);
+
+/* Which provider supplies the content inside the rows — one place, with the keys. */
+await settingsTab("Providers");
 const sourcePicks = $$(".settings-pane .option").filter((o) => o.querySelector("input[name=contentSource]"));
 check(
-  "Content offers a content source: TMDB and TVDB",
+  "Providers is where the content source lives: TMDB and TVDB",
   sourcePicks.length === 2 && sourcePicks.map((o) => text(o.querySelector(".option-title"))).join(",") === "TMDB,TVDB",
   sourcePicks.map((o) => text(o.querySelector(".option-title"))).join(","),
 );
+await settingsTab("Content");
+// The server holds the user's own choice, so the check is that the pane shows
+// *that* — not that it shows a default. (The app is a live install: the settings
+// file is whatever the person using it last picked.)
+const liveSource = liveSettings.content?.source === "tvdb" ? "tvdb" : "tmdb";
 check(
-  "TMDB is the default content source",
-  sourcePicks[0].querySelector("input").checked === true,
+  "the checked content source is the one the server holds",
+  sourcePicks[liveSource === "tmdb" ? 0 : 1].querySelector("input").checked === true,
+  liveSource,
 );
 check(
   "the TVDB option explains itself honestly: it re-sources content, or it says it needs a key",
   /TVDB's titles/.test(text(sourcePicks[1])) || /Needs a TVDB key/.test(text(sourcePicks[1])),
   JSON.stringify(text(sourcePicks[1]).slice(0, 120)),
 );
-sourcePicks[1].querySelector("input").click();
-await settle(200);
-check("picking TVDB is saved to the server", posted.some((p) => p.content?.source === "tvdb"), JSON.stringify(posted.slice(-2)));
-// Re-query: choosing a source re-renders the pane, so the old nodes are detached.
+// Re-query every time: choosing a source re-renders the pane, so old nodes detach.
+await settingsTab("Providers");
 const pickSource = (label) =>
   $$(".settings-pane .option").find((o) => o.querySelector("input[name=contentSource]") && text(o.querySelector(".option-title")) === label);
-pickSource("TMDB")?.querySelector("input")?.click();
-await settle(200);
-check("and picking TMDB is saved too", posted.some((p) => p.content?.source === "tmdb"), JSON.stringify(posted.slice(-2)));
+const otherSource = liveSource === "tvdb" ? "tmdb" : "tvdb";
+pickSource(otherSource === "tvdb" ? "TVDB" : "TMDB")?.querySelector("input")?.click();
+await settle(220);
 check(
-  "the app language list is the server's own, not a short fixture",
-  $$("#app-language option").length === (liveSettings.options?.languages?.length ?? 0) &&
-    $$("#app-language option").length > 20 &&
-    $$("#app-language option").some((o) => o.value === "en-US") &&
-    $$("#app-language option").some((o) => o.value === "hi-IN"),
-  `${$$("#app-language option").length} languages offered`,
+  `picking ${otherSource.toUpperCase()} is saved to the server`,
+  posted.some((p) => p.content?.source === otherSource),
+  JSON.stringify(posted.slice(-2)),
 );
+// Put the app back where the user left it before the rest of the run continues.
+pickSource(liveSource === "tvdb" ? "TVDB" : "TMDB")?.querySelector("input")?.click();
+await settle(220);
+await settingsTab("Content");
 check(
   "the country list is the server's, and says how many services each country fills the cards with",
   $$("#app-country option").length === (liveSettings.options?.countries?.length ?? 0) &&
@@ -700,21 +982,76 @@ check(
   /service|No local service/.test(text($(".settings-pane .provider-check"))),
   text($(".settings-pane .provider-check")),
 );
-const langPick = $("#app-language");
-langPick.value = "hi-IN";
-langPick.dispatchEvent(new window.Event("change"));
-await settle(320);
-check("choosing a language is saved to the server", posted.some((p) => p.language === "hi-IN"), JSON.stringify(posted.slice(-2)));
-// The language rides on the catalog URLs, so a switch can never be answered out
-// of the browser's cache for the previous language.
+// Even with no picker, the language the server holds still rides on the catalog
+// URLs — a row can never be answered in the wrong language from a cache.
 await nav("#/", 220);
 $$(".hero-cats button.chip")[0]?.click();
 await settle(700);
 check(
-  "the chosen language rides on the catalog requests",
-  requested.some((u) => u.includes("lang=hi-IN")),
+  "the server's language still rides on the catalog requests",
+  requested.some((u) => u.includes(`lang=${liveSettings.language || "en-US"}`)),
   requested.filter((u) => u.includes("/catalog/")).slice(-1)[0] || "no catalog request",
 );
+
+/* ---------------------------------------------------------- appearance ---- */
+/* The accent is one colour with three parts (flat, RGB tint, deep gradient), so
+   a pick re-tints the whole app instead of half of it. Motion is one switch. */
+await nav("#/settings", 140);
+await settingsTab("Appearance");
+const swatches = $$(".settings-pane .accent-swatch");
+check(
+  "Appearance offers more than one accent colour",
+  swatches.length >= 6 && Boolean($("#accent-gold")),
+  `${swatches.length} accents`,
+);
+// jsdom never loads the linked stylesheet, so the colours are read from the
+// root element's own style — which is exactly where applyTheme writes them.
+const rootVar = (name) => window.document.documentElement.style.getPropertyValue(name).trim();
+check(
+  "the accent in use is the one marked, and the document is painted with it",
+  $$(".settings-pane .accent-swatch.active").length === 1 &&
+    rootVar("--accent").length > 0 &&
+    rootVar("--accent-rgb").split(",").length === 3 &&
+    rootVar("--accent-deep").length > 0,
+  `--accent: ${rootVar("--accent")}`,
+);
+$("#accent-violet").click();
+await settle(160);
+check(
+  "picking an accent changes the colour the app is painted in",
+  rootVar("--accent") === "#9d89e8" && $("#accent-violet").classList.contains("active"),
+  rootVar("--accent"),
+);
+check(
+  "the tints follow the accent, so the app is not half gold",
+  rootVar("--accent-rgb") === "157, 137, 232" &&
+    /rgba\(var\(--accent-rgb\)/.test(css) === true &&
+    /rgba\(\s*200,\s*169,\s*106/.test(css) === false,
+  rootVar("--accent-rgb"),
+);
+$("#accent-gold").click();
+await settle(160);
+check(
+  "and it can be put back",
+  rootVar("--accent") === "#c8a96a" && rootVar("--accent-rgb") === "200, 169, 106",
+);
+check(
+  "Motion offers follow-system, always and never",
+  $$(".settings-pane .option").filter((o) => o.querySelector("input[name=motion]")).length === 3,
+  $$(".settings-pane .option-title").map(text).join(","),
+);
+const motionOff = $$(".settings-pane .option").find((o) => text(o).includes("No animation"));
+motionOff.querySelector("input").click();
+await settle(160);
+check(
+  "choosing no animation stops the app's transitions",
+  window.document.documentElement.classList.contains("motion-off") && /\.motion-off \*[\s\S]{0,40}animation:\s*none/.test(css),
+  [...window.document.documentElement.classList].join(" "),
+);
+const motionAuto = $$(".settings-pane .option").find((o) => text(o).includes("Follow system"));
+motionAuto.querySelector("input").click();
+await settle(160);
+check("and the system default can be put back", !window.document.documentElement.classList.contains("motion-off"));
 await nav("#/settings", 140);
 
 await settingsTab("Plugins");

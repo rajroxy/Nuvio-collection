@@ -153,6 +153,11 @@ async function specsFor(entry, media, opts = {}) {
     case "watchlist":
       return [{ watchlist: entry.state || "planned" }];
 
+    // A custom row — the one you fill yourself. Same deal: served from the
+    // stored titles, not from TMDB, but published and paged as a normal row.
+    case "custom":
+      return [{ custom: entry.row || "add-cards" }];
+
     default:
       return [];
   }

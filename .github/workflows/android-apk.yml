@@ -1,0 +1,73 @@
+# Build the Android TV APK on GitHub's runners and hand back a download.
+#
+# The build cannot run in a plain sandbox (no JDK and no Android SDK), which is
+# why the APK is produced *here* instead: a machine that has both, plus the
+# Capacitor CLI that copies `desktop/ui` into the APK.
+#
+# Run it from Actions → "Android TV APK" → Run workflow, then download
+# `nuvio-collections-debug-apk` from the run's Artifacts section.
+#
+# The APK is a thin client: it renders the UI and talks to the catalog server
+# over https. Set the repository variable `NUVIO_HOST` (Settings → Secrets and
+# variables → Actions → Variables) to the deployed addon host, e.g.
+# `https://your-addon-host.example.com`, and it is baked into the build. With the
+# variable unset the app still builds and starts, and says it cannot reach the
+# server instead of failing silently.
+name: Android TV APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the app's dependencies
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Point the packaged app at the catalog server
+        if: vars.NUVIO_HOST != ''
+        working-directory: desktop
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const host = process.env.NUVIO_HOST;
+            const file = "ui/config.js";
+            const before = fs.readFileSync(file, "utf8");
+            const after = before.replace(/window\.NUVIO_HOST = "";/, `window.NUVIO_HOST = "${host}";`);
+            fs.writeFileSync(file, after);
+            console.log(after.includes(host) ? `NUVIO_HOST set to ${host}` : "NUVIO_HOST was not applied");
+          '
+        env:
+          NUVIO_HOST: ${{ vars.NUVIO_HOST }}
+
+      - name: Copy the UI into the Android project
+        working-directory: desktop
+        run: npm run android:sync
+
+      - name: Build the debug APK
+        working-directory: desktop/android
+        run: sh ./gradlew assembleDebug --no-daemon
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuvio-collections-debug-apk
+          path: desktop/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

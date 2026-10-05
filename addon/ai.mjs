@@ -106,8 +106,22 @@ const SYSTEM = [
   "If the request names a title, answer with that title.",
 ].join(" ");
 
+/**
+ * Models that think before they answer.
+ *
+ * `gpt-oss` and friends spend the token budget on reasoning, and with a small
+ * budget they return an **empty** `content` — which reaches the app as "the model
+ * output nothing". They get a much larger budget, and the provider is asked to
+ * keep the reasoning short.
+ */
+const REASONING = /gpt-oss|\bo[1-4](-|$)|deepseek-r1|reasoning|qwq/i;
+const ANSWER_TOKENS = 512;
+const REASONING_TOKENS = 4096;
+
 /** One chat completion, in whichever shape the provider speaks. */
-async function complete(cfg, key, model, prompt, { maxTokens = 512 } = {}) {
+async function complete(cfg, key, model, prompt, { maxTokens } = {}) {
+  const thinking = REASONING.test(model);
+  const budget = maxTokens || (thinking ? REASONING_TOKENS : ANSWER_TOKENS);
   if (cfg.shape === "gemini") {
     const url = `${cfg.base}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
     const res = await fetch(url, {
@@ -116,7 +130,7 @@ async function complete(cfg, key, model, prompt, { maxTokens = 512 } = {}) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: maxTokens },
+        generationConfig: { temperature: 0, maxOutputTokens: budget },
       }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -134,7 +148,8 @@ async function complete(cfg, key, model, prompt, { maxTokens = 512 } = {}) {
         { role: "user", content: prompt },
       ],
       temperature: 0,
-      max_tokens: maxTokens,
+      max_tokens: budget,
+      ...(thinking ? { reasoning_effort: "low" } : {}),
     }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -204,19 +219,40 @@ export async function askAI(prompt, opts = {}) {
   if (!key) return { ok: false, text: `no ${cfg.label} key saved` };
   let lastError = "no model answered";
 
-  /** Ask with one model. Returns the successful answer, or the error it hit. */
+  /**
+   * Ask with one model. Returns the answer, or the error it hit.
+   *
+   * An empty answer is retried with a full token budget, because that is exactly
+   * what a reasoning model returns when it thinks its budget away: no error, no
+   * text — the "the model doesn't output anything" report.
+   */
   const attempt = async (candidate) => {
-    try {
-      const query = tidy(await complete(cfg, key, candidate, text));
-      if (!query) {
-        lastError = `${candidate} returned nothing`;
-        return null;
+    const ask = async (maxTokens) => {
+      try {
+        return { raw: await complete(cfg, key, candidate, text, maxTokens ? { maxTokens } : {}) };
+      } catch (err) {
+        return { err };
       }
-      return { ok: true, provider, model: candidate, query, text: `“${query}” · ${cfg.label}` };
-    } catch (err) {
-      lastError = `${candidate} → ${err.message}`;
-      return err;
+    };
+    let out = await ask(undefined);
+    if (out.err) {
+      lastError = `${candidate} → ${out.err.message}`;
+      return out.err;
     }
+    let query = tidy(out.raw);
+    if (!query) {
+      out = await ask(REASONING_TOKENS);
+      if (out.err) {
+        lastError = `${candidate} → ${out.err.message}`;
+        return out.err;
+      }
+      query = tidy(out.raw);
+    }
+    if (!query) {
+      lastError = `${candidate} returned nothing`;
+      return null;
+    }
+    return { ok: true, provider, model: candidate, query, text: `“${query}” · ${cfg.label}` };
   };
 
   const model = opts.model || aiModel(provider);
@@ -239,6 +275,31 @@ export async function askAI(prompt, opts = {}) {
   return { ok: false, text: `${cfg.label} — ${lastError}` };
 }
 
+/**
+ * The provider's current model list — what the Settings screen's "Load models"
+ * shows, and what the model box is meant to be filled from.
+ *
+ * Requesting it is also a connection test: the list only comes back with a valid
+ * key, which is why the button can do both jobs at once.
+ */
+export async function aiModels(name) {
+  const cfg = AI_PROVIDERS[name];
+  if (!cfg) return { ok: false, text: "unknown AI provider", models: [] };
+  const key = aiKey(name);
+  if (!key) return { ok: false, text: `no ${cfg.label} key saved — paste one first`, models: [] };
+  const ids = await listModels(cfg, key);
+  if (!ids.length) return { ok: false, text: `${cfg.label} — no models listed (check the key)`, models: [] };
+  const chat = ids.filter((id) => !NOT_CHAT.test(id));
+  return {
+    ok: true,
+    models: ids,
+    chat,
+    // The same pick the Ask box makes, so "Use" on a model does not have to guess.
+    recommended: (chat.filter((id) => SMALL_AND_FAST.test(id))[0]) || chat[0] || "",
+    text: `${ids.length} models · ${chat.length} for chat · ${cfg.label}`,
+  };
+}
+
 /** Verify a key by actually calling the provider with it. */
 export async function verifyAI(name, key) {
   const cfg = AI_PROVIDERS[name];
@@ -251,7 +312,16 @@ export async function verifyAI(name, key) {
       : cfg.models;
     const res = await fetch(url, { headers: { authorization: `Bearer ${useKey}` } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return { ok: true, text: `connected · ${cfg.label}` };
+    // Report what it serves too: a key that works but only lists guard models is
+    // the case that used to look "connected" and then answer nothing.
+    const listed = await listModels(cfg, useKey);
+    const chat = listed.filter((id) => !NOT_CHAT.test(id));
+    return {
+      ok: true,
+      models: listed,
+      chat,
+      text: `connected · ${cfg.label}${chat.length ? ` · ${chat.length} chat models` : " · no chat models listed"}`,
+    };
   } catch (err) {
     return { ok: false, text: `${cfg.label} — ${err.message}` };
   }

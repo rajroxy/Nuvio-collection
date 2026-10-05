@@ -22,6 +22,10 @@ addon/
   watchlist.mjs             the pins: plan to watch / watching / watched
   watchlist.json            RUNTIME: your pinned titles (git-ignored)
   ai.mjs                    the free AI providers behind the Ask box
+  watchlist.mjs             the pins and their states (Plan to Watch / Watching /
+                            Watched), stored in addon/watchlist.json
+  customrows.mjs            the custom rows you fill yourself, stored in
+                            addon/customrows.json
   selftest.mjs              runs the handler against a stubbed TMDB (`npm test`)
 scripts/
   collections.mjs           the collection set — single source of truth
@@ -33,6 +37,8 @@ scripts/
   probe-genre-decades.mjs   verifies the Genre from ◆ Decades rows, per row type
   probe-ott.mjs             every OTT row, and which filter empties one
   probe-ai.mjs              which AI provider answers, and which models it serves
+  probe-platforms.mjs       adds newly verified global OTT platforms to the fact
+                            table (exact-name match, skips ids already recorded)
   scan-rows.mjs             every published row, and how deep it can be scrolled
   audit-catalogs.mjs        asks TMDB for every row, reports the empty ones
   ui-smoke.mjs              runs the whole UI headless (jsdom) against the server
@@ -253,6 +259,40 @@ curl -X POST localhost:4173/watchlist -H 'content-type: application/json' \
   -d '{"item":{"id":"tmdb:550","type":"movie","name":"Fight Club"},"state":"planned"}'
 ```
 
+A pin also records **where it was made** (`source: "calendar"` for a plan made on
+the Calendar screen). That is what keeps the Calendar's own pins apart from the
+watchlist rows — see *Calendar* below — without giving them a second store.
+
+### Custom rows
+
+After the three states the Watchlist card carries one more row: **Add cards in
+watchlist**. It is not a state and it is not TMDB — it holds exactly the titles you
+put in it (open any title and use the dashed **＋ Add cards in watchlist** button in
+its modal; pressing it again takes the title back out). Nothing moves a title in or
+out of it on its own, which is the point: it is where a handful of things you mean
+to get to go when "Plan to Watch" is not the right label.
+
+It is backed by `addon/customrows.mjs` (`addon/customrows.json`, git-ignored, and
+`NUVIO_CUSTOM_FILE` overrides the path so tests never touch the real one), served
+through the ordinary catalog route, so it pages, scrolls and publishes in the
+manifest exactly like every other row.
+
+```sh
+curl localhost:4173/customrows.json
+curl -X POST localhost:4173/customrows -H 'content-type: application/json' \
+  -d '{"row":"add-cards","item":{"id":"tmdb:550","type":"movie","name":"Fight Club"}}'
+```
+
+### Shuffle, and why it can look broken
+
+`/catalog/{type}/{id}/shuffle=12.json` draws a random 12 from a pool several times
+the sample size, so two draws are not the same handful reordered. Two things made
+it *look* dead, and both are fixed: the URL was byte-identical every time, so the
+browser answered out of its cache, and the response carried `max-age=900`. A
+shuffle is now requested with a fresh `_=<n>` parameter and answered
+`cache-control: no-store` — every JSON response declares its caching explicitly
+now, so "answers differently each time" can never be cached by accident.
+
 ### AI providers (free)
 
 The Ask box in **Settings → AI** is a real integration, not a text box. Pick one of
@@ -387,6 +427,21 @@ on the same origin.
 
 ### Test it as an Electron app
 
+**It cannot run on the sandbox** — Electron opens a window, and there is no display
+here, so the preview url is the *web* app (`serve.mjs` + `desktop/ui`). To run the
+real desktop shell, do it on your own machine:
+
+```sh
+cd desktop
+npm install          # downloads the Electron binary
+npm start            # Electron starts serve.mjs on a free port and opens the window
+```
+
+`main.js` starts the embedded server with `port: 0` (the OS picks a free port) and
+loads `ui/index.html?api=http://127.0.0.1:<port>` — so the Electron app is fully
+self-contained and needs no deployed host, unlike the APK. Only the *first* run
+needs a TMDB key (environment variable or Settings → Providers → TMDB).
+
 ```sh
 cd desktop
 npm install          # installs electron (~100MB; needs network)
@@ -448,6 +503,15 @@ On the sandbox `npm run android:build` stops on the first line with
 that is the only missing piece; the project, TV manifest, embedded UI and Gradle
 wrapper are all in place.
 
+**2b — or let GitHub build it for you.** `.github/workflows/android-apk.yml` runs
+the same three steps on a runner that *has* a JDK and the Android SDK, and uploads
+the debug APK as a downloadable artifact. From **Actions → Android TV APK → Run
+workflow**, then open the run and download `nuvio-collections-debug-apk`. Set the
+repository variable `NUVIO_HOST` (Settings → Secrets and variables → Actions →
+Variables) to the deployed host and it is baked into the APK; with the variable
+unset the app still builds and starts, and reports that it cannot reach the
+server rather than failing silently.
+
 **3 — install it on the TV.** Either sideload the APK:
 
 ```sh
@@ -476,21 +540,26 @@ The UI is Nuvio-shaped:
   The cards are always in the published order: *pick the cards for you* chooses
   **which** cards appear, never their order, so Home never looks shuffled.
 - **Watchlist** — the first card, holding the three states a title moves through:
-  **Plan to Watch**, **Watching**, **Watched**. Pin a title from its modal (open any
-  title and pick a state; picking the current state unpins it) and it lands in the
-  matching row, tagged with its state. Same rows the addon publishes, so Nuvio sees
-them too.
+  **Plan to Watch**, **Watching**, **Watched**, and then the custom row **Add cards
+  in watchlist**. Pin a title from its modal (open any title and pick a state;
+  picking the current state unpins it) and it lands in the matching row, tagged
+  with its state. The three state rows scan *everything* in that state. Same rows
+  the addon publishes, so Nuvio sees them too.
 - **Collection** — its cover, then its catalogs as rows. Each row names its catalog
-  and has a **Shuffle** icon and an **Explore** button *on the label line* — the
-  shuffle is per collection, and it keeps newest-first catalogs (`◆ Top 10`,
-  Airing Today, Airing This Week, On the Air, Now Playing, Latest, New Release,
-  Trending) and the Watchlist states in their own order pinned. **Explore** scrolls endlessly, and
-  its header carries only the card label and the catalog label. Under that header
-  sit **three sample rows** — each a random 12-title draw from the catalog — drawn
-exactly like a normal row: **no `Shuffle 1/2/3` labels and no controls of their
-own**. A **horizontal divider** closes them off from the row below, and there is
-**one Shuffle button, at the top right of the header**, which redraws all three at
-once.
+  and carries an **Explore** button *on the label line* — there is no shuffle icon
+  there, because reordering a card's catalogs is not what "shuffle" means.
+  **Explore** scrolls endlessly, and its header carries only the card label and the
+  catalog label. Under that header sit **three sample rows** — each a random
+  12-title draw from the catalog — drawn exactly like a normal row: **no
+  `Shuffle 1/2/3` labels and no controls of their own**. A **horizontal divider**
+closes them off from the row below, and there is **one Shuffle button, at the top
+right of the header**, which redraws all three at once.
+- **Scrolling** — the wheel moves the row of cards under the cursor sideways, and
+  it never falls through to the page: at either end of a row the row simply stops,
+  so the screen cannot be dragged away while you are browsing titles. The page
+  scrolls normally anywhere the cursor is *not* over a row. Rows carry no visible
+  scrollbar (the strip is still scrollable — it just is not drawn). Shift+wheel and
+  trackpad horizontal gestures keep their normal meaning.
 - **How deep a row goes** — the addon reads TMDB 20 titles at a time and keeps a
   growing, cached pool per catalog, so each window of 40 continues where the last
   stopped and repeat requests cost nothing. A row can serve up to **300 titles**
@@ -507,40 +576,66 @@ once.
   A day lists **films and shows together** (each card says which it is), clicking the
   selected day again **deselects** it, and the grid carries no captions — no
   "everything releasing this month", no "N titles" line over the results.
+  Every release carries its own **Plan to Watch** pin, and it is deliberately not a
+  watchlist row: a calendar pin is **plan-only** (a dated release you mean to get
+  to) and **recent-only** — *Recently planned* under the grid lists the last 30
+days, while the Watchlist card lists every Plan to Watch, Watching and Watched
+title whatever its date. Calendar pins are tagged `source: "calendar"` so the two
+can never be confused.
 - **Search** — searches **titles** (TMDB, through the server) as well as collections
   and catalogs in the current row. This is what the Ask box feeds.
-- **Settings**, in sections: **Profile** (shows only the profile you are on —
-  switching happens on the switch-profile screen), **Posters**, **Providers**
-  (TMDB / TVDB / MDBList — paste a key, enable it), **Tracking** (SIMKL / Trakt /
-  Letterboxd), **AI** (the free providers — Groq Cloud, Google AI Studio,
-  OpenRouter, Cerebras Cloud — each with its key box and a *Check key*, an optional
-  model override, plus enable, *classic posters & banners → high quality*, the
-  fallback for posters without a better poster, *pick the cards for you*, and a
-  text/voice ask box), **Content** (which provider supplies the row **content** —
-  TMDB or TVDB — the **app language**, the **country**, and SFW / NSFW),
-  **Add-ons**, **Plugins**, **Layout**, **Server**.
+- **Settings**, grouped, with the group name over its tabs:
+  **What you see** — **Content** (the country and SFW / NSFW), **Layout**,
+  **Posters**, **Appearance** (the accent colour and how much the app moves);
+  **Where it comes from** — **Providers** (TMDB / TVDB / MDBList keys *and* which
+  of them supplies the row content), **Add-ons**, **Plugins**;
+  **Tracking & assistant** — **Tracking** (film & TV trackers, then a divider, then
+  the drama trackers), **AI** (the free providers — Groq Cloud, Google AI Studio,
+  OpenRouter, Cerebras Cloud — each with its key box, a *Test connection* and a
+  *Load models* that turns the models the provider really serves into pickable
+  chips, plus the poster options and a text/voice ask box);
+  **This app** — **Profile** (only the profile you are on — switching happens on the
+  switch-profile screen) and **Server**.
 
-**Settings → Content** holds the three settings that change *what* you see:
+**Settings → Content** holds the settings that change *what* you see:
 
-- **Content source** — TMDB (default) or TVDB. See *Content source* above: TMDB
-  builds the rows either way, TVDB supplies their titles, translations and art.
-  Choosing TVDB without a TVDB key says so in place, and the app keeps serving
-  TMDB content rather than empty rows.
-- **App language** — one setting with two jobs, because you want your subtitles in
-  the language you browse in: every row is served in it (TMDB's `language`, so
-  titles, names and overviews are translated — `सीआईडी` instead of `C.I.D.`), and
-  it is the **primary subtitle language** a player should prefer. 43 languages,
-  with an English fallback where a title has no translation. It rides on the
-  catalog URL as `?lang=`, so switching is also a different URL for the browser
-  cache — a switch can never be answered out of the previous language.
 - **Country** — where you are. The three **Regional OTT** cards show this
   country's own services, and the global platform rows report availability for it.
   The list carries how many services each country fills the cards with, and says
   so when a country has none. Changing it re-reads the card list immediately, so
   the regional cards change under you.
+- **SFW / NSFW** — one switch, mapped to TMDB's `include_adult`.
 
-All three persist server-side through `POST /settings` (they are read by the
-addon, not just the page), and mirror into `localStorage` for instant feedback.
+**Content source moved to Settings → Providers.** TMDB and TVDB are providers; the
+switch that says *which* one supplies the titles inside a row belongs next to the
+keys that make it possible, not in a second place that drifts from it:
+
+- **Content source** — TMDB (default) or TVDB. See *Content source* above: TMDB
+  builds the rows either way, TVDB supplies their titles, translations and art.
+  Choosing TVDB without a TVDB key says so in place, and the app keeps serving
+  TMDB content rather than empty rows.
+
+**The app-language picker is gone.** It read as if it changed the regional OTT
+cards and it never did — nothing about a row's *membership* is language-dependent.
+Rows are served in English, and the server's `language` setting still rides on
+every catalog URL as `?lang=`.
+
+**Settings → Appearance** is the accent and the motion:
+
+- **Accent colour** — the colour the app is painted in. Every tint in the
+  stylesheet is built from `--accent-rgb` and every gradient from `--accent-deep`,
+  so one pick re-tints buttons, chips, borders, highlights and the calendar
+  together instead of leaving half the UI gold. Gold stays the default.
+- **Motion** — *Follow system* (default, honours `prefers-reduced-motion`),
+  *Always animate*, or *No animation*. It covers the screen-to-screen transition,
+  hover lifts and the row highlight in one switch.
+
+Both persist in `localStorage` (`nuvio.accent`, `nuvio.motion`) and are applied as
+CSS custom properties on the document root.
+
+Country, content source, the safety switch and the server-side language persist
+through `POST /settings` (they are read by the addon, not just the page), and
+mirror into `localStorage` for instant feedback.
 
 **Add-ons** and **Plugins & repositories** are two separate sections. Stremio/Nuvio
 add-ons (which this project is) are checked live — the app fetches `manifest.json`

@@ -48,15 +48,24 @@ Routing mirrors Nuvio:
 | Sources | `#/s/<id>/<name>` | providers as a **graph**, grouped by add-on / plugin / repo |
 | Calendar | `#/calendar` | a real **month calendar** of releases (films *and* shows) |
 | Search | `#/search` | searches **titles**, collections and catalogs |
-| Settings | `#/settings` | sectioned: Profile · Posters · Providers · Tracking · AI · Content · Add-ons · Plugins · Layout · Server |
+| Settings | `#/settings` | grouped: **What you see** (Content · Layout · Posters · Appearance) · **Where it comes from** (Providers · Add-ons · Plugins) · **Tracking & assistant** (Tracking · AI) · **This app** (Profile · Server) |
 
-The **Content** section holds the three settings that change *what you see*:
-**content source** (TMDB, the default, or TVDB), **app language** (43 languages —
-the language every row is served in *and* the primary subtitle language) and
-**country** (whose own services the three Regional OTT cards show). The language
-and country lists come from the server (`/settings` → `options`), the language
-rides on every catalog URL as `?lang=`, and changing the country re-reads
-`/collections.json` because the regional cards name different services.
+**Content** holds the country (whose own services the three Regional OTT cards
+show) and the SFW / NSFW switch. The country list comes from the server
+(`/settings` → `options`) and changing it re-reads `/collections.json` because the
+regional cards name different services.
+
+**Content source lives under Providers.** TMDB and TVDB are providers; which one
+supplies the titles inside a row belongs next to their keys, not in a second
+section that drifts from them. The **app-language picker is gone** — it read as if
+it moved the regional cards (it never did); rows are served in English and the
+server's `language` still rides on every catalog URL as `?lang=`.
+
+**Appearance** is the accent colour (the whole app is tinted from `--accent-rgb` /
+`--accent-deep`, so one pick re-tints buttons, chips, borders and highlights
+together — Gold is the default, not the only colour) and **Motion** (*Follow
+system* / *Always animate* / *No animation*, covering the screen transition, hover
+lifts and the row highlight).
 
 **Profile picks the app up.** A launch with no specific link lands on the
 **switch-profile screen** (`#/profiles`), listing the two profiles as tiles; picking
@@ -79,21 +88,30 @@ default; picking Shows swaps both the cards *and* the hero banner to that row. T
 banner shows no counters — only its **Explore** action.
 
 **Watchlist comes first, then a vertical divider**, then **Discover ◆ Top 10** and
-the rest of the cards. The cards are always in the published order — *pick the
-cards for you* chooses **which** cards appear, never their order.
+the rest of the cards. The cards are always in the published order, and every card
+appears — there is no picked subset on Home any more.
 
 The **Watchlist** card holds the three states a pinned title moves through:
-**Plan to Watch**, **Watching**, **Watched**. Open any title and pick a state in its
+**Plan to Watch**, **Watching**, **Watched** — and then the custom row **Add cards
+in watchlist**, which holds exactly the titles you add (the dashed button in a
+title's modal toggles it) and nothing else. Open any title and pick a state in its
 modal to pin it there (picking the state it is already in unpins it), and the card
-updates. The pins live on the server (`/watchlist`, stored in
-`addon/watchlist.json`) so Nuvio sees the same rows.
+updates. The pins live on the server (`/watchlist`, and the custom row in
+`/customrows` → `addon/customrows.json`) so Nuvio sees the same rows.
 
 **Catalog labels are clickable** — in the hero banner and on a collection page each
 catalog name is a chip that opens that catalog inside the card.
 
 **Explore** shows only the card label and the catalog label in its header (with a
-catalog switcher) and a **Shuffle** that jumps to another catalog in the same
-collection. Under the header sit **three sample rows**, each drawing a random 12
+catalog switcher) and a **Shuffle** that redraws its sample rows with fresh random
+draws — requested with a cache-busting `_=<n>` parameter and answered
+`cache-control: no-store`, because a cached identical URL is what made Shuffle look
+like a button that did nothing.
+
+**The wheel moves the row, never the page.** Pointing at a strip and scrolling
+scrolls that strip sideways; at either end the row simply stops, so the page cannot
+be dragged away while the cursor is on the titles. The page scrolls normally
+anywhere the cursor is not over a row, and strips draw no scrollbar. Under the header sit **three sample rows**, each drawing a random 12
 titles from that catalog. They are drawn **exactly like a normal row**: no
 `Shuffle 1/2/3` labels and no control of their own. A **horizontal divider** closes
 them off from the catalog below, and there is **one Shuffle button at the top
@@ -112,20 +130,24 @@ end.
 previous/next month navigation — not a list of Latest/New Release rows. A day
 lists **films and shows together** (each card is tagged with which it is), clicking
 the selected day again **deselects** it, and the grid carries no caption text.
+Every release has its own **Plan to Watch** pin, and it is not a watchlist row: it
+is plan-only and the *Recently planned* list under the grid is recent-only (last
+30 days), while the Watchlist card scans every state whatever the date. The pins
+are tagged `source: "calendar"` on the server.
 
 A tile is entered by clicking its **artwork** — not the whole tile. Back (Escape /
 ← button) returns home; Escape in Explore goes back to the collection. A
 collection with no catalogs yet opens to a "cover art only" message.
 
-Each catalog row carries its own **Shuffle** icon and **Explore** button on the
-label line. Shuffle reorders that collection's catalogs but keeps newest-first ones
-(`◆ Top 10`, Airing Today, Airing This Week, On the Air, Now Playing, Latest, New
-Release, Trending) and the Watchlist states (Plan to Watch, Watching, Watched)
-pinned.
+Each catalog row carries its own **Explore** button on the label line. There is no
+shuffle icon there: reordering a card's catalogs is not what "shuffle" means — the
+only shuffle lives in Explore, over the titles.
 
 **AI** (Settings) starts with the providers: **Groq Cloud** (the default),
 **Google AI Studio**, **OpenRouter** and **Cerebras Cloud** — all free-tier, each
-with its own key box, a *Check key* button and a link to get a key, plus an
+with its own key box, a **Test connection** button, a **Load models** button that
+lists the models the provider actually serves as pickable chips, and a link to get
+a key, plus an
 optional **model** override. Paste a key and the ask box stops being a text box:
 the server calls the provider, turns "a lonely detective in the rain" into a search
 query, and hands it to the title search. With no key it searches the words you
@@ -133,8 +155,9 @@ typed, so it still works. Keys never reach the page (`/settings` and `/ai.json` 
 only whether one is set), and every call is plain `fetch` from Node — no SDK.
 
 The section also requests the next-bigger artwork size for classic posters and
-banners, shows a subset of cards on Home (*pick the cards for you* — which, in the
-normal card order), and takes a typed or spoken sentence. Speech uses the browser's
+banners, and takes a typed or spoken sentence in its ask box (*pick the cards for
+you* is gone: the cards Home shows are the published set, in the published order).
+Speech uses the browser's
 `SpeechRecognition` when the build has it; otherwise the ask box falls back to
 typing.
 
@@ -144,7 +167,9 @@ title). The upgrade is silent — no `BTTR` badge is drawn on the cards. There i
 API-key box and a **Check service** button that verifies the
 pattern really returns an image.
 
-**Providers** (TMDB / TVDB / MDBList) and **Tracking** (SIMKL / Trakt / Letterboxd)
+**Providers** (TMDB / TVDB / MDBList — plus the content-source switch) and
+**Tracking** (Trakt / SIMKL / MyAnimeList / AniList / Letterboxd, then a divider,
+MyDramaList)
 take a key and an enable toggle. Keys are POSTed to the server's `/settings`, which
 stores them in `addon/settings.json` (git-ignored); the response never returns a
 key, only whether one is set, and **Check connection** verifies it. TMDB is the
@@ -211,6 +236,11 @@ npm run android:build     # → android/app/build/outputs/apk/debug/app-debug.ap
 npm run android:apk       # release build
 npm run android:open      # opens the project in Android Studio
 ```
+
+**Or let CI build it**: `.github/workflows/android-apk.yml` builds the debug APK on
+a runner with a JDK and the Android SDK and uploads it as the
+`nuvio-collections-debug-apk` artifact (Actions → Android TV APK → Run workflow).
+Set the repository variable `NUVIO_HOST` to bake the server host in.
 
 **This build cannot be compiled on the Freebuff sandbox**: there is no `java`,
 no `gradle` and no Android SDK (`ANDROID_HOME` is unset). Running the build there
