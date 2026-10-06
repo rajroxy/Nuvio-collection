@@ -2016,3 +2016,55 @@ select.text-input option { background: #14161c; color: var(--text); }
 /* The frame itself carries no inner padding, so a card's pictures reach its edges
    instead of leaving a band above and below them. */
 .icon-wrap, .hero-art { padding: 0; }
+
+/* --------------------------------------------- a card's label, over its picture */
+
+/* The name and the year are drawn **on** the artwork, at its bottom edge, the way
+   Nuvio draws them — so there is no separate dark strip under every card to read as
+   a black band, and the picture is the whole card. A card with no picture to show
+   keeps its label underneath its initials instead. */
+.poster { position: relative; background: var(--panel); }
+.poster img { border-radius: 0; }
+.poster-cap {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 34px 11px 10px;
+  background: linear-gradient(0deg, rgba(4, 5, 8, 0.94) 0%, rgba(4, 5, 8, 0.72) 45%, rgba(4, 5, 8, 0) 100%);
+  pointer-events: none;
+}
+.poster-name { color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7); }
+.poster-sub { color: rgba(255, 255, 255, 0.78); }
+/* No picture: the initials plate, and the label below it as plain text. */
+.poster-fallback + .poster-cap { position: static; padding: 9px 11px 12px; background: none; }
+.poster-fallback + .poster-cap .poster-name { color: var(--text); text-shadow: none; }
+.poster-fallback + .poster-cap .poster-sub { color: var(--muted); }
+
+/* ------------------------------------------------------------- dropdowns, again */
+
+/* Every `<select>` is one of the app's own fields: the same fill and radius as the
+   text inputs, and a chevron the app draws. Written with the state selectors too,
+   because a select only styled in its resting state is a select that loses the race
+   with the generic `.text-input` fill — the reported "dropdown didn't get styled". */
+select.text-input,
+select.text-input:hover,
+select.text-input:focus,
+select.text-input:focus-visible {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 0;
+  padding: 10px 38px 10px 14px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.07);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23b9bfcc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+select.text-input:hover { background-color: rgba(255, 255, 255, 0.11); }
+select.text-input option { background: #14161c; color: var(--text); }
+
+/* The suggestion dropdown's last line: the way into the results themselves. */
+.suggest-more .suggest-text { font-weight: 800; }

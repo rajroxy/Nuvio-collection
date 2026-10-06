@@ -201,14 +201,18 @@ const PROVIDER_IDS = new Set(SEARCH_PROVIDERS.map(([id]) => id));
 const MOOD_IDS = new Set(SEARCH_MOODS.map(([id]) => id));
 const THEME_IDS = new Set(SEARCH_THEMES.map(([id]) => id));
 
-/** The period choices: the last eleven years, then the decade buckets, then "Before". */
+/**
+ * The period choices: **every year on its own**, newest first, then "Before".
+ *
+ * It used to be the last eleven years and then two decade buckets, so "Time" could
+ * not answer "2013" or "1998" — the two years you might actually be looking for were
+ * folded into ranges. TMDB filters by a single year natively, so each one is a chip.
+ */
 function periodChoices() {
   const thisYear = new Date().getUTCFullYear();
-  const years = Array.from({ length: 11 }, (_, i) => {
-    const y = String(thisYear - i);
-    return [y, y];
-  });
-  return [["all", "All Time Periods"], ...years, ["2015-2011", "2015-2011"], ["2010-2000", "2010-2000"], ["before", "Before"]];
+  const years = [];
+  for (let y = thisYear; y >= 1950; y -= 1) years.push([String(y), String(y)]);
+  return [["all", "All Time Periods"], ...years, ["before", "Before"]];
 }
 
 const SEARCH_SORTS = [
@@ -819,14 +823,47 @@ function deepen(entry, need) {
 }
 
 /**
+ * Countries the shuffle skims, so one draw is not one country's chart.
+ *
+ * A row sorted by popularity is, in practice, an American chart: the same big titles
+ * at the top of it every time. Shuffle samples the row *and* a handful of other
+ * origin countries, so the draw covers what the row holds across the world.
+ */
+const SHUFFLE_COUNTRIES = [
+  "US", "IN", "JP", "KR", "GB", "FR", "ES", "IT", "DE", "BR", "MX", "TR",
+  "NG", "CN", "HK", "TW", "TH", "ID", "PH", "VN", "SE", "NO", "DK", "FI",
+  "PL", "RU", "NL", "BE", "PT", "GR", "AR", "CO", "CL", "EG", "ZA", "AU",
+];
+
+/**
+ * The row's own specs, plus a few country-scoped ones when the row is discover-based.
+ *
+ * **The row's filters always come first**: the country is layered *on top of* the
+ * row's own parameters, so an Action row stays Action, a Netflix row stays Netflix —
+ * only where the titles come from varies. A row that already names a country keeps
+ * it (the country is not overridden), and a row that is not a discover query at all
+ * (a watchlist, a Top 10, a provider curated list) gets no extra specs: there is
+ * nothing to vary without leaving the catalog.
+ */
+function countryVariedSpecs(specs) {
+  const discover = specs.filter((s) => typeof s?.path === "string" && s.path.startsWith("/discover/"));
+  if (!discover.length || discover.length !== specs.length) return specs;
+  const picks = [...SHUFFLE_COUNTRIES].sort(() => Math.random() - 0.5).slice(0, 4);
+  const extra = picks.map((code) => {
+    const base = discover[Math.floor(Math.random() * discover.length)];
+    // A row that already scopes itself to a country keeps that country: overriding it
+    // is what made a regional row answer with another region's titles.
+    const params = base.params?.with_origin_country ? { ...base.params } : { ...base.params, with_origin_country: code };
+    return { path: base.path, params, take: PAGE_SIZE / 2 };
+  });
+  return [...specs, ...extra];
+}
+
+/**
  * A random sample of a catalog — what the Explore shuffle rows draw from.
  *
- * The draw comes from **the catalog's own rows and nothing else**. It used to add
- * four random origin countries to every discover-based row, so "Shuffle" on a
- * Japanese-animation row or a Netflix row could answer with titles the row itself
- * would never hold: the shuffle was sampled from a different catalog than the one
- * it sat on. A shuffle means "show me another handful of *this* row", so the pool
- * is the row's own specs.
+ * The pool is the catalog's own rows **plus a few cross-country variants of those
+ * same rows**, so a draw is varied without ever leaving the catalog it sits on.
  */
 export async function catalogShuffle(media, def, count, opts = {}) {
   const specs = def.entry ? await catalogSpecs(def.entry, media, opts) : [];
@@ -844,7 +881,8 @@ export async function catalogShuffle(media, def, count, opts = {}) {
   } else if (specs.length === 1 && specs[0].episodes) {
     pool = await episodeMetas(media, specs[0].episodes, language, Boolean(opts.adult));
   } else {
-    const entry = remember(pools, key, () => ({ at: Date.now(), media, specs, lists: specs.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
+    const varied = countryVariedSpecs(specs);
+    const entry = remember(pools, key, () => ({ at: Date.now(), media, specs: varied, lists: varied.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
     // Sample from a pool many times the sample size. Twelve of the top twenty
     // most popular titles is what made one shuffle look like the last one, and
     // like nothing but the biggest names: the pool has to reach well past them

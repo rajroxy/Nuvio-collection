@@ -40,6 +40,8 @@ const KEY = {
   section: "nuvio.settingsSection",
   accent: "nuvio.accent",
   motion: "nuvio.motion",
+  // The resolved accent colours, written for the boot script in `index.html`.
+  theme: "nuvio.theme",
   pickCards: "nuvio.pickCards",
   visibility: "nuvio.visibility",
   liveRow: "nuvio.liveRow",
@@ -1675,9 +1677,11 @@ function iconBox(c, row) {
   const r = rowOf(c);
   const name = titleOf(c, row);
   const count = r.catalogs.length;
-  // The watchlist is three rows of *your own* pins, so its frame holds two posters:
-  // a wider wall of them read as a chart rather than as "what you are watching".
-  const tiles = r.catalogs.some((cat) => cat.kind === "watchlist") ? 2 : 4;
+  // The two cards that are *your own* lists — the watchlist and the custom card —
+  // hold **two** posters: a wider wall of them read as a chart rather than as "what
+  // you are watching". Every other card draws four.
+  const mine = r.catalogs.some((cat) => cat.kind === "watchlist" || cat.kind === "custom");
+  const tiles = mine ? 2 : 4;
   return el(
     "div",
     { class: "icon-box" },
@@ -2145,13 +2149,13 @@ function renderExplore(key, id) {
     if (first && typeof first.scrollIntoView === "function") {
       first.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" });
     }
-    // Page the row in until the letter is properly filled out — "all of that
-    // letter's titles", not the one or two the first window happened to hold —
-    // stopping at a bounded number of windows so a tree full of `Z`s cannot walk
-    // the whole catalog.
-    for (let i = 0; i < 8; i += 1) {
+    // Page the row in **as far as it goes**: a letter's titles are scattered through
+    // the whole catalog, and stopping as soon as twenty of them had turned up is what
+    // made "A" look like it only held twenty Action films. The letter fills out until
+    // the catalog runs out, with only a generous ceiling so a huge row cannot spin.
+    for (let i = 0; i < 60; i += 1) {
       if (done) break;
-      if (grid.children.length >= 20) break;
+      if (grid.children.length >= 400) break;
       const before = pages;
       await loadMore();
       if (pages === before) break;
@@ -2365,8 +2369,31 @@ function renderSearch() {
    */
   const drawSuggestions = (_text, metas = []) => {
     const nodes = metas.slice(0, 6).map((m) => suggestRow("Title", m.name, () => go(`#/t/${m.type === "series" ? "series" : "movie"}/${String(m.id || "").replace(/^tmdb:/, "")}`)));
+    // The way **into** the results: the dropdown is what you get while typing, and
+    // the wall of posters is what you get when you ask for it.
+    const text = String(_text || "").trim();
+    if (text) {
+      nodes.push(
+        el(
+          "button",
+          { class: "suggest-item suggest-more focusable", type: "button", onclick: () => submitNow(_text) },
+          el("span", { class: "suggest-kind", text: "All" }),
+          el("span", { class: "suggest-text", text: `More results for \u201c${text}\u201d` }),
+        ),
+      );
+    }
     suggestions.replaceChildren(...nodes);
     suggestions.hidden = !nodes.length;
+  };
+
+  /** Run the search: the way out of the dropdown, and what Enter does. */
+  const submitNow = (text) => {
+    const p = new URLSearchParams(resultQuery());
+    const value = String(text ?? input.value ?? "").trim();
+    if (value) p.set("q", value);
+    else p.delete("q");
+    suggestions.hidden = true;
+    go(`#/search?${p.toString()}`);
   };
 
   const resultQuery = () => {
@@ -2448,7 +2475,7 @@ function renderSearch() {
     searchObserver.observe(moreSentinel);
   };
 
-  const loadTitles = async (text, more = false) => {
+  const loadTitles = async (text, more = false, { grid = true } = {}) => {
     const trimmed = (text || "").trim();
     if (!more) {
       searchStart = 0;
@@ -2458,9 +2485,23 @@ function renderSearch() {
       searchDone = true;
       titles.replaceChildren();
     }
-    if (!resultQuery()) {
-      drawSuggestions(trimmed);
+    // **While you type, the dropdown is the only thing on screen.** The results grid
+    // used to be drawn from the same keystroke, so a handful of suggested titles sat
+    // on top of a wall of posters for a search that had not been run yet.
+    if (!resultQuery() || !grid) {
       searchDone = true;
+      if (!grid && trimmed) {
+        try {
+          const p = new URLSearchParams(resultQuery());
+          p.set("q", trimmed);
+          const { metas = [] } = await get(`/search.json?${p.toString()}`);
+          drawSuggestions(trimmed, metas);
+        } catch {
+          drawSuggestions(trimmed);
+        }
+      } else {
+        drawSuggestions(trimmed);
+      }
       return;
     }
     if (searchBusy) return;
@@ -2496,8 +2537,11 @@ function renderSearch() {
 
   const refresh = (value) => {
     clearTimeout(timer);
-    drawSuggestions(value);
-    timer = setTimeout(() => loadTitles(value), 250);
+    // Typing clears the results and shows the dropdown again; the grid comes back
+    // when you ask for it (Enter, or "More results" in the dropdown).
+    titles.replaceChildren();
+    suggestions.hidden = false;
+    timer = setTimeout(() => loadTitles(value, false, { grid: false }), 250);
   };
 
   input.addEventListener("keydown", (e) => {
@@ -2505,12 +2549,7 @@ function renderSearch() {
       suggestions.hidden = true;
       return;
     }
-    if (e.key === "Enter") {
-      suggestions.hidden = true;
-      const p = new URLSearchParams(resultQuery());
-      p.set("q", input.value.trim());
-      go(`#/search?${p.toString()}`);
-    }
+    if (e.key === "Enter") submitNow(input.value);
   });
   input.addEventListener("input", () => refresh(input.value));
 
@@ -2824,8 +2863,13 @@ function sourceBody(source) {
           el("div", { class: "chips" }, ...items.map((p) => el("span", { class: "chip", text: p }))),
         )
       : null;
-  const lines = scrapers.length
-    ? [line("Scrapers", scrapers)]
+  // A **Nuvio plugin** answers with *streams*, not catalogs: its scrapers are the
+  // sources a title can be played from. A **Stremio add-on** declares everything it
+  // serves — catalog, metadata, streams, subtitles — and names its catalogs, so both
+  // are listed.
+  const isPlugin = scrapers.length > 0 || source.kind === "plugin" || source.kind === "repo";
+  const lines = isPlugin
+    ? [line("Streams", scrapers.length ? scrapers : providers)]
     : [line("Resources", resources), line("Catalogs", providers)];
   const nodes = lines.filter(Boolean);
   if (nodes.length) return nodes;
@@ -3964,6 +4008,14 @@ function applyTheme() {
   root.style.setProperty("--accent-deep", deep);
   root.classList.toggle("motion-off", state.motion === "off");
   root.classList.toggle("motion-full", state.motion === "full");
+  // Written out for the boot script in `index.html`, which applies them **before
+  // the first paint**. Without it the app painted its default gold and then
+  // re-tinted a frame later — the "golden accent on boot" flash.
+  try {
+    localStorage.setItem(KEY.theme, JSON.stringify({ base, rgb, deep, motion: state.motion }));
+  } catch {
+    /* private mode — the app still tints, it just flashes on the next boot */
+  }
 }
 
 /** Settings → Appearance: the accent colour, and how much the app moves. */
