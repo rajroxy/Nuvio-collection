@@ -138,8 +138,7 @@ async function specsFor(entry, media, opts = {}) {
         .flatMap((state) => watchlistState(state))
         .filter((i) => (media === "movie" ? i.type === "movie" : i.type === "series"))
         .map(tmdbIdOf)
-        .filter((id) => /^\d+$/.test(id))
-        .slice(0, 5);
+        .filter((id) => /^\d+$/.test(id));
       if (!pinned.length) return [q(`/trending/${t}/week`, {}, entry.take)];
       return pinned.map((id) => q(`/${t}/${id}/recommendations`, {}, entry.take));
     }

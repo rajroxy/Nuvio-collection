@@ -60,6 +60,52 @@ export async function enrichRatings(metas, limit = 12) {
   return metas;
 }
 
+/** The label MDBList's rating keys are shown under on the title page. */
+const RATING_LABELS = {
+  imdb: "IMDb",
+  tmdb: "TMDB",
+  trakt: "Trakt",
+  letterboxd: "Letterboxd",
+  tomatoes: "Rotten Tomatoes",
+  tomatoesaudience: "RT Audience",
+  metacritic: "Metacritic",
+  metacriticuser: "Metacritic Users",
+  rogerebert: "Roger Ebert",
+  myanimelist: "MyAnimeList",
+  anilist: "AniList",
+  simkl: "Simkl",
+  mdblist: "MDBList",
+};
+
+/** `rottenTomatoes` / `myanimelist` → a readable name for a key we do not know. */
+const ratingLabel = (key) =>
+  RATING_LABELS[String(key).toLowerCase()] ||
+  String(key).replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\b\w/g, (c) => c.toUpperCase());
+
+/**
+ * **Ratings, from every service that answered.** MDBList aggregates them, so when
+ * its key is set this returns one entry per source it knows — IMDb, TMDB, Trakt,
+ * Letterboxd, Rotten Tomatoes, Metacritic and the rest — which is what the title
+ * page shows as a row of its own. With no key there is nothing to ask, so the page
+ * falls back to the rating TMDB itself carries.
+ */
+export async function titleRatings(meta) {
+  const { mdblist } = providerKeys();
+  if (!mdblist) return [];
+  try {
+    const url = `${MDBLIST}/tmdb/${kindOf(meta)}/${encodeURIComponent(tmdbId(meta))}/?apikey=${encodeURIComponent(mdblist)}`;
+    const res = await fetch(url, { headers: { accept: "application/json" } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const ratings = data?.ratings || {};
+    return Object.entries(ratings)
+      .filter(([, value]) => typeof value === "number" && value > 0)
+      .map(([source, value]) => ({ source, label: ratingLabel(source), value: value > 10 ? String(Math.round(value)) : value.toFixed(1) }));
+  } catch {
+    return [];
+  }
+}
+
 /** Verify a stored provider key by actually calling the provider. */
 export async function verifyProvider(name, key) {
   if (!key) return { ok: false, text: "no key saved" };

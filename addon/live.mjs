@@ -32,7 +32,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { getSettings, activeRefreshMinutes } from "./settings.mjs";
-import { DTH_PROVIDERS, countryTable, firstProviderEpg, pickedProviders } from "./dth.mjs";
+import { DTH_PROVIDERS, countryTable, firstProviderEpg, pickedProviders, countryEpg, countryName, everyCountry } from "./dth.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE = process.env.NUVIO_LIVE_FILE || path.join(__dirname, "live-cache.json");
@@ -55,7 +55,16 @@ export function countrySpellings(code) {
 }
 
 /** Hard caps so a 200 000-channel playlist cannot take the server down. */
-const MAX_CHANNELS = 6000;
+// Not a content limit: a bound on one read so a runaway feed cannot exhaust memory.
+// A full world of lineups is comfortably inside it.
+const MAX_CHANNELS = 200000;
+// How many country guides one guide read parses for programmes. A country guide is
+// tens of megabytes; every country at once is not a page anyone would wait for.
+const GUIDE_FEEDS = 6;
+// How many country lineups one channel read fetches. Rotates, so every country is
+// covered within a few refreshes rather than one load fetching the whole world.
+const DTH_FEED_BATCH = 16;
+let dthOffset = 0;
 const MAX_BYTES = 24 * 1024 * 1024;
 const FETCH_TIMEOUT = 25_000;
 
@@ -233,11 +242,41 @@ export function epgLineup(text, provider = {}) {
  * `live.m3u` is your own box's export. It is read once and matched on `tvg-id`, which
  * is what puts a stream URL on the catalogue's channel — the guide never has one.
  */
+/** Run `worker` over `items`, at most `limit` at a time — a country's guide is a
+ *  large fetch, and reading a hundred of them at once is a burst nobody wants. */
+async function mapBounded(items, limit, worker) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= items.length) return;
+        out[i] = await worker(items[i], i);
+      }
+    }),
+  );
+  return out;
+}
+
+/**
+ * The countries a DTH lineup is read from.
+ *
+ * Picked operators decide it: their countries, or **every country in the table**
+ * when none is picked, so the profile opens on DTH channels for all countries with
+ * a guide rather than an error asking you to pick one first.
+ */
+function dthCountries(live, picked) {
+  if (picked.length) return [...new Set(picked.map((prov) => prov.country))];
+  const configured = (Array.isArray(live.countries) ? live.countries : []).flatMap((c) => countrySpellings(c));
+  if (configured.length) return [...new Set(configured)];
+  return everyCountry();
+}
+
 async function dthChannels(live) {
   const picked = pickedProviders(live.providers);
-  if (!picked.length) throw new Error("no providers picked — choose your DTH or operator under Settings → Source");
+  const codes = dthCountries(live, picked);
 
-  const feed = picked.find((prov) => prov.epg)?.epg || String(live.epg || "").trim();
   const streams = String(live.m3u || "").trim()
     ? parseM3U(/^https?:/i.test(live.m3u) ? await fetchText(live.m3u) : fs.readFileSync(live.m3u, "utf8"))
     : [];
@@ -246,15 +285,48 @@ async function dthChannels(live) {
     if (channel.epgId && !byEpgId.has(channel.epgId)) byEpgId.set(channel.epgId, channel.url);
   }
 
-  let lineup = [];
-  if (feed) {
-    const provider = picked.find((prov) => prov.epg === feed) || picked[0];
-    lineup = epgLineup(await fetchText(feed), provider);
+  // One feed per country: an operator's own guide where it has one (its lineup is
+  // its own), and otherwise that country's public guide — which declares every
+  // channel in the country, so the lineup is a real lineup and not a single name.
+  const wanted = new Map();
+  for (const prov of picked) if (prov.epg) wanted.set(prov.country, { url: prov.epg, provider: prov });
+  const manual = String(live.epg || "").trim();
+  for (const code of codes) {
+    if (wanted.has(code)) continue;
+    const url = countryEpg(code);
+    if (url) wanted.set(code, { url, provider: { name: countryName(code), country: code } });
   }
-  // No public feed (or an empty one): the catalogue's own supplier names are the
-  // lineup, so the profile is never an empty screen while a stream source exists.
+  if (!wanted.size && manual) wanted.set("manual", { url: manual, provider: picked[0] || { name: "Channels", country: "" } });
+
+  // **Every country's guide, a window at a time.** A country guide is tens of
+  // megabytes, so one load reads a batch of them and keeps what the last loads
+  // already read: the lineup grows to cover the whole table instead of either
+  // stalling on 200 fetches or stopping at the first country. The batch rotates, so
+  // every country is reached within a few refreshes.
+  const feeds = [...wanted.values()];
+  const batch = feeds.length <= DTH_FEED_BATCH
+    ? feeds
+    : Array.from({ length: DTH_FEED_BATCH }, (_, i) => feeds[(dthOffset + i) % feeds.length]);
+  dthOffset = feeds.length ? (dthOffset + batch.length) % feeds.length : 0;
+  const results = await mapBounded(batch, 6, async (feed) => {
+    try {
+      return epgLineup(await fetchText(feed.url), feed.provider);
+    } catch {
+      return [];
+    }
+  });
+
+  // What earlier reads already found — a channel is kept once, however many loads
+  // it took to reach it.
+  const kept = new Map();
+  for (const channel of cache.channels || []) if (channel?.id && !kept.has(channel.id)) kept.set(channel.id, channel);
+  for (const channel of results.flat()) if (channel?.id && !kept.has(channel.id)) kept.set(channel.id, channel);
+  let lineup = [...kept.values()];
+
+  // Nothing readable (offline, or a country with no published guide): the catalogue's
+  // own supplier names are the lineup, so the profile is never an empty screen.
   if (!lineup.length) {
-    lineup = picked.map((prov) => ({
+    lineup = (picked.length ? picked : codes.map((code) => ({ id: code, name: countryName(code), country: code }))).map((prov) => ({
       id: prov.id,
       epgId: "",
       name: prov.name,
@@ -264,7 +336,7 @@ async function dthChannels(live) {
       url: "",
     }));
   }
-  return lineup.map((channel) => ({ ...channel, url: byEpgId.get(channel.epgId) || channel.url || "" }));
+  return lineup.slice(0, MAX_CHANNELS).map((channel) => ({ ...channel, url: byEpgId.get(channel.epgId) || channel.url || "" }));
 }
 
 /**
@@ -350,7 +422,7 @@ export function xmltvTime(value) {
  * megabytes of one flat element, and this only needs the start, the stop, the
  * channel and the title — the four fields the grid draws.
  */
-export function parseXMLTV(text, { from, to, limit = 400_000 } = {}) {
+export function parseXMLTV(text, { from, to, limit = 4_000_000 } = {}) {
   const programmes = {};
   const re = /<programme\b([^>]*)>([\s\S]*?)<\/programme>/g;
   let match;
@@ -399,20 +471,40 @@ export async function liveGuide({ hours = 6, force = false, countries = "" } = {
   const channels = wanted.length
     ? (all.channels || []).filter((c) => wanted.includes(String(c.country || "").toUpperCase()))
     : all.channels || [];
-  const url = String(live.epg || "").trim() || (live.mode === "m3u" || live.mode === "xtream" ? "" : firstProviderEpg(live.providers));
-  if (!url) return { start: Date.now(), end: Date.now() + hours * 3600_000, programmes: {}, channels, epg: false };
+  // Your own EPG URL wins. Otherwise the schedule comes from the feeds the lineup
+  // was read from: the picked operators' own guides, and — with none picked — the
+  // **country guides themselves**, so "all countries" get a schedule too. Reading a
+  // country guide is heavy, so the set is bounded and merged rather than one file.
+  const picked = live.mode === "m3u" || live.mode === "xtream" ? [] : pickedProviders(live.providers);
+  const own = picked.filter((prov) => prov.epg).map((prov) => ({ url: prov.epg, key: prov.epg }));
+  let feedList = own;
+  if (!feedList.length && live.mode !== "m3u" && live.mode !== "xtream") {
+    const codes = dthCountries(live, picked);
+    feedList = codes.map((code) => countryEpg(code)).filter(Boolean).slice(0, GUIDE_FEEDS).map((url) => ({ url, key: url }));
+  }
+  const manual = String(live.epg || "").trim();
+  if (manual) feedList = [{ url: manual, key: manual }];
+  if (!feedList.length) return { start: Date.now(), end: Date.now() + hours * 3600_000, programmes: {}, channels, epg: false };
+  const guideKey = feedList.map((f) => f.key).join("|");
   const minutes = Number(live.refreshMinutes) || activeRefreshMinutes();
   const lifetime = minutes > 0 ? minutes * 60_000 : 6 * 3600_000;
   readCache();
-  if (!force && cache.guide?.at && cache.guide.url === url && Date.now() - cache.guide.at < lifetime && cache.guide.programmes) {
+  if (!force && cache.guide?.at && cache.guide.url === guideKey && Date.now() - cache.guide.at < lifetime && cache.guide.programmes) {
     return { ...cache.guide.data, channels, epg: true };
   }
   try {
     const now = Date.now();
-    const programmes = parseXMLTV(await fetchText(url), { from: now - 6 * 3600_000, to: now + 24 * 3600_000 });
+    const parts = await mapBounded(feedList, 3, async (feed) => {
+      try {
+        return parseXMLTV(await fetchText(feed.url), { from: now - 6 * 3600_000, to: now + 24 * 3600_000 });
+      } catch {
+        return {};
+      }
+    });
+    const programmes = Object.assign({}, ...parts);
     const data = { start: now, end: now + hours * 3600_000, programmes };
     if (!Object.keys(programmes).length) throw new Error("that EPG answered with no programmes");
-    cache = { ...cache, guide: { at: now, url, data } };
+    cache = { ...cache, guide: { at: now, url: guideKey, data } };
     writeCache();
     return { ...data, channels, epg: true };
   } catch (err) {
@@ -431,7 +523,7 @@ export async function liveStatus() {
     providers: Array.isArray(live.providers) ? live.providers : [],
     providerNames: pickedProviders(live.providers).map((prov) => prov.name),
     channels: list.channels?.length || 0,
-    groups: (list.groups || []).slice(0, 24),
+    groups: list.groups || [],
     updated: list.at || 0,
     error: list.error || "",
   };

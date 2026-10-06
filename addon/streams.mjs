@@ -21,11 +21,26 @@ import { imdbId } from "./posters.mjs";
 
 const STREAM_TTL_MS = 5 * 60 * 1000;
 const cache = new Map();
-const MAX_SOURCES = 12;
+// A guard against a runaway list, not a cap on content: every source you added is
+// asked, however many there are (it used to stop at twelve).
+const MAX_SOURCES = 100000;
 const TIMEOUT_MS = 15000;
 
 /** Every source the user added, as stored. */
 export const listSources = () => (Array.isArray(getSettings().sources) ? getSettings().sources : []);
+
+/**
+ * Why a Nuvio plugin did not answer: it is not that it is broken.
+ *
+ * A Nuvio plugin declares **scrapers** — Javascript the Nuvio app runs itself — and
+ * has no `/stream/…` endpoint to call, so a 404 is the expected answer here and
+ * saying "HTTP 404" makes a working plugin look broken. The count is named instead.
+ */
+function pluginNote(source, status) {
+  const scrapers = Array.isArray(source.scrapers) ? source.scrapers.length : 0;
+  if (scrapers) return `${scrapers} scrapers — runs in the Nuvio app, not over HTTP here`;
+  return `HTTP ${status}`;
+}
 
 /** Add-ons that can answer a stream request. */
 const streamSources = (type) =>
@@ -88,20 +103,29 @@ export async function streamsFor(type, tmdbId, { name = "", force = false } = {}
           headers: { accept: "application/json", "user-agent": "NuvioCollections/1.0" },
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
-        if (!res.ok) return { label, ok: false, message: `HTTP ${res.status}`, streams: [] };
+        if (!res.ok) return { label, ok: false, message: pluginNote(source, res.status), streams: [] };
         const data = await res.json();
         const raw = Array.isArray(data?.streams) ? data.streams : [];
         const streams = raw
-          .map((s) => ({
-            url: String(s.url || s.externalUrl || ""),
-            // `name` is the quality/group line and `title` the detail line in the
-            // Stremio spec; a stream that only carries one is shown by that one.
-            name: String(s.name || ""),
-            title: String(s.title || s.description || ""),
-            quality: String(s.behaviorHints?.videoQuality || ""),
-            source: label,
-          }))
-          .filter((s) => s.url);
+          .map((s) => {
+            // A Stremio stream carries **either** `url` (playable here) **or**
+            // `externalUrl` (a page to open elsewhere — a host's own site, or the
+            // "support the project" line add-ons put first). Keeping the two apart
+            // is what stops the player auto-playing a donation page.
+            const direct = String(s.url || "").trim();
+            const external = String(s.externalUrl || "").trim();
+            return {
+              url: direct || external,
+              external: !direct && Boolean(external),
+              // `name` is the quality/group line and `title` the detail line in the
+              // Stremio spec; a stream that only carries one is shown by that one.
+              name: String(s.name || ""),
+              title: String(s.title || s.description || ""),
+              quality: String(s.behaviorHints?.videoQuality || ""),
+              source: label,
+            };
+          })
+          .filter((s) => s.url || s.external);
         return { label, ok: true, message: streams.length ? `${streams.length} streams` : "no streams", streams };
       } catch (err) {
         return { label, ok: false, message: String(err?.message || err), streams: [] };

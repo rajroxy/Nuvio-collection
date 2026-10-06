@@ -1768,28 +1768,28 @@ textarea:focus-visible {
 
 /* ------------------------------------------------------------------- player */
 
-/* The stream plays **inside** the app: a full-bleed overlay over whatever screen
-   opened it, with the title of the channel and one way out. */
+/* The stream plays **inside** the app, and the player is always full screen: the
+   overlay is the whole window, the picture fills it edge to edge, and nothing sits
+   over it but the controls. There is no title bar, no source line under the bar and
+   no fullscreen button — the app "always in full screen" is the screen itself. */
 .player {
   position: fixed;
   inset: 0;
   z-index: 80;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 22px 26px 30px;
-  background: rgba(4, 5, 8, 0.94);
-  backdrop-filter: blur(10px);
+  gap: 0;
+  padding: 0;
+  background: #000;
 }
-.player-head { display: flex; align-items: center; gap: 16px; }
-.player-title { flex: 1; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
 .player-video {
   flex: 1;
   min-height: 0;
   width: 100%;
   border: 0;
-  border-radius: 14px;
+  border-radius: 0;
   background: #000;
+  object-fit: contain;
 }
 .player-note {
   margin: 0;
@@ -1800,6 +1800,9 @@ textarea:focus-visible {
   text-overflow: ellipsis;
 }
 .player-error { margin: 0; color: #ff9d9d; font-size: 13px; }
+/* Nothing to play: one flat panel in the middle, and one way out — no title bar. */
+.empty-player { align-items: center; justify-content: center; }
+.player-empty-body { display: flex; flex-direction: column; gap: 16px; align-items: flex-start; max-width: 560px; padding: 28px; }
 
 /* The settings screen reads as a stack of groups, the way a streaming app's does. */
 .settings-group { margin: 18px 0 6px; }
@@ -1919,14 +1922,38 @@ textarea:focus-visible {
 .title-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .play-btn { font-size: 16px; font-weight: 800; padding: 12px 26px; }
 .title-pins { display: flex; gap: 8px; flex-wrap: wrap; }
-.title-body { display: flex; flex-direction: column; gap: 22px; max-width: 1100px; }
+.title-body { display: flex; flex-direction: column; gap: 34px; width: 100%; max-width: 1500px; }
 .title-tagline { margin: 0; font-size: 17px; font-style: italic; color: var(--accent); }
 .title-overview { margin: 0; font-size: 15.5px; line-height: 1.65; color: var(--text); max-width: 78ch; }
 .title-row { display: flex; flex-direction: column; gap: 10px; }
 .row-head { margin: 0; font-size: 13px; font-weight: 800; color: var(--muted); }
 
 /* People: a face, a name and what they did — the whole card opens their credits. */
-.people { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+/* The row is padded **all round** so a card's top edge — and the ring a focused
+   face draws above it — is never clipped by the scroll box. */
+.people { display: flex; gap: 12px; overflow-x: auto; padding: 8px 4px 12px; scrollbar-width: none; }
+
+/* Director | Writer: one row, two credit lists, a rule between them. */
+.people-duo { display: flex; gap: 22px; align-items: flex-start; }
+.people-duo .people-group { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.v-divider { flex: none; align-self: stretch; width: 1px; background: rgba(255, 255, 255, 0.14); }
+
+/* Studios and networks: rectangular cards, logo on a plate, name under it. */
+.company-strip { display: flex; gap: 14px; overflow-x: auto; padding: 8px 4px 12px; scrollbar-width: none; }
+.company-strip::-webkit-scrollbar { height: 0; display: none; }
+.company-card {
+  flex: none; width: 176px; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border: 0; border-radius: 12px; background: var(--panel);
+  color: inherit; cursor: pointer; text-align: left;
+}
+.company-card:hover, .company-card:focus-visible { background: var(--panel-2); }
+.company-logo-wrap {
+  display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9;
+  border-radius: 8px; background: rgba(255, 255, 255, 0.06); overflow: hidden;
+}
+.company-logo { max-width: 78%; max-height: 74%; object-fit: contain; }
+.company-initials { font-size: 24px; font-weight: 800; color: var(--faint); }
+.company-name { font-size: 13px; font-weight: 700; line-height: 1.25; }
 .people::-webkit-scrollbar { height: 0; display: none; }
 .person {
   flex: none; width: 116px; display: flex; flex-direction: column; gap: 6px;
@@ -1950,27 +1977,147 @@ textarea:focus-visible {
 .season-name { font-size: 13px; font-weight: 700; }
 .season-sub { font-size: 11px; color: var(--muted); }
 
+/* A heading that is itself a way in — the collection's name opens the franchise. */
+.row-head-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.row-head-link:hover, .row-head-link:focus-visible { color: #fff; }
+
+/* Trailers: a still, a name and what kind of video it is — the whole card opens it. */
+.trailer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.trailer-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px; text-align: left;
+  border: 0; border-radius: 12px; background: var(--panel); color: inherit; cursor: pointer;
+}
+.trailer-card:hover, .trailer-card:focus-visible { background: var(--panel-2); }
+.trailer-thumb { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: var(--panel-2); }
+.trailer-name { font-size: 13px; font-weight: 700; line-height: 1.25; }
+.trailer-kind { font-size: 11px; color: var(--muted); }
+
+/* Ratings: one plate per service. */
+.ratings { display: flex; flex-wrap: wrap; gap: 10px; }
+.rating {
+  display: flex; flex-direction: column; gap: 2px; min-width: 96px; padding: 10px 14px;
+  border-radius: 12px; background: var(--panel);
+}
+.rating-value { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent); }
+.rating-source { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+
+/* The facts a streaming app keeps in a grid: what it is, when, how long, where, in what. */
+.detail-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 22px; margin: 0; }
+.detail-grid dt { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.detail-grid dd { margin: 0; font-size: 14px; color: var(--text); }
+
+/* The note the hero falls back to when nothing can play the title. */
+.title-source-note { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.play-btn.no-sources { background: rgba(255, 255, 255, 0.14); color: var(--text); }
+
 /* ------------------------------------------------------------------- player */
 
 .player-stage { position: relative; display: flex; flex: 1; min-height: 0; }
 .player-stage .player-video { flex: 1; }
+
+/* The control bar **floats over the picture** at the bottom edge, so the video gets
+   the whole screen and the bar is a compact strip rather than a block of its own. */
+/* **One floating bar, not a full-width strip**: it sits clear of the screen edges,
+   is rounded like every other panel in the app, and groups its controls left and
+   right — the shape Stremio's player has, in this app's own surface language. */
 .player-controls {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.06);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 18px;
+  width: min(1180px, calc(100% - 36px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(14, 16, 21, 0.86);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
 }
+.player-group { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.player-group.end { justify-content: flex-end; flex: none; }
 .player-icon {
-  border: 0; border-radius: 10px; padding: 8px 12px; background: rgba(255, 255, 255, 0.08);
-  color: var(--text); font: inherit; font-weight: 700; cursor: pointer;
+  border: 0; border-radius: 9px; padding: 7px 11px; background: rgba(255, 255, 255, 0.09);
+  color: var(--text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
 }
-.player-icon:hover, .player-icon:focus-visible { background: rgba(255, 255, 255, 0.16); }
-.player-seek { flex: 1; min-width: 160px; accent-color: var(--accent); }
-.player-volume { width: 84px; accent-color: var(--accent); }
-.player-time { font-size: 12.5px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
-.player-rate { padding: 8px 12px; }
+.player-icon:hover, .player-icon:focus-visible { background: rgba(var(--accent-rgb), 0.4); color: #fff; }
+.player-seek { flex: 1; min-width: 120px; height: 4px; accent-color: var(--accent); }
+.player-volume { width: 76px; height: 4px; accent-color: var(--accent); }
+.player-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* The centre play target — the picture is clickable, and this is what says so. */
+.player-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 84px;
+  height: 84px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(14, 16, 21, 0.6);
+  color: #fff;
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.player-center[hidden] { display: none; }
+.player-center:hover, .player-center:focus-visible { background: rgba(var(--accent-rgb), 0.75); }
+/* The loading screen's own state: a small ring, the title, and nothing else. */
+.player-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.player-loading-title { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+
+/* The rate dropdown is one of the app's own fields, tinted with the accent. */
+select.player-rate {
+  width: auto;
+  padding: 7px 30px 7px 10px;
+  font-size: 12px;
+  border-radius: 9px;
+  background-color: rgba(255, 255, 255, 0.09);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23b9bfcc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  color: var(--text);
+}
+select.player-rate:hover { background-color: rgba(255, 255, 255, 0.16); }
+select.player-rate option { background: #14161c; color: var(--text); }
+
+/* The bars are drawn with the accent rather than left to the browser's own slider
+   colour, so the player is tinted by the same setting the rest of the app uses. */
+.player-seek, .player-volume { appearance: none; -webkit-appearance: none; background: transparent; }
+.player-seek::-webkit-slider-runnable-track,
+.player-volume::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.24); }
+.player-seek::-webkit-slider-thumb,
+.player-volume::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--accent); }
+.player-seek::-moz-range-track,
+.player-volume::-moz-range-track { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.24); }
+.player-seek::-moz-range-thumb,
+.player-volume::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--accent); }
 
 /* The sources drawer sits over the video, so choosing one does not lose your place. */
 .player-sources {
-  position: absolute; top: 14px; right: 14px; bottom: 14px; width: min(420px, 46%);
+  position: absolute; top: 14px; right: 14px; bottom: 96px; width: min(420px, 46%);
   display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto;
   border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
 }
@@ -2021,19 +2168,20 @@ select.text-input option { background: #14161c; color: var(--text); }
 
 /* The name and the year are drawn **on** the artwork, at its bottom edge, the way
    Nuvio draws them — so there is no separate dark strip under every card to read as
-   a black band, and the picture is the whole card. A card with no picture to show
-   keeps its label underneath its initials instead. */
+   a black band, and the picture is the whole card. The scrim that used to sit behind
+   them is gone too: the text carries its own shadow, so no band darkens the artwork.
+   A card with no picture to show keeps its label underneath its initials instead. */
 .poster { position: relative; background: var(--panel); }
 .poster img { border-radius: 0; }
 .poster-cap {
   position: absolute;
   inset: auto 0 0 0;
-  padding: 34px 11px 10px;
-  background: linear-gradient(0deg, rgba(4, 5, 8, 0.94) 0%, rgba(4, 5, 8, 0.72) 45%, rgba(4, 5, 8, 0) 100%);
+  padding: 26px 11px 10px;
+  background: none;
   pointer-events: none;
 }
-.poster-name { color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7); }
-.poster-sub { color: rgba(255, 255, 255, 0.78); }
+.poster-name { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.92), 0 1px 12px rgba(0, 0, 0, 0.8); }
+.poster-sub { color: rgba(255, 255, 255, 0.86); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.92), 0 1px 12px rgba(0, 0, 0, 0.8); }
 /* No picture: the initials plate, and the label below it as plain text. */
 .poster-fallback + .poster-cap { position: static; padding: 9px 11px 12px; background: none; }
 .poster-fallback + .poster-cap .poster-name { color: var(--text); text-shadow: none; }
@@ -2066,5 +2214,72 @@ select.text-input:focus-visible {
 select.text-input:hover { background-color: rgba(255, 255, 255, 0.11); }
 select.text-input option { background: #14161c; color: var(--text); }
 
+/* **Every** `<select>` is themed, not only the ones carrying `.text-input`.
+   A dropdown that forgets that one class fell back to the browser's grey box,
+   which is what "the dropdown isn't styled" kept being about. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 0;
+  padding: 10px 38px 10px 14px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.07);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23b9bfcc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+select:hover { background-color: rgba(255, 255, 255, 0.11); }
+select:focus { background-color: rgba(255, 255, 255, 0.15); outline: 2px solid rgba(var(--accent-rgb), 0.6); outline-offset: 2px; }
+select option { background: #14161c; color: var(--text); }
+
+/* A stream that is a page to open rather than a video to play, in the Sources drawer. */
+.stream-flag { font-size: 10.5px; font-weight: 700; color: var(--accent); }
+.stream-external .stream-name { color: var(--accent); }
+
+/* The two ways out of an empty player: check again, or leave. */
+.player-empty-actions { display: flex; gap: 10px; }
+
 /* The suggestion dropdown's last line: the way into the results themselves. */
 .suggest-more .suggest-text { font-weight: 800; }
+
+/* ============================================================ dropdowns, final */
+
+/* The rule that was "not applying" is stated once more here, at the end of the
+   sheet and with the class and id shapes the app actually uses, so nothing later
+   can take it back. A dropdown is the app's own field everywhere: the app's fill,
+   the app's radius, and a chevron this app draws — never the browser's grey box. */
+select,
+select.text-input,
+select.player-rate,
+.settings-pane select,
+.source-form select,
+.setting select,
+#live-source-mode,
+#ai-model {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23b9bfcc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 13px center !important;
+  color: var(--text) !important;
+  font: inherit !important;
+  padding: 10px 38px 10px 14px !important;
+  cursor: pointer;
+}
+select:hover { background-color: rgba(255, 255, 255, 0.13) !important; }
+select:focus { background-color: rgba(255, 255, 255, 0.16) !important; outline: 2px solid rgba(var(--accent-rgb), 0.6) !important; outline-offset: 2px !important; }
+select option { background: #14161c !important; color: var(--text) !important; }
+select.player-rate { padding: 7px 30px 7px 10px !important; border-radius: 9px !important; font-size: 12px !important; }
+
+/* ---------------------------------------------- the add-on / plugin dropdowns */
+/* The source form's type field and the model picker are drawn by the same rule
+   above; these only make the label sit the way the rest of the panel does. */
+.source-form label { display: block; }

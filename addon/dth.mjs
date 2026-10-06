@@ -377,8 +377,36 @@ export function providersFor(codes = []) {
 export const pickedProviders = (ids = []) =>
   (Array.isArray(ids) ? ids : []).map((id) => providerById(id)).filter(Boolean);
 
-/** The first picked provider that ships a public XMLTV feed for its lineup. */
-export const firstProviderEpg = (ids = []) => pickedProviders(ids).find((prov) => prov.epg)?.epg || "";
+/**
+ * A **country's** public XMLTV feed.
+ *
+ * Only three providers in the catalogue publish a guide of their own, which left
+ * Live TV with a lineup for three countries and a name-only entry everywhere else.
+ * EPGShare01 publishes a per-country guide for the whole world at a predictable
+ * URL, and a country guide declares **every channel in that country** — so one feed
+ * per country gives every country a real lineup *and* a schedule, which is exactly
+ * what a DTH lineup is.
+ */
+export const countryEpg = (code) => {
+  const cc = String(code || "").toUpperCase();
+  return /^[A-Z]{2}$/.test(cc) ? `https://epgshare01.online/epgshare01/epg_ripper_${cc}1.xml.gz` : "";
+};
+
+/** A country's name, from the same table the pickers read. */
+const NAME_BY_CODE = new Map(countryTable().map((row) => [row.code, row.name]));
+export const countryName = (code) => NAME_BY_CODE.get(String(code || "").toUpperCase()) || String(code || "").toUpperCase();
+
+/**
+ * The feed to read a picked provider's lineup from: the provider's own guide when it
+ * has one, and otherwise **its country's** guide, so picking any operator anywhere
+ * gives its channels and its schedule rather than a single name.
+ */
+export const firstProviderEpg = (ids = []) => {
+  const picked = pickedProviders(ids);
+  const own = picked.find((prov) => prov.epg)?.epg;
+  if (own) return own;
+  return picked.length ? countryEpg(picked[0].country) : "";
+};
 
 /**
  * The country table the pickers use — the same one the rest of the app draws its
@@ -396,3 +424,7 @@ export function countryTable() {
 
 /** Codes the catalogue covers, for the "which countries have providers" question. */
 export const catalogueCountries = () => [...new Set(DTH_PROVIDERS.map((prov) => prov.country))].sort();
+
+/** Every country the app itself knows, as ISO codes — "all countries", not only the
+ *  ones a curated operator happens to be listed for. */
+export const everyCountry = () => [...new Set([...COUNTRIES.map(([, code]) => code), ...catalogueCountries()])].sort();

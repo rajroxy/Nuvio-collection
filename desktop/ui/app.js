@@ -267,6 +267,13 @@ const LIVE_SETTINGS_GROUPS = [
     ],
   },
   {
+    // Add-ons and plugins are **one profile's setting the other profile shares**:
+    // the sources are stored once on the server, so both profiles edit the same
+    // list here rather than the Live TV profile losing the tab entirely.
+    group: "Where it comes from",
+    sections: [["addons", "Add-ons & plugins"]],
+  },
+  {
     group: "Profile & playback",
     sections: [
       ["profile", "Profile"],
@@ -757,16 +764,23 @@ function posterCard(m, opts = {}) {
           },
         })
       : posterFallback(m.name),
-    el(
-      "div",
-      { class: "poster-cap" },
-      el("div", { class: "poster-name", text: m.name }),
-      el("div", {
-        class: "poster-sub",
-        text: [kind, m.releaseInfo, m.imdbRating ? `★ ${m.imdbRating}` : ""].filter(Boolean).join(" · "),
-      }),
-      opts.watch ? watchTag(m) : null,
-    ),
+    // **A poster is the picture and nothing else.** No name, no year, no rating over
+    // the artwork anywhere it has artwork — the label was the "text, year and rating
+    // on catalogs" that would not go away. It is drawn only where there is nothing
+    // else to read: the initials plate of a card with no picture, and the calendar
+    // (which asks for it, because its grid is dates rather than a catalog).
+    poster && opts.caption !== true
+      ? null
+      : el(
+          "div",
+          { class: "poster-cap" },
+          el("div", { class: "poster-name", text: m.name }),
+          el("div", {
+            class: "poster-sub",
+            text: [kind, m.releaseInfo, m.imdbRating ? `★ ${m.imdbRating}` : ""].filter(Boolean).join(" · "),
+          }),
+          opts.watch ? watchTag(m) : null,
+        ),
   );
 }
 
@@ -1992,7 +2006,7 @@ function renderExplore(key, id) {
   let done = false;
   let busy = false;
   let pages = 0;
-  const MAX_PAGES = 40;
+  const MAX_PAGES = 5000;
 
   /** Every title the row has handed over, in order, and whether it was already
    *  counted. The rail indexes this list; the grid draws the part of it the chosen
@@ -2026,7 +2040,7 @@ function renderExplore(key, id) {
         loaded.push(m);
         // A letter is being shown: only its titles reach the grid, and the rest
         // stay in `loaded` for when the letter is cleared.
-        if (passes(m)) grid.append(posterCard(m));
+        if (passes(m)) grid.append(posterCard(m, { caption: false }));
       }
       skip += metas.length;
       pages++;
@@ -2115,7 +2129,7 @@ function renderExplore(key, id) {
   };
 
   /** Draw the grid from whatever the chosen letter covers. */
-  const paintGrid = () => grid.replaceChildren(...loaded.filter(passes).map((m) => posterCard(m)));
+  const paintGrid = () => grid.replaceChildren(...loaded.filter(passes).map((m) => posterCard(m, { caption: false })));
 
   const updateFilterBar = () => {
     filterBar.hidden = !letterFilter;
@@ -2153,9 +2167,8 @@ function renderExplore(key, id) {
     // the whole catalog, and stopping as soon as twenty of them had turned up is what
     // made "A" look like it only held twenty Action films. The letter fills out until
     // the catalog runs out, with only a generous ceiling so a huge row cannot spin.
-    for (let i = 0; i < 60; i += 1) {
+    for (let i = 0; i < 5000; i += 1) {
       if (done) break;
-      if (grid.children.length >= 400) break;
       const before = pages;
       await loadMore();
       if (pages === before) break;
@@ -2368,7 +2381,7 @@ function renderSearch() {
    * themselves, which is what searching for a film means.
    */
   const drawSuggestions = (_text, metas = []) => {
-    const nodes = metas.slice(0, 6).map((m) => suggestRow("Title", m.name, () => go(`#/t/${m.type === "series" ? "series" : "movie"}/${String(m.id || "").replace(/^tmdb:/, "")}`)));
+    const nodes = metas.map((m) => suggestRow("Title", m.name, () => go(`#/t/${m.type === "series" ? "series" : "movie"}/${String(m.id || "").replace(/^tmdb:/, "")}`)));
     // The way **into** the results: the dropdown is what you get while typing, and
     // the wall of posters is what you get when you ask for it.
     const text = String(_text || "").trim();
@@ -2455,7 +2468,7 @@ function renderSearch() {
       if (searchSeen.has(id)) continue;
       searchSeen.add(id);
       const node = groupNode(key);
-      node.querySelector(".grid-titles").append(posterCard(m));
+      node.querySelector(".grid-titles").append(posterCard(m, { caption: false }));
       const label = key === "movie" ? "Movies" : "Shows";
       node.querySelector(".result-head").textContent = `${label} (${node.querySelectorAll(".poster").length})`;
       // Always in front of the sentinel, even when this group is new.
@@ -2591,7 +2604,9 @@ function renderSearch() {
           { clamp: true },
         )
       : null,
-    filterRow("Time", vocab.periods, filters.period, (v) => pick("period", v)),
+    // Time has every year on its own now, so it gets the same two-row window with
+    // the up/down arrows Genre and Country have — 79 chips are not a single line.
+    filterRow("Time", vocab.periods, filters.period, (v) => pick("period", v), { clamp: true }),
     filterRow("Sort", vocab.sorts, filters.sort, (v) => pick("sort", v)),
   );
 
@@ -2710,7 +2725,7 @@ function calendarCard(m) {
   return el(
     "div",
     { class: "cal-item" },
-    posterCard(m, { kind: true }),
+    posterCard(m, { kind: true, caption: true }),
     // A calendar pin is a plan about a **date**, and it is a toggle: planning says
     // so, and pressing it again takes the plan back. It was briefly add-only, which
     // left a plan you had changed your mind about with no way off the calendar.
@@ -2868,9 +2883,18 @@ function sourceBody(source) {
   // serves — catalog, metadata, streams, subtitles — and names its catalogs, so both
   // are listed.
   const isPlugin = scrapers.length > 0 || source.kind === "plugin" || source.kind === "repo";
+  // A plugin's scrapers *are* its streams. An add-on declares what it serves, and
+  // `stream` among its resources is what makes it playable — so it gets its own
+  // **Streams** line (it used to be buried as one word inside Resources), next to
+  // the rest of its resources and its catalogs.
+  const servesStreams = resources.includes("stream");
   const lines = isPlugin
     ? [line("Streams", scrapers.length ? scrapers : providers)]
-    : [line("Resources", resources), line("Catalogs", providers)];
+    : [
+        line("Streams", servesStreams ? ["direct links"] : []),
+        line("Resources", resources.filter((r) => r !== "stream")),
+        line("Catalogs", providers),
+      ];
   const nodes = lines.filter(Boolean);
   if (nodes.length) return nodes;
   return [
@@ -3039,6 +3063,7 @@ async function renderTitle(type, id) {
     data.status,
   ].filter(Boolean);
 
+  const kind = media === "series" ? "show" : "movie";
   const node = el(
     "article",
     { class: "title-page" },
@@ -3054,7 +3079,6 @@ async function renderTitle(type, id) {
       el(
         "div",
         { class: "title-hero-inner" },
-        el("button", { class: "crumb focusable", type: "button", text: "‹ Back", onclick: () => history.back() }),
         el("h1", { class: "title-name", text: meta.name || "Untitled" }),
         facts.length ? el("p", { class: "title-facts", text: facts.join("  ·  ") }) : null,
         el(
@@ -3084,9 +3108,8 @@ async function renderTitle(type, id) {
     el(
       "div",
       { class: "title-body" },
-      data.tagline ? el("p", { class: "title-tagline", text: data.tagline }) : null,
-      meta.description ? el("p", { class: "title-overview", text: meta.description }) : null,
-
+      // **Genres, then the title's own words** — the order a viewer reads the page
+      // in: what it is, what it is about, what it looks like, who made it.
       data.genres.length
         ? el("div", { class: "title-row" },
             el("h3", { class: "row-head", text: "Genres" }),
@@ -3101,14 +3124,36 @@ async function renderTitle(type, id) {
           )
         : null,
 
-      peopleRow("Directed by", [...data.creators, ...data.directors]),
-      peopleRow("Written by", data.writers),
-      peopleRow("Cast", data.cast),
-      logoRow("Studios", data.companies, "company"),
-      logoRow("Networks", data.networks, "network"),
+      (data.tagline || meta.description)
+        ? el("section", { class: "title-row" },
+            el("h3", { class: "row-head", text: "Overview" }),
+            data.tagline ? el("p", { class: "title-tagline", text: data.tagline }) : null,
+            meta.description ? el("p", { class: "title-overview", text: meta.description }) : null,
+          )
+        : null,
 
-      // **The franchise**, when the film is part of one: its own parts, in order.
-      data.collection ? titleStrip("The franchise", `The ${data.collection.name}`) : null,
+      trailersRow(data.trailers),
+
+      // Director and writer are **one row, split by a rule** — they answer the same
+      // question, and two separate rows read as two different things.
+      duoPeopleRow("Director", [...data.creators, ...data.directors], "Writer", data.writers),
+      peopleRow("Cast", data.cast),
+
+      // Production and networks, drawn as the rectangular cards Nuvio uses.
+      companyCards("Production", data.companies, "company"),
+      companyCards("Networks", data.networks, "network"),
+
+      detailGrid([
+        ["Status", data.status],
+        ["Release", meta.releaseInfo],
+        [kind === "show" ? "Seasons" : "Runtime", kind === "show" ? factsSeasons(data) : (data.runtime ? `${data.runtime} min` : "")],
+        ["Certification", data.certification],
+        ["Origin country", data.originCountry],
+        ["Original language", langName(data.originalLanguage)],
+      ]),
+
+      ratingsRow(data.ratings),
+
       // **Seasons**, for a show: each one opens its own episode list.
       data.seasons.length
         ? el("section", { class: "title-row" },
@@ -3127,9 +3172,42 @@ async function renderTitle(type, id) {
           )
         : null,
 
+      // **The collection**, when the title is part of one: the heading opens the
+      // whole franchise, and its parts sit under it in order.
+      data.collection
+        ? titleStrip("Collection", `The ${data.collection.name}`, null, {
+            strip: "collection",
+            onclick: () => go(`#/l/collection/${data.collection.tmdbId}?type=movie`),
+          })
+        : null,
+
       data.more.length ? titleStrip("More like this", null, data.more) : null,
     ),
   );
+
+  // **Whether there is anything to play.** The Play button knows: if no add-on
+  // answers with a stream, it says so on the page instead of opening a player that
+  // comes up empty.
+  queueMicrotask(async () => {
+    const playBtn = node.querySelector("#title-play");
+    if (!playBtn) return;
+    try {
+      const payload = await get(`/streams/${media}/${encodeURIComponent(id)}.json?name=${encodeURIComponent(meta.name || "")}`);
+      if (!(payload?.streams || []).length) {
+        playBtn.textContent = "No sources";
+        playBtn.classList.add("no-sources");
+        playBtn.title = "No add-on answered with a stream for this title";
+        // The **Sources** button stays on the page — it is how you get to the
+        // add-ons that can fix this, and a missing button reads as a missing
+        // feature rather than as an empty result.
+        const sourcesBtn = node.querySelector("#title-sources");
+        if (sourcesBtn) sourcesBtn.classList.add("no-sources");
+        playBtn.after(el("p", { class: "title-source-note", text: "No add-on answered with a stream. Add one in Settings → Add-ons & plugins." }));
+      }
+    } catch {
+      /* the button stays Play; pressing it reports the failure itself */
+    }
+  });
 
   // The two strips that need their own request are filled once the page is drawn.
   queueMicrotask(() => {
@@ -3169,7 +3247,7 @@ async function renderList(kind, id, type, extra = "") {
       ),
     ),
     metas.length
-      ? el("div", { class: "grid-titles" }, ...metas.map((m) => posterCard(m)))
+      ? el("div", { class: "grid-titles" }, ...metas.map((m) => posterCard(m, { caption: false })))
       : el("p", { class: "empty", text: "Nothing here for this row." }),
   ];
 }
@@ -3205,51 +3283,163 @@ function pinButtons(item) {
   ];
 }
 
+/** One person's card — a face, a name and what they did. Opens their credits. */
+const personNode = (p) =>
+  el("button", {
+    class: "person focusable",
+    type: "button",
+    title: `${p.name} — open their credits`,
+    onclick: () => go(`#/l/person/${p.tmdbId}?type=${state.row}`),
+  },
+    p.poster ? el("img", { class: "person-face", src: p.poster, alt: "", loading: "lazy" }) : el("span", { class: "person-face person-initials", text: initialsOf(p.name).toUpperCase() }),
+    el("span", { class: "person-name", text: p.name }),
+    p.role ? el("span", { class: "person-role", text: p.role }) : null,
+  );
+
+const peopleList = (people) => (people || []).filter((p) => p && p.name && p.tmdbId);
+
 /** A row of people, each opening their own credits. */
 function peopleRow(label, people) {
-  const list = (people || []).filter((p) => p && p.name && p.tmdbId);
+  const list = peopleList(people);
   if (!list.length) return null;
   return el("section", { class: "title-row" },
     el("h3", { class: "row-head", text: label }),
-    el("div", { class: "people" }, ...list.map((p) =>
+    el("div", { class: "people" }, ...list.map(personNode)),
+  );
+}
+
+/**
+ * Two credit rows in one, split by a vertical rule — Director | Writer.
+ *
+ * They answer the same question ("who made this?"), and two stacked rows read as
+ * two unrelated sections. Both sides scroll like every other people row.
+ */
+function duoPeopleRow(labelA, listA, labelB, listB) {
+  const a = peopleList(listA);
+  const b = peopleList(listB);
+  if (!a.length && !b.length) return null;
+  const side = (label, list) =>
+    list.length
+      ? el("div", { class: "people-group" },
+          el("h3", { class: "row-head", text: label }),
+          el("div", { class: "people" }, ...list.map(personNode)),
+        )
+      : null;
+  return el("section", { class: "title-row" },
+    el("div", { class: "people-duo" },
+      side(labelA, a),
+      a.length && b.length ? el("div", { class: "v-divider", "aria-hidden": "true" }) : null,
+      side(labelB, b),
+    ),
+  );
+}
+
+/**
+ * Studios and networks as **rectangular cards**, the way Nuvio draws them: the logo
+ * on a landscape plate with the name under it, each one opening its own catalog.
+ */
+function companyCards(label, list, kind) {
+  const items = (list || []).filter((c) => c && c.name && c.tmdbId);
+  if (!items.length) return null;
+  return el("section", { class: "title-row" },
+    el("h3", { class: "row-head", text: label }),
+    el("div", { class: "company-strip" }, ...items.map((c) =>
       el("button", {
-        class: "person focusable",
+        class: "company-card focusable",
         type: "button",
-        title: `${p.name} — open their credits`,
-        onclick: () => go(`#/l/person/${p.tmdbId}?type=${state.row}`),
+        title: `${c.name} — open its titles`,
+        onclick: () => go(`#/l/${kind}/${c.tmdbId}?type=${state.row}`),
       },
-        p.poster ? el("img", { class: "person-face", src: p.poster, alt: "", loading: "lazy" }) : el("span", { class: "person-face person-initials", text: initialsOf(p.name).toUpperCase() }),
-        el("span", { class: "person-name", text: p.name }),
-        p.role ? el("span", { class: "person-role", text: p.role }) : null,
+        el("span", { class: "company-logo-wrap" },
+          c.logo
+            ? el("img", { class: "company-logo", src: c.logo, alt: "", loading: "lazy", onerror: (e) => e.currentTarget.replaceWith(el("span", { class: "company-initials", text: initialsOf(c.name).toUpperCase() })) })
+            : el("span", { class: "company-initials", text: initialsOf(c.name).toUpperCase() }),
+        ),
+        el("span", { class: "company-name", text: c.name }),
       )
     )),
   );
 }
 
-/** A row of studios / networks, each opening its own titles. */
-function logoRow(label, list, kind) {
-  const items = (list || []).filter((c) => c && c.name && c.tmdbId);
-  if (!items.length) return null;
+/** A titled row of posters — the collection, or "more like this". */
+function titleStrip(label, emptyText, metas, opts = {}) {
+  const strip = el("div", { class: "strip", "data-strip": opts.strip || "inline" });
+  if (metas) for (const m of metas) strip.append(posterCard(m));
+  else strip.append(el("p", { class: "empty", text: emptyText && !opts.onclick ? emptyText : "Loading…" }));
+  // A heading with somewhere to go is a button, so the whole collection is one
+  // click from the row that names it.
+  const head = opts.onclick
+    ? el("button", { class: "row-head row-head-link focusable", type: "button", text: `${label} ›`, onclick: opts.onclick })
+    : el("h3", { class: "row-head", text: label });
+  return el("section", { class: "title-row" }, head, strip);
+}
+
+/** `2 seasons · 24 episodes` — what a show's "runtime" slot carries. */
+function factsSeasons(data) {
+  const parts = [];
+  if (data.seasonsCount) parts.push(`${data.seasonsCount} season${data.seasonsCount === 1 ? "" : "s"}`);
+  if (data.episodesCount) parts.push(`${data.episodesCount} episodes`);
+  return parts.join(" · ");
+}
+
+/** `en` → `English`, so the details row reads as a name and not a code. */
+function langName(code) {
+  const value = String(code || "").trim();
+  if (!value) return "";
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(value) || value.toUpperCase();
+  } catch {
+    return value.toUpperCase();
+  }
+}
+
+/** The facts a streaming app puts in a grid: status, release, runtime, where and in what language. */
+function detailGrid(items) {
+  const rows = items.filter(([, value]) => value);
+  if (!rows.length) return null;
   return el("section", { class: "title-row" },
-    el("h3", { class: "row-head", text: label }),
-    el("div", { class: "chips" }, ...items.map((c) =>
+    el("h3", { class: "row-head", text: "Details" }),
+    el("dl", { class: "detail-grid" }, ...rows.flatMap(([label, value]) => [
+      el("dt", { text: label }),
+      el("dd", { text: String(value) }),
+    ])),
+  );
+}
+
+/** Trailers, each one opening on YouTube. */
+function trailersRow(trailers) {
+  const list = (trailers || []).filter((t) => t && t.key);
+  if (!list.length) return null;
+  return el("section", { class: "title-row" },
+    el("h3", { class: "row-head", text: "Trailers" }),
+    el("div", { class: "trailer-grid" }, ...list.map((t) =>
       el("button", {
-        class: "chip focusable",
+        class: "trailer-card focusable",
         type: "button",
-        text: c.name,
-        title: `${c.name} — open its titles`,
-        onclick: () => go(`#/l/${kind}/${c.tmdbId}?type=${state.row}`),
-      })
+        title: `${t.name} — open on YouTube`,
+        onclick: () => window.open(t.url, "_blank", "noopener"),
+      },
+        el("img", { class: "trailer-thumb", src: `https://img.youtube.com/vi/${t.key}/hqdefault.jpg`, alt: "", loading: "lazy" }),
+        el("span", { class: "trailer-name", text: t.name }),
+        el("span", { class: "trailer-kind", text: t.type }),
+      )
     )),
   );
 }
 
-/** A titled row of posters — the franchise, or "more like this". */
-function titleStrip(label, emptyText, metas) {
-  const strip = el("div", { class: "strip", "data-strip": label === "The franchise" ? "collection" : "inline" });
-  if (metas) for (const m of metas) strip.append(posterCard(m));
-  else strip.append(el("p", { class: "empty", text: "Loading…" }));
-  return el("section", { class: "title-row" }, el("h3", { class: "row-head", text: label }), strip);
+/** Ratings, one plate per service that answered. */
+function ratingsRow(ratings) {
+  const list = (ratings || []).filter((r) => r && r.value);
+  if (!list.length) return null;
+  return el("section", { class: "title-row" },
+    el("h3", { class: "row-head", text: "Ratings" }),
+    el("div", { class: "ratings" }, ...list.map((r) =>
+      el("div", { class: "rating" },
+        el("span", { class: "rating-value", text: String(r.value) }),
+        el("span", { class: "rating-source", text: r.label || r.source }),
+      )
+    )),
+  );
 }
 
 /** Fill a strip that needed its own request. */
@@ -3728,7 +3918,7 @@ function aiProviderRow(slug, label, signup, note) {
    */
   const drawModels = (models, recommended = "") => {
     modelList.replaceChildren(
-      ...models.slice(0, 24).map((id) =>
+      ...models.map((id) =>
         el("button", {
           class: `model-chip focusable${id === state.ai.model || id === recommended ? " suggested" : ""}`,
           type: "button",
@@ -4136,7 +4326,13 @@ async function inspectSource(index, { quiet = false } = {}) {
     render();
   }
   try {
-    const res = await post("/api/source", { type: source.type, url: source.url });
+    // A source that never answers must not leave the row saying "Checking…" for
+    // ever — the request is given a deadline and reports the timeout like any other
+    // failure.
+    const res = await Promise.race([
+      post("/api/source", { type: source.type, url: source.url }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("that source did not answer in time")), 20000)),
+    ]);
     source.providers = res.providers || [];
     source.resources = res.resources || [];
     source.scrapers = res.scrapers || [];
@@ -4398,7 +4594,7 @@ async function render() {
  *
  * Shift+wheel and trackpad horizontal gestures keep their normal meaning.
  */
-const ROW_SELECTOR = ".strip, .icons.rows";
+const ROW_SELECTOR = ".strip, .icons.rows, .people, .company-strip, .ratings";
 
 /** Is the app asked not to animate? "Always" overrides the system preference. */
 const reducedMotion = () => {
@@ -4462,8 +4658,15 @@ function horizontalWheel() {
 }
 
 function setupInput() {
+  // **Back goes back**, the way a browser's Back does — to the screen you were on,
+  // not to Home. It used to jump straight to `#/` from anywhere, which is why
+  // leaving a title page landed you on Home even when you had come from a row.
   document.getElementById("back").addEventListener("click", () => {
     const { view, key } = parseHash();
+    if (history.length > 1) {
+      history.back();
+      return;
+    }
     if (view === "explore") go(`#/c/${encodeURIComponent(key)}`);
     else go("#/");
   });
@@ -5208,7 +5411,7 @@ function renderLiveSearch() {
   const draw = () => {
     const hits = matches(input.value);
     suggestions.replaceChildren(
-      ...hits.slice(0, 8).map((channel) =>
+      ...hits.map((channel) =>
         el(
           "button",
           {
@@ -5286,7 +5489,7 @@ function providerPicker(picked, save) {
     const list = [
       ...liveProviderList.filter((p) => picked.has(p.id)),
       ...matching.filter((p) => !picked.has(p.id)),
-    ].slice(0, 80);
+    ];
     rows.replaceChildren(
       ...(list.length
         ? list.map((p) =>
@@ -5578,6 +5781,18 @@ let playerNode = null;
 
 const IS_HLS = (url) => /\.m3u8(\?|#|$)/i.test(String(url || ""));
 
+/**
+ * Is this stream **not** a video?
+ *
+ * Add-ons put a "support the project" line at the top of their streams, and that
+ * line's URL is a donation page. The server marks the ones Stremio calls
+ * `externalUrl` (a page to open elsewhere); this catches those as well as a page
+ * that slipped through as a `url`, so the player never hands a web page to a
+ * `<video>` element and never auto-plays one.
+ */
+const isExternalStream = (s) =>
+  Boolean(s?.external) || /donat|support|patreon|buymeacoffee|ko-?fi|telegram|discord|paypal/i.test(`${s?.name || ""} ${s?.title || ""} ${s?.url || ""}`);
+
 function loadHls() {
   if (window.Hls) return Promise.resolve(window.Hls);
   if (!hlsLoader) {
@@ -5601,6 +5816,7 @@ function stopPlayer() {
     playerNode.remove();
     playerNode = null;
   }
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   document.removeEventListener("keydown", playerKey);
 }
 
@@ -5621,14 +5837,7 @@ function playerKey(e) {
   else if (e.key === "ArrowUp") video.volume = Math.min(1, video.volume + 0.1);
   else if (e.key === "ArrowDown") video.volume = Math.max(0, video.volume - 0.1);
   else if (e.key === "m") video.muted = !video.muted;
-  else if (e.key === "f") toggleFullscreen();
   else if (e.key === "p") video.requestPictureInPicture?.().catch(() => {});
-}
-
-function toggleFullscreen() {
-  const target = document.querySelector(".player") || document.documentElement;
-  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-  else target.requestFullscreen?.().catch(() => {});
 }
 
 /** `1:04:07` / `4:07` — a clock, not a number. */
@@ -5643,12 +5852,12 @@ const timecode = (seconds) => {
 /**
  * The player.
  *
- * Full screen, with the controls a streaming app is expected to have — play/pause,
- * a seek bar you can drag, the time, volume and mute, playback speed, picture-in-
- * picture and fullscreen — plus, for a title, a **Sources** drawer: every stream the
- * add-ons you added answered with, grouped by add-on, one click to play. Keyboard:
- * space/k play, ←/→ seek 10s, ↑/↓ volume, m mute, f fullscreen, p picture-in-picture,
- * Esc close.
+ * **Always full screen** — the overlay is the window and the picture fills it, with a
+ * compact control strip floating at the bottom (play/pause, a seek bar, the time,
+ * volume and mute, playback speed and picture-in-picture) and, for a title, a
+ * **Sources** drawer: every stream the add-ons you added answered with, one click to
+ * play. There is no title bar over the picture and no fullscreen button. Keyboard:
+ * space/k play, ←/→ seek 10s, ↑/↓ volume, m mute, p picture-in-picture, Esc close.
  */
 async function openPlayer(url, title, opts = {}) {
   const src = String(url || "").trim();
@@ -5681,6 +5890,11 @@ async function openPlayer(url, title, opts = {}) {
   volume.addEventListener("input", () => { video.volume = Number(volume.value); video.muted = Number(volume.value) === 0; });
   rate.addEventListener("change", () => { video.playbackRate = Number(rate.value) || 1; });
 
+  // The player is **always full screen**: the overlay covers the window, and it asks
+  // the browser for real fullscreen on the way in (it may refuse without a user
+  // gesture — the overlay still fills the screen either way). There is no fullscreen
+  // button, and no title sitting over the picture.
+
   // The Sources drawer: which add-on this stream came from, and the others on offer.
   const drawer = el("aside", { class: "player-sources", hidden: true });
   const drawSources = (list, currentUrl) => {
@@ -5689,15 +5903,22 @@ async function openPlayer(url, title, opts = {}) {
       list && list.length
         ? el("div", { class: "stream-list" }, ...list.map((s) =>
             el("button", {
-              class: `stream focusable${s.url === currentUrl ? " active" : ""}`,
+              class: `stream focusable${s.url === currentUrl ? " active" : ""}${isExternalStream(s) ? " stream-external" : ""}`,
               type: "button",
               onclick: async () => {
                 drawer.hidden = true;
+                // An external stream is a page, not a video: it opens in the
+                // browser instead of being handed to the player's `<video>`.
+                if (isExternalStream(s)) {
+                  window.open(s.url, "_blank", "noopener");
+                  return;
+                }
                 await openPlayer(s.url, opts.title || title, { ...opts, current: s.url });
               },
             },
               el("span", { class: "stream-name", text: s.name || s.source || "Stream" }),
               el("span", { class: "stream-detail", text: [s.quality, s.source, s.title].filter(Boolean).join(" · ") }),
+              isExternalStream(s) ? el("span", { class: "stream-flag", text: "opens externally" }) : null,
             )
           ))
         : el("p", { class: "empty", text: "No streams returned. Add or fix an add-on in Settings → Add-ons & plugins, then press Sources again." }),
@@ -5705,39 +5926,60 @@ async function openPlayer(url, title, opts = {}) {
   };
   drawSources(opts.streams || [], src);
 
+  const togglePlay = () => (video.paused ? video.play().catch(() => {}) : video.pause());
+  // **A streaming player, not a browser control strip**: a big centre target while
+  // the picture is paused (Nuvio's), and one floating rounded bar at the foot of the
+  // screen (Stremio's), grouped left and right with the accent on what you touch.
+  const centre = el("button", {
+    class: "player-center focusable", type: "button", text: "▶", title: "Play / pause", onclick: togglePlay,
+  });
+  const syncCentre = () => { centre.hidden = !video.paused; };
+  video.addEventListener("play", syncCentre);
+  video.addEventListener("pause", syncCentre);
+  video.addEventListener("click", togglePlay);
+  syncCentre();
+
   const node = el(
     "div",
     { class: "player" },
     el(
       "div",
-      { class: "player-head" },
-      el("span", { class: "player-title", text: opts.title || title || "Live" }),
-      opts.streams?.length
-        ? el("button", {
-            class: "btn subtle focusable", type: "button", text: "Sources", id: "player-sources",
-            onclick: () => { drawer.hidden = !drawer.hidden; },
-          })
-        : null,
-      el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: stopPlayer }),
+      { class: "player-stage" },
+      video,
+      centre,
+      drawer,
+      el(
+        "div",
+        { class: "player-controls" },
+        el("div", { class: "player-group" },
+          playBtn,
+          el("button", { class: "player-icon focusable", type: "button", text: "⏪", title: "Back 10 seconds", onclick: () => { video.currentTime = Math.max(0, (video.currentTime || 0) - 10); } }),
+          el("button", { class: "player-icon focusable", type: "button", text: "⏩", title: "Forward 10 seconds", onclick: () => { video.currentTime = (video.currentTime || 0) + 10; } }),
+          seek,
+          clock,
+        ),
+        el("div", { class: "player-group end" },
+          el("button", { class: "player-icon focusable", type: "button", text: "🔇", title: "Mute", onclick: () => { video.muted = !video.muted; } }),
+          volume,
+          rate,
+          el("button", { class: "player-icon focusable", type: "button", text: "PiP", title: "Picture in picture", onclick: () => video.requestPictureInPicture?.().catch(() => {}) }),
+          opts.streams?.length
+            ? el("button", {
+                class: "player-icon focusable", type: "button", text: "Sources", id: "player-sources",
+                onclick: () => { drawer.hidden = !drawer.hidden; },
+              })
+            : null,
+          el("button", { class: "player-icon focusable", type: "button", text: "Close", title: "Close player", onclick: stopPlayer }),
+        ),
+      ),
     ),
-    el("div", { class: "player-stage" }, video, drawer),
-    el(
-      "div",
-      { class: "player-controls" },
-      playBtn,
-      seek,
-      clock,
-      el("button", { class: "player-icon focusable", type: "button", text: "🔇", title: "Mute", onclick: () => { video.muted = !video.muted; } }),
-      volume,
-      rate,
-      el("button", { class: "player-icon focusable", type: "button", text: "PiP", title: "Picture in picture", onclick: () => video.requestPictureInPicture?.().catch(() => {}) }),
-      el("button", { class: "player-icon focusable", type: "button", text: "⛶", title: "Fullscreen", onclick: toggleFullscreen }),
-    ),
-    el("p", { class: "player-note", text: src }),
   );
   document.body.append(node);
   playerNode = node;
   document.addEventListener("keydown", playerKey);
+  node.requestFullscreen?.().catch(() => {
+    /* no gesture, or the browser refused — the overlay already fills the screen */
+  });
   try {
     const native = video.canPlayType("application/vnd.apple.mpegurl");
     if (IS_HLS(src) && !native) {
@@ -5771,12 +6013,15 @@ async function openPlayer(url, title, opts = {}) {
 async function openSources(meta) {
   const media = meta.type === "series" ? "series" : "movie";
   const id = String(meta.id || "").replace(/^tmdb:/, "");
-  const overlay = el("div", { class: "player loading-player" },
-    el("div", { class: "player-head" },
-      el("span", { class: "player-title", text: `Finding sources — ${meta.name || ""}` }),
+  // The "finding sources" screen is the player too — full screen, one centred
+  // panel, **no title bar across the top and no sentence about what it is doing**.
+  const overlay = el("div", { class: "player loading-player empty-player" },
+    el("div", { class: "player-empty-body" },
+      el("span", { class: "player-spinner", "aria-hidden": "true" }),
+      el("p", { class: "player-loading-title", text: meta.name || "Finding sources" }),
+      el("p", { class: "player-note", text: "Finding sources…" }),
       el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
     ),
-    el("p", { class: "player-note", text: "Asking the add-ons and plugins you added…" }),
   );
   document.body.append(overlay);
   let payload = null;
@@ -5784,17 +6029,50 @@ async function openSources(meta) {
     payload = await get(`/streams/${media}/${encodeURIComponent(id)}.json?name=${encodeURIComponent(meta.name || "")}`);
   } catch (err) {
     overlay.replaceChildren(
-      el("div", { class: "player-head" },
-        el("span", { class: "player-title", text: meta.name || "" }),
-        el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
+      el("div", { class: "player-empty-body" },
+        el("p", { class: "player-error", text: `Could not read the streams — ${err.message}` }),
+        el("button", { class: "btn primary focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
       ),
-      el("p", { class: "player-error", text: `Could not read the streams — ${err.message}` }),
     );
     return;
   }
   const streams = payload?.streams || [];
+  // Only a real video plays here. A stream that points at a page (a host's own site,
+  // or the "support the project" line) is kept as a link to open, never auto-played.
+  const playable = streams.filter((s) => !isExternalStream(s));
+  const external = streams.filter(isExternalStream);
   const lines = (payload?.sources || []).map((s) => `${s.name}: ${s.ok ? s.message : `failed — ${s.message}`}`);
-  overlay.remove();
+  // **The same panel stays on screen.** Removing the full-screen overlay and
+  // appending an identical one a frame later is the black flash ("the screen blinks
+  // and glitches") between asking for sources and being told the answer — so every
+  // answer below fills the panel that is already there.
+  const panel = (children) => overlay.replaceChildren(el("div", { class: "player-empty-body" }, ...children));
+  const tryAgain = () => {
+    overlay.remove();
+    openSources(meta);
+  };
+
+  if (!playable.length && external.length) {
+    panel([
+      el("p", { class: "player-error", text: "These add-ons answered with links to open, not playable video." }),
+      el("div", { class: "stream-list" }, ...external.map((s) =>
+        el("button", {
+          class: "stream focusable",
+          type: "button",
+          onclick: () => window.open(s.url, "_blank", "noopener"),
+        },
+          el("span", { class: "stream-name", text: s.name || s.source || "Link" }),
+          el("span", { class: "stream-detail", text: [s.source, s.title].filter(Boolean).join(" · ") }),
+        )
+      )),
+      lines.length ? el("div", { class: "stream-list" }, ...lines.map((l) => el("p", { class: "player-note", text: l }))) : null,
+      el("div", { class: "player-empty-actions" },
+        el("button", { class: "btn primary focusable", type: "button", text: "Check again", onclick: tryAgain }),
+        el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
+      ),
+    ]);
+    return;
+  }
 
   if (!streams.length) {
     const reason =
@@ -5803,20 +6081,22 @@ async function openSources(meta) {
         : payload?.reason === "no-imdb"
           ? "This title has no IMDb id, so an add-on cannot be asked for streams."
           : "No playable stream came back.";
-    document.body.append(el("div", { class: "player" },
-      el("div", { class: "player-head" },
-        el("span", { class: "player-title", text: meta.name || "" }),
-        el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: (e) => e.currentTarget.closest(".player").remove() }),
-      ),
+    panel([
       el("p", { class: "player-error", text: reason }),
       lines.length ? el("div", { class: "stream-list" }, ...lines.map((l) => el("p", { class: "player-note", text: l }))) : null,
-    ));
+      el("div", { class: "player-empty-actions" },
+        el("button", { class: "btn primary focusable", type: "button", text: "Check again", onclick: tryAgain }),
+        el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
+      ),
+    ]);
     return;
   }
 
+  overlay.remove();
+
   // The first stream that is not a trailer/cam rip plays straight away; the rest are
   // one click away in the Sources drawer.
-  const best = streams.find((s) => !/cam|trailer|sample/i.test(`${s.name} ${s.title}`)) || streams[0];
+  const best = playable.find((s) => !/cam|trailer|sample/i.test(`${s.name} ${s.title}`)) || playable[0];
   await openPlayer(best.url, meta.name, { title: meta.name, meta, streams, current: best.url });
 }
 

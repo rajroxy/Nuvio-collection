@@ -52,7 +52,7 @@ import {
 } from "./customrows.mjs";
 import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog, hasRecommendSeeds } from "./catalogs.mjs";
 import { activeCountry, activeContentSource, activeLanguage, getSettings, updateSettings, publicSettings, tmdbKey, providerKeys } from "./settings.mjs";
-import { enrichRatings, verifyProvider } from "./providers.mjs";
+import { enrichRatings, titleRatings, verifyProvider } from "./providers.mjs";
 import { applyPosters, postersEnabled, checkPosterService } from "./posters.mjs";
 import { applyContentSource, contentSourceActive, contentSourceStats } from "./tvdb.mjs";
 import { inspectSource } from "./sources.mjs";
@@ -81,7 +81,10 @@ const PAGE_SIZE = 40;
  * does. The only limit left is TMDB's own (page 500 per query), which is not ours to
  * move.
  */
-const SEARCH_PAGES = 6;
+// A window is this many TMDB pages per row type. A window is not a limit on the
+// catalog — the app keeps asking for the next one — it is how much is read in one
+// request so a screen is not waiting on dozens of round-trips.
+const SEARCH_PAGES = 20;
 
 /**
  * Read up to `pages` pages of one TMDB list, stopping early at the last page.
@@ -547,7 +550,7 @@ async function titlePayload(type, id, adult = false) {
   const endpoint = media === "series" ? "tv" : "movie";
   const detail = await get(`/${endpoint}/${id}`, {
     language: activeLanguage(),
-    append_to_response: "credits,recommendations,similar,external_ids,content_ratings,release_dates",
+    append_to_response: "credits,recommendations,similar,external_ids,content_ratings,release_dates,videos,production_companies",
   });
 
   const meta = toMeta(detail, media) || { id: `tmdb:${id}`, type: media, name: detail.name || detail.title || "Untitled" };
@@ -565,12 +568,29 @@ async function titlePayload(type, id, adult = false) {
   const crew = detail.credits?.crew || [];
   const byJob = (...jobs) => dedupe(crew.filter((c) => c.id && jobs.includes(c.job))).map((c) => personCard(c, c.job));
 
+  // **Trailers.** TMDB keeps a title's videos; the ones worth opening are its
+  // trailers and teasers, newest first, YouTube only (that is where they play).
+  const trailers = (detail.videos?.results || [])
+    .filter((v) => v.site === "YouTube" && v.key && /trailer|teaser|clip/i.test(v.type || ""))
+    .sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")))
+    .map((v) => ({ name: v.name || v.type || "Trailer", key: v.key, type: v.type || "Trailer", url: `https://www.youtube.com/watch?v=${v.key}` }));
+
+  // **Ratings, from many services.** TMDB's own number always comes first; the
+  // rest are the sources MDBList aggregates when its key is set.
+  const tmdbScore = typeof detail.vote_average === "number" && detail.vote_average > 0 ? detail.vote_average.toFixed(1) : "";
+  const ratings = [
+    ...(tmdbScore ? [{ source: "tmdb", label: "TMDB", value: tmdbScore }] : []),
+    ...(await titleRatings(meta).catch(() => [])),
+  ];
+
+  // Where the title is from, and in what language it was made.
+  const originCountry = (detail.production_countries || []).map((c) => c.name).filter(Boolean).join(", ") || (detail.origin_country || []).join(", ");
+
   // **More like this**: TMDB's two answers to "what else", recommendations first
   // because they are the closer match, de-duplicated and never the title itself.
   const more = stripAdult(
     dedupe([...(detail.recommendations?.results || []), ...(detail.similar?.results || [])])
       .filter((r) => String(r.id) !== String(id))
-      .slice(0, 20)
       .map((r) => toMeta(r, media))
       .filter(Boolean),
     adult,
@@ -587,11 +607,16 @@ async function titlePayload(type, id, adult = false) {
     // Genres carry their id: each one is a way into that genre's own catalog.
     genres: (detail.genres || []).map((g) => ({ id: g.id, name: g.name })),
     status: detail.status || "",
+    releaseDate: detail.release_date || detail.first_air_date || "",
+    originalLanguage: detail.original_language || "",
+    originCountry,
+    trailers,
+    ratings,
     tagline: detail.tagline || "",
     creators: (detail.created_by || []).map((c) => personCard(c, "Creator")),
     directors: byJob("Director"),
     writers: byJob("Writer", "Screenplay", "Story"),
-    cast: (detail.credits?.cast || []).slice(0, 20).map((c) => personCard(c, c.character || "")),
+    cast: (detail.credits?.cast || []).map((c) => personCard(c, c.character || "")),
     companies: (detail.production_companies || []).map((c) => logoCard("company", c)),
     networks: (detail.networks || []).map((n) => logoCard("network", n)),
     collection: detail.belongs_to_collection
@@ -708,7 +733,7 @@ function dedupe(items) {
 // after a few hundred, and a small `take` that made some rows stop after ten.
 // Demand-driven: `deepen` only walks as far as the window being asked for, so a
 // high ceiling costs nothing until someone actually scrolls that far.
-const MAX_ROUNDS = 100;           // 100 pages × 20 titles = 2000 titles
+const MAX_ROUNDS = 500;           // 500 pages × 20 titles = 10 000 titles
 const POOL_TTL = 10 * 60 * 1000;  // a pool is reused for 10 minutes
 const MAX_POOLS = 80;             // distinct catalogs kept in memory
 const pools = new Map();
@@ -786,8 +811,8 @@ function poolItems(entry) {
  * Metas are built fresh for every request: the route mutates them downstream
  * (better posters, ratings), so a cached object must never be handed out twice.
  */
-const metasFor = (entry) =>
-  poolItems(entry)
+const metasFrom = (entry, items) =>
+  items
     // SFW is enforced here as well as at the API. `include_adult` only covers the
     // discover endpoints, and it is a hint even there: `/trending`, `/now_playing`,
     // `/airing_today` and `/top_rated` take no such parameter at all, so an adult
@@ -797,6 +822,22 @@ const metasFor = (entry) =>
     .filter((item) => entry.adult || !item.adult)
     .map((item) => toMeta(item, entry.media))
     .filter(Boolean);
+
+const metasFor = (entry) => metasFrom(entry, poolItems(entry));
+
+/**
+ * Is this title something other than a US-only production?
+ *
+ * Used as a second guard on a cross-country shuffle: even a country-scoped query
+ * can return a Hollywood co-production, and a draw of nothing but those is the US
+ * chart under another flag. An item with no origin on it is left alone (kept as a
+ * fallback) rather than guessed at.
+ */
+const isCrossCountry = (item) => {
+  const origins = Array.isArray(item?.origin_country) ? item.origin_country : [];
+  if (!origins.length) return false;
+  return origins.some((code) => code !== "US");
+};
 
 /**
  * Grow the pool until it covers `need` titles, or it runs out.
@@ -829,12 +870,6 @@ function deepen(entry, need) {
  * at the top of it every time. Shuffle samples the row *and* a handful of other
  * origin countries, so the draw covers what the row holds across the world.
  */
-const SHUFFLE_COUNTRIES = [
-  "US", "IN", "JP", "KR", "GB", "FR", "ES", "IT", "DE", "BR", "MX", "TR",
-  "NG", "CN", "HK", "TW", "TH", "ID", "PH", "VN", "SE", "NO", "DK", "FI",
-  "PL", "RU", "NL", "BE", "PT", "GR", "AR", "CO", "CL", "EG", "ZA", "AU",
-];
-
 /**
  * The row's own specs, plus a few country-scoped ones when the row is discover-based.
  *
@@ -845,18 +880,65 @@ const SHUFFLE_COUNTRIES = [
  * (a watchlist, a Top 10, a provider curated list) gets no extra specs: there is
  * nothing to vary without leaving the catalog.
  */
+/**
+ * Countries the shuffle skims, so one draw is not one country's chart.
+ *
+ * The US is deliberately **not** in this list: a row with no country of its own is
+ * a US chart by default, and mixing the US chart in is what made every shuffle come
+ * back American. These are the draws instead, across every region.
+ */
+const SHUFFLE_REGIONS = {
+  asia: ["IN", "JP", "KR", "CN", "HK", "TW", "TH", "ID", "PH", "VN", "MY", "SG", "PK", "BD", "LK", "NP", "KH", "MM", "MN", "KZ", "IR", "IL", "SA", "AE", "TR"],
+  europe: ["GB", "FR", "DE", "IT", "ES", "PL", "SE", "NO", "DK", "FI", "NL", "BE", "PT", "GR", "CZ", "HU", "RO", "UA", "IE", "RU", "AT", "CH"],
+  americas: ["BR", "MX", "AR", "CO", "CL", "PE", "CA"],
+  africa: ["NG", "ZA", "EG", "KE", "GH", "MA", "DZ", "TN", "ET", "TZ"],
+  oceania: ["AU", "NZ", "PH"],
+};
+
+/** The ids each catalog handed out recently, so a draw does not repeat them. */
+const shuffleMemory = new Map();
+/** How many past draws are held aside for one catalog. */
+const SHUFFLE_MEMORY_DRAWS = 4;
+
+/**
+ * The countries one shuffle pool draws from, **region by region**.
+ *
+ * A flat random pick of six used to hand back Europe and the Americas over and over
+ * and never reach Asia — which is what "Asian countries do not show in shuffle" was.
+ * Every region contributes, and the country inside a region rotates, so the whole
+ * table is reached across draws rather than six favoured names.
+ */
+function shuffleCountryPicks() {
+  const picks = [];
+  const take = (list, n) => [...list].sort(() => Math.random() - 0.5).slice(0, n);
+  picks.push(...take(SHUFFLE_REGIONS.asia, 4));
+  picks.push(...take(SHUFFLE_REGIONS.europe, 3));
+  picks.push(...take(SHUFFLE_REGIONS.americas, 2));
+  picks.push(...take(SHUFFLE_REGIONS.africa, 1));
+  picks.push(...take(SHUFFLE_REGIONS.oceania, 1));
+  return [...new Set(picks)];
+}
+
 function countryVariedSpecs(specs) {
   const discover = specs.filter((s) => typeof s?.path === "string" && s.path.startsWith("/discover/"));
   if (!discover.length || discover.length !== specs.length) return specs;
-  const picks = [...SHUFFLE_COUNTRIES].sort(() => Math.random() - 0.5).slice(0, 4);
+  // A row that already names its country keeps it — overriding it is what made a
+  // regional row answer with another region's titles. Only a row scoped *nowhere*
+  // gets the cross-country treatment.
+  const scoped = discover.filter((s) => s.params?.with_origin_country);
+  const unscoped = discover.filter((s) => !s.params?.with_origin_country);
+  if (!unscoped.length) return specs;
+  const picks = shuffleCountryPicks();
+  // The country-scoped rows **replace** the unscoped one instead of being added to
+  // it: leaving the US-default chart in the pool is what kept the draw American
+  // however many flags were layered on top of it.
   const extra = picks.map((code) => {
-    const base = discover[Math.floor(Math.random() * discover.length)];
-    // A row that already scopes itself to a country keeps that country: overriding it
-    // is what made a regional row answer with another region's titles.
-    const params = base.params?.with_origin_country ? { ...base.params } : { ...base.params, with_origin_country: code };
-    return { path: base.path, params, take: PAGE_SIZE / 2 };
+    const base = unscoped[Math.floor(Math.random() * unscoped.length)];
+    // No `take` cap: the pool grows like every other pool rather than stopping at
+    // half a page per country, which was a limit on what a shuffle could hold.
+    return { path: base.path, params: { ...base.params, with_origin_country: code } };
   });
-  return [...specs, ...extra];
+  return [...scoped, ...extra];
 }
 
 /**
@@ -875,19 +957,26 @@ export async function catalogShuffle(media, def, count, opts = {}) {
 
   let pool;
   if (specs.length === 1 && specs[0].watchlist) {
-    pool = watchlistMetas(specs[0].watchlist, media, 0, 300);
+    pool = watchlistMetas(specs[0].watchlist, media, 0, 100000);
   } else if (specs.length === 1 && specs[0].custom) {
-    pool = customMetas(specs[0].custom, media, 0, 300);
+    pool = customMetas(specs[0].custom, media, 0, 100000);
   } else if (specs.length === 1 && specs[0].episodes) {
     pool = await episodeMetas(media, specs[0].episodes, language, Boolean(opts.adult));
   } else {
     const varied = countryVariedSpecs(specs);
+    // The row named no country of its own, so the country-scoped variants *are* the
+    // pool — draw from cross-country titles when they are there, and fall back to
+    // the whole pool only when they are not.
+    const crossCountry = varied !== specs;
     const entry = remember(pools, key, () => ({ at: Date.now(), media, specs: varied, lists: varied.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
     // Sample from a pool many times the sample size. Twelve of the top twenty
     // most popular titles is what made one shuffle look like the last one, and
     // like nothing but the biggest names: the pool has to reach well past them
     // before a random draw is worth anything.
-    pool = await deepen(entry, Math.max(count * 8, PAGE_SIZE * 4));
+    await deepen(entry, Math.max(count * 8, PAGE_SIZE * 4));
+    const raw = poolItems(entry);
+    const cross = crossCountry ? raw.filter(isCrossCountry) : raw;
+    pool = metasFrom(entry, cross.length >= count ? cross : raw);
   }
 
   const picked = pool.slice();
@@ -895,7 +984,19 @@ export async function catalogShuffle(media, def, count, opts = {}) {
     const j = Math.floor(Math.random() * (i + 1));
     [picked[i], picked[j]] = [picked[j], picked[i]];
   }
-  return picked.slice(0, count);
+  // **A draw does not hand back what the last draws just showed.** Sampling a pool
+  // at random repeats titles within a couple of presses — the "same contents again
+  // and again" — so the ids of the last few draws are held aside and only used when
+  // there is nothing fresh left.
+  const recent = new Set(shuffleMemory.get(key) || []);
+  const fresh = picked.filter((m) => !recent.has(m.id));
+  const draw = (fresh.length >= count ? fresh : picked).slice(0, count);
+  shuffleMemory.set(
+    key,
+    [...draw.map((m) => m.id), ...(shuffleMemory.get(key) || [])].slice(0, SHUFFLE_MEMORY_DRAWS * Math.max(count, 1)),
+  );
+  if (shuffleMemory.size > 200) shuffleMemory.delete(shuffleMemory.keys().next().value);
+  return draw;
 }
 
 /**
@@ -912,7 +1013,7 @@ export async function catalogShuffle(media, def, count, opts = {}) {
 // ones with few episodes, so the pool pulls **both** ends — and then the most-voted
 // shows too, which is where the middle of the ladder (a 20-episode season) actually
 // lives. One order alone left the top buckets with only a handful of titles.
-const EPISODE_POOL_PAGES = 5;
+const EPISODE_POOL_PAGES = 40;
 const EPISODE_POOL_ORDERS = ["first_air_date.desc", "popularity.desc", "vote_count.desc"];
 const episodePools = new Map();
 
@@ -1442,7 +1543,7 @@ export async function handleAddon(req, res, pathname, origin) {
         (!needle || c.name.toLowerCase().includes(needle)),
     );
     json(res, 200, {
-      channels: channels.slice(0, Number(params.get("limit")) || 400),
+      channels: channels.slice(0, Number(params.get("limit")) || 100000),
       total: channels.length,
       groups: list.groups || [],
       updated: list.at || 0,
@@ -1478,8 +1579,12 @@ export async function handleAddon(req, res, pathname, origin) {
 
   // The filter panel's own vocabulary — what the search screen draws its rows
   // from, so the app never hard-codes a genre name TMDB does not know.
+  // **Never cached.** This is UI vocabulary, not data: an hour-long cache meant the
+  // app could still be drawing last release's Time chips ("2015-2011", "2010-2000")
+  // long after every year had its own — the reported "you didn't do every year
+  // individual" was the browser showing a stored copy.
   if (pathname === "/search/filters.json") {
-    json(res, 200, { filters: SEARCH_FILTERS }, 3600);
+    json(res, 200, { filters: SEARCH_FILTERS }, 0);
     return true;
   }
 
