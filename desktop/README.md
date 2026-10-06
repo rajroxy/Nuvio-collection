@@ -18,11 +18,31 @@ desktop/
 
 ## Run
 
+From the repo root — this is the command that opens the desktop app:
+
+```sh
+npm start          # starts the embedded server on a free port, opens the Electron window
+```
+
+Or from this folder:
+
 ```sh
 cd desktop
-npm install
 npm start
 ```
+
+**`npm start` opens the window — it never prints a server url.** The browser-only
+version of the same UI is a different command:
+
+```sh
+npm run start:web  # prints "Nuvio gallery + catalog addon → http://0.0.0.0:4173"
+```
+
+Use `start:web` (or `npm run preview`, which is the same thing) when you want the
+web app in a browser at `/app/`; use `npm start` when you want the desktop app.
+
+`npm start` fetches Electron's binary once if a previous `npm install` skipped it (`ELECTRON_SKIP_BINARY_DOWNLOAD`), so a fresh clone does not need its
+own install step.
 
 Requires **Electron ≥ 28** (the main process is an ES module).
 
@@ -218,8 +238,12 @@ the page.
 ## How it gets data
 
 `main.js` calls `startServer()` (exported by `../serve.mjs`) with `port: 0`, so
-the OS picks a free port, then loads `ui/index.html?api=http://127.0.0.1:<port>`.
-The UI reads:
+the OS picks a free port, then **loads the UI from that server** —
+`http://127.0.0.1:<port>/app/`. Loading it over http rather than `file://` is what
+makes the app work: the catalogs, the cover images and the add-on / plugin /
+repository lookup (`POST /api/source`) are then same-origin, exactly as in the
+browser preview, where from a `file://` page every one of them would be a
+cross-origin request. The UI reads:
 
 | Endpoint | Used for |
 |---|---|

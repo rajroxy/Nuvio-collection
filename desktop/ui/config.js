@@ -1,6 +1,8 @@
 // Where the UI looks for the catalog server.
 //
-//   Electron desktop  → main.js passes ?api=http://127.0.0.1:<port> (nothing to do)
+//   Electron desktop  → the window loads http://127.0.0.1:<port>/app/, so the
+//                       embedded server *is* the same origin (nothing to do).
+//                       A ?api=… query still overrides it if ever needed.
 //   Browser / preview → served by serve.mjs on the same origin (nothing to do)
 //   Android TV (APK)  → the app is a thin client: there is no Node server on the
 //                       device, so set NUVIO_HOST to the deployed host before

@@ -455,10 +455,14 @@ An Electron shell around the covers and catalogs, sharing the same server via
 `startServer()` from `serve.mjs`:
 
 ```sh
-cd desktop
-npm install
-npm start
+npm start           # opens the Electron window
+npm run start:web   # the browser version of the same UI (prints a url)
 ```
+
+**`npm start` opens the window; `npm run start:web` (a.k.a. `npm run preview`)
+prints the url.** They are the same server and the same UI — the only difference
+is which shell shows it, and `npm start` fetches Electron's binary once if a
+previous install skipped it. `cd desktop && npm start` does the same thing.
 
 `desktop/ui/` is plain web code, so the **same UI is also the web app** — it is
 served at `/` (redirects to `/app/`) by `serve.mjs`, where it talks to the server
@@ -471,21 +475,16 @@ here, so the preview url is the *web* app (`serve.mjs` + `desktop/ui`). To run t
 real desktop shell, do it on your own machine:
 
 ```sh
-cd desktop
-npm install          # downloads the Electron binary
-npm start            # Electron starts serve.mjs on a free port and opens the window
+npm start            # from the repo root; downloads Electron once, then opens the window
 ```
 
 `main.js` starts the embedded server with `port: 0` (the OS picks a free port) and
-loads `ui/index.html?api=http://127.0.0.1:<port>` — so the Electron app is fully
-self-contained and needs no deployed host, unlike the APK. Only the *first* run
-needs a TMDB key (environment variable or Settings → Providers → TMDB).
-
-```sh
-cd desktop
-npm install          # installs electron (~100MB; needs network)
-npm start            # boots the embedded server on a free port, opens the window
-```
+loads the UI **from that server** — `http://127.0.0.1:<port>/app/`. Loading it over
+http instead of `file://` keeps every request same-origin, so the catalogs, the
+cover images and the add-on / plugin / repository lookup (`POST /api/source`) work
+in the desktop app exactly as they do in the browser preview. The Electron app is
+fully self-contained and needs no deployed host, unlike the APK. Only the *first*
+run needs a TMDB key (environment variable or Settings → Providers → TMDB).
 
 - `main.js` calls `startServer({ port: 0 })`, so the app picks its own free port
   and never fights the preview server. Nothing to configure.
@@ -500,6 +499,11 @@ npm start            # boots the embedded server on a free port, opens the windo
   or paste it once in the running app under **Settings → Providers → TMDB**,
   which writes it to `addon/settings.json` for every later run (the Electron app
   and the preview share that file).
+- **A missing Electron binary installs itself.** `npm start` runs
+  `scripts/start-desktop.mjs`, which sees that
+  `desktop/node_modules/electron/path.txt` is absent, installs the desktop
+  dependencies (clearing `ELECTRON_SKIP_BINARY_DOWNLOAD` for that run) and only
+  then opens the window. `npm run desktop:install` does just the install half.
 - **A headless machine cannot launch the window** — Electron needs a display. On a
   desktop OS it just opens; over SSH/X-forwarding you get a blank
   `Missing X server` style failure, which is the environment, not the app.

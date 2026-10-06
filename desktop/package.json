@@ -7,7 +7,7 @@
   "type": "module",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "node ../scripts/start-desktop.mjs",
     "android:sync": "cap sync android",
     "android:open": "cap open android",
     "android:build": "cd android && sh ./gradlew assembleDebug",
