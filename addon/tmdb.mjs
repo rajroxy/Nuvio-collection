@@ -166,5 +166,9 @@ export function toMeta(item, type) {
   const embed = process.env.NUVIO_STREAM_SOURCE;
   if (embed) meta.behaviorHints = { defaultVideoId: `tmdb:${item.id}` };
   if (item.overview) meta.description = item.overview;
+  // The flag travels with the meta so any list can be filtered against the SFW
+  // switch — TMDB ignores `include_adult` on several endpoints, so trusting the
+  // query alone is what let adult titles through.
+  if (item.adult) meta.adult = true;
   return meta;
 }

@@ -28,7 +28,7 @@ import {
   localServices,
   title as collectionTitle,
 } from "../scripts/collections.mjs";
-import { get, hasKey, toMeta, tmdbPath, setKey, resolveGenre } from "./tmdb.mjs";
+import { get, hasKey, toMeta, tmdbPath, setKey, resolveGenre, IMG } from "./tmdb.mjs";
 import { askAI, verifyAI, aiModels, aiProviderName, aiState } from "./ai.mjs";
 import {
   STATES,
@@ -50,12 +50,13 @@ import {
   remove as customRemove,
   metasFor as customMetas,
 } from "./customrows.mjs";
-import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog } from "./catalogs.mjs";
+import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog, hasRecommendSeeds } from "./catalogs.mjs";
 import { activeCountry, activeContentSource, activeLanguage, getSettings, updateSettings, publicSettings, tmdbKey, providerKeys } from "./settings.mjs";
 import { enrichRatings, verifyProvider } from "./providers.mjs";
 import { applyPosters, postersEnabled, checkPosterService } from "./posters.mjs";
 import { applyContentSource, contentSourceActive, contentSourceStats } from "./tvdb.mjs";
 import { inspectSource } from "./sources.mjs";
+import { streamsFor } from "./streams.mjs";
 import { calendarMonth } from "./calendar.mjs";
 import { liveChannels, liveGuide, liveStatus, liveCountries, countrySpellings } from "./live.mjs";
 
@@ -479,22 +480,198 @@ function collectionsPayload(root) {
     if (!byKey.has(d.key)) byKey.set(d.key, []);
     byKey.get(d.key).push(d);
   }
+  // The **Custom** card's label is a setting, so the card is named whatever the
+  // user called it rather than the constant in the card set.
+  const customLabel = String(getSettings().customLabel || "").trim();
   // The card set for the country in Settings — the regional OTT cards name that
   // country's services, so the cards and their rows are always read together.
   return collectionsFor(activeCountry()).map((c) => {
     const defs = byKey.get(c.key) || [];
+    // A card can be named differently on each row — the Runtimes card is **Episodes**
+    // on Shows — so the name travels with the row, not just with the card.
+    const label = (type) => (c.key === "custom" && customLabel ? customLabel : collectionTitle(c, type === "movie" ? "movie" : "show"));
     const row = (type) => ({
       cover: `${root}/covers/${type === "movie" ? "movies" : "shows"}/${c.key}.png`,
+      title: label(type),
       // `kind`/`state` let the app explain an empty row properly (a watchlist row
       // says how to fill it, a TMDB row says the catalog came back empty), and
       // `row` names the custom row so the app can add a title to it.
       catalogs: defs
         .filter((d) => d.type === type)
-        .map((d) => ({ id: d.id, name: d.name, kind: d.entry?.kind || "", state: d.entry?.state || "", row: d.entry?.row || "" })),
+        // `divider` on a row draws a horizontal rule *before* it on the card page
+        // (the Watchlist's Watching → Plan to Watch boundary).
+        .map((d) => ({ id: d.id, name: d.name, kind: d.entry?.kind || "", state: d.entry?.state || "", row: d.entry?.row || "", divider: Boolean(d.entry?.divider) })),
     });
-    // `divider` marks the card that is preceded by a vertical rule in the app.
-    return { key: c.key, title: collectionTitle(c), divider: Boolean(c.divider), movie: row("movie"), series: row("series") };
+    // `divider` marks the card that is preceded by a vertical rule in the app;
+    // `hidden` marks a card the grid does not draw (the banner's own source) — and
+    // the **For You** card hides itself while the watchlist is empty, because a
+    // "more like what you watch" card on an empty watchlist is a lie.
+    const hidden = c.key === "for-you" ? !hasRecommendSeeds() : Boolean(c.hidden);
+    return { key: c.key, title: label("movie"), divider: Boolean(c.divider), hidden, movie: row("movie"), series: row("series") };
   });
+}
+
+/* --------------------------------------------------------- the title page */
+
+/** One credit / studio / network row on the title page. */
+const personCard = (p, role) => ({
+  id: `person:${p.id}`,
+  tmdbId: p.id,
+  name: p.name || "",
+  role: role || "",
+  poster: p.profile_path ? `${IMG}/w185${p.profile_path}` : "",
+});
+
+const logoCard = (kind, p) => ({
+  id: `${kind}:${p.id}`,
+  tmdbId: p.id,
+  kind,
+  name: p.name || "",
+  logo: p.logo_path ? `${IMG}/w185${p.logo_path}` : "",
+});
+
+/**
+ * Everything the title page draws, in one payload.
+ *
+ * Each list on the page carries the id of the endpoint that opens it, so the page
+ * never has to know how a `with_companies` discover query is built — it asks for
+ * `/list/company/1.json` and gets that studio's films. That is what makes every
+ * name on the page a way into its own catalog rather than a label.
+ */
+async function titlePayload(type, id, adult = false) {
+  const media = type === "series" ? "series" : "movie";
+  const endpoint = media === "series" ? "tv" : "movie";
+  const detail = await get(`/${endpoint}/${id}`, {
+    language: activeLanguage(),
+    append_to_response: "credits,recommendations,similar,external_ids,content_ratings,release_dates",
+  });
+
+  const meta = toMeta(detail, media) || { id: `tmdb:${id}`, type: media, name: detail.name || detail.title || "Untitled" };
+  const imdb = detail.external_ids?.imdb_id || "";
+  if (imdb) meta.imdb = imdb;
+
+  // Age rating: shows carry it in `content_ratings`, films in `release_dates`.
+  const cert =
+    media === "series"
+      ? (detail.content_ratings?.results || []).find((r) => r.iso_3166_1 === "US")?.rating || ""
+      : ((detail.release_dates?.results || []).find((r) => r.iso_3166_1 === "US")?.release_dates || [])
+          .map((d) => d.certification)
+          .find(Boolean) || "";
+
+  const crew = detail.credits?.crew || [];
+  const byJob = (...jobs) => dedupe(crew.filter((c) => c.id && jobs.includes(c.job))).map((c) => personCard(c, c.job));
+
+  // **More like this**: TMDB's two answers to "what else", recommendations first
+  // because they are the closer match, de-duplicated and never the title itself.
+  const more = stripAdult(
+    dedupe([...(detail.recommendations?.results || []), ...(detail.similar?.results || [])])
+      .filter((r) => String(r.id) !== String(id))
+      .slice(0, 20)
+      .map((r) => toMeta(r, media))
+      .filter(Boolean),
+    adult,
+  );
+
+  return {
+    ok: true,
+    meta,
+    imdb,
+    certification: cert,
+    runtime: detail.runtime || (detail.episode_run_time || [])[0] || 0,
+    seasonsCount: detail.number_of_seasons || 0,
+    episodesCount: detail.number_of_episodes || 0,
+    // Genres carry their id: each one is a way into that genre's own catalog.
+    genres: (detail.genres || []).map((g) => ({ id: g.id, name: g.name })),
+    status: detail.status || "",
+    tagline: detail.tagline || "",
+    creators: (detail.created_by || []).map((c) => personCard(c, "Creator")),
+    directors: byJob("Director"),
+    writers: byJob("Writer", "Screenplay", "Story"),
+    cast: (detail.credits?.cast || []).slice(0, 20).map((c) => personCard(c, c.character || "")),
+    companies: (detail.production_companies || []).map((c) => logoCard("company", c)),
+    networks: (detail.networks || []).map((n) => logoCard("network", n)),
+    collection: detail.belongs_to_collection
+      ? { id: `collection:${detail.belongs_to_collection.id}`, tmdbId: detail.belongs_to_collection.id, name: detail.belongs_to_collection.name }
+      : null,
+    seasons:
+      media === "series"
+        ? (detail.seasons || [])
+            .filter((s) => s.season_number > 0)
+            .map((s) => ({
+              number: s.season_number,
+              name: s.name || `Season ${s.season_number}`,
+              episodes: s.episode_count || 0,
+              year: String(s.air_date || "").slice(0, 4),
+              poster: s.poster_path ? `${IMG}/w342${s.poster_path}` : "",
+            }))
+        : [],
+    more,
+  };
+}
+
+/**
+ * One name's own catalog.
+ *
+ *   person/<id>          their credits, in the row type you are on
+ *   company/<id>         that studio's titles
+ *   network/<id>         that network's titles
+ *   collection/<id>      the franchise's parts, in release order
+ *   season/<show>/<n>    that season's episodes
+ */
+async function listPayload(kind, first, second, media, adult) {
+  const language = activeLanguage();
+  const base = { language, ...(adult ? { include_adult: true } : {}) };
+  const finish = async (metas) => {
+    const list = stripAdult(metas.filter(Boolean), adult);
+    try {
+      await applyPosters(list);
+      await applyContentSource(list);
+      await enrichRatings(list);
+    } catch {
+      /* artwork and ratings are extras — the list itself still stands */
+    }
+    return list;
+  };
+
+  if (kind === "person") {
+    const data = await get(`/person/${first}/combined_credits`, base);
+    const wanted = [...(data.cast || []), ...(data.crew || [])].filter((c) =>
+      media === "movie" ? c.media_type === "movie" : c.media_type === "tv",
+    );
+    return finish(dedupe(wanted).map((c) => toMeta(c, media)));
+  }
+
+  if (kind === "collection") {
+    const data = await get(`/collection/${first}`, { language });
+    const parts = [...(data.parts || [])].sort((a, b) => String(a.release_date || "").localeCompare(String(b.release_date || "")));
+    return finish(parts.map((p) => toMeta(p, "movie")));
+  }
+
+  if (kind === "season") {
+    const data = await get(`/tv/${first}/season/${second || 1}`, { language });
+    // An episode is not a catalog title — it is part of the show, so every card
+    // opens the show it belongs to.
+    return (data.episodes || []).map((e) => ({
+      id: `tmdb:${first}`,
+      type: "series",
+      name: `${e.episode_number}. ${e.name || ""}`.trim(),
+      poster: e.still_path ? `${IMG}/w300${e.still_path}` : "",
+      releaseInfo: String(e.air_date || "").slice(0, 4),
+      imdbRating: typeof e.vote_average === "number" && e.vote_average > 0 ? e.vote_average.toFixed(1) : "",
+      description: e.overview || "",
+    }));
+  }
+
+  // A studio, a network, a genre or a keyword: a discover query scoped to it.
+  const SCOPED = { company: "with_companies", network: "with_networks", genre: "with_genres", keyword: "with_keywords" };
+  const scoped = { [SCOPED[kind] || "with_companies"]: first };
+  const data = await get(`/discover/${media === "series" ? "tv" : "movie"}`, {
+    ...base,
+    ...scoped,
+    sort_by: "popularity.desc",
+    "vote_count.gte": 10,
+  });
+  return finish((data.results || []).map((r) => toMeta(r, media)));
 }
 
 /* ---------------------------------------------------------------- catalog */
@@ -522,7 +699,12 @@ function dedupe(items) {
 // TMDB answers 20 titles per page. The app asks for 40 at a time and keeps
 // scrolling, so a row has to be able to serve *deep* windows — reading page 1
 // forever is what made every Explore end after 20 titles.
-const MAX_ROUNDS = 15;            // per spec: 15 pages × 20 titles = 300
+// TMDB answers 20 titles per page and allows up to 500 pages, so a row is never
+// really out of titles — it was the cap here that made "End of catalog" arrive
+// after a few hundred, and a small `take` that made some rows stop after ten.
+// Demand-driven: `deepen` only walks as far as the window being asked for, so a
+// high ceiling costs nothing until someone actually scrolls that far.
+const MAX_ROUNDS = 100;           // 100 pages × 20 titles = 2000 titles
 const POOL_TTL = 10 * 60 * 1000;  // a pool is reused for 10 minutes
 const MAX_POOLS = 80;             // distinct catalogs kept in memory
 const pools = new Map();
@@ -637,33 +819,15 @@ function deepen(entry, need) {
 }
 
 /**
- * Countries the shuffle skims, so one draw is not one country's chart.
+ * A random sample of a catalog — what the Explore shuffle rows draw from.
  *
- * A row sorted by popularity is, in practice, an American chart: the same big
- * titles at the top of it every time. Shuffle samples the row *and* a handful of
- * other origin countries, so the draw covers what the row actually holds across
- * the world — the row's own filters (its OTT, its genre, its decade) still apply
- * to every one of these, they only change where the titles come from.
+ * The draw comes from **the catalog's own rows and nothing else**. It used to add
+ * four random origin countries to every discover-based row, so "Shuffle" on a
+ * Japanese-animation row or a Netflix row could answer with titles the row itself
+ * would never hold: the shuffle was sampled from a different catalog than the one
+ * it sat on. A shuffle means "show me another handful of *this* row", so the pool
+ * is the row's own specs.
  */
-const SHUFFLE_COUNTRIES = [
-  "US", "IN", "JP", "KR", "GB", "FR", "ES", "IT", "DE", "BR", "MX", "TR",
-  "NG", "CN", "HK", "TW", "TH", "ID", "PH", "VN", "SE", "NO", "DK", "FI",
-  "PL", "RU", "NL", "BE", "PT", "GR", "AR", "CO", "CL", "EG", "ZA", "AU",
-];
-
-/** The row's specs, plus a few country-scoped ones when the row is discover-based. */
-function shuffleCountrySpecs(specs) {
-  const discover = specs.filter((s) => typeof s?.path === "string" && s.path.startsWith("/discover/"));
-  if (!discover.length || discover.length !== specs.length) return specs;
-  const picks = [...SHUFFLE_COUNTRIES].sort(() => Math.random() - 0.5).slice(0, 4);
-  const extra = picks.map((code) => {
-    const base = discover[Math.floor(Math.random() * discover.length)];
-    return { path: base.path, params: { ...base.params, with_origin_country: code }, take: PAGE_SIZE / 2 };
-  });
-  return [...specs, ...extra];
-}
-
-/** A random sample of a catalog — what the Explore shuffle rows draw from. */
 export async function catalogShuffle(media, def, count, opts = {}) {
   const specs = def.entry ? await catalogSpecs(def.entry, media, opts) : [];
   const identity = def.id ?? JSON.stringify(def.entry ?? def);
@@ -680,11 +844,7 @@ export async function catalogShuffle(media, def, count, opts = {}) {
   } else if (specs.length === 1 && specs[0].episodes) {
     pool = await episodeMetas(media, specs[0].episodes, language, Boolean(opts.adult));
   } else {
-    // The pool is the row's own specs **plus a few origin countries**, so a draw
-    // is not always the same Hollywood titles: "everything from every country
-    // this row holds" is what a shuffle is supposed to mean.
-    const varied = shuffleCountrySpecs(specs);
-    const entry = remember(pools, key, () => ({ at: Date.now(), media, specs: varied, lists: varied.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
+    const entry = remember(pools, key, () => ({ at: Date.now(), media, specs, lists: specs.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
     // Sample from a pool many times the sample size. Twelve of the top twenty
     // most popular titles is what made one shuffle look like the last one, and
     // like nothing but the biggest names: the pool has to reach well past them
@@ -701,37 +861,69 @@ export async function catalogShuffle(media, def, count, opts = {}) {
 }
 
 /**
- * Episode-count rows: TMDB discover cannot filter by episode count, so build
- * them from a pool of shows and keep those with at most `max` episodes. The pool
- * is cached, so the (expensive) detail lookups happen once per catalog.
+ * Episode-count rows: TMDB discover cannot filter by episode count, so build them
+ * from a pool of shows whose full record carries the count. The pool is cached
+ * **once per media type and language** — not once per bucket — so the eight
+ * episode rows share one set of detail lookups instead of eight.
+ *
+ * The buckets are **ranges** (`{ min, max }`) that do not overlap, so "4 Episodes"
+ * and "24 Episodes" can never open on the same titles; inside a bucket the most
+ * popular titles come first, so a row still opens on names you know.
  */
-// Popular shows are overwhelmingly long-running, so the pool also pulls the
-// newest premieres — recent series are the ones with few episodes.
-const EPISODE_POOL_PAGES = 4;
+// Popular shows are overwhelmingly long-running and the newest premieres are the
+// ones with few episodes, so the pool pulls **both** ends — and then the most-voted
+// shows too, which is where the middle of the ladder (a 20-episode season) actually
+// lives. One order alone left the top buckets with only a handful of titles.
+const EPISODE_POOL_PAGES = 5;
+const EPISODE_POOL_ORDERS = ["first_air_date.desc", "popularity.desc", "vote_count.desc"];
 const episodePools = new Map();
 
-/** Every episode-cap title for a media type, cached. */
-async function episodeMetas(media, max, language = activeLanguage(), adult = false) {
-  const entry = remember(episodePools, `${media}:${max}:${language}:${adult ? "a" : "s"}`, () => ({ shows: null }));
+/** Every show we know the episode count of, for one media type, cached. */
+async function episodeCandidates(media, language = activeLanguage()) {
+  const entry = remember(episodePools, `${media}:${language}`, () => ({ shows: null }));
   if (!entry.shows) {
     const t = tmdbPath(media);
-    const requests = [
-      ...Array.from({ length: EPISODE_POOL_PAGES }, (_, i) => ({ sort_by: "first_air_date.desc", page: i + 1 })),
-      ...Array.from({ length: EPISODE_POOL_PAGES }, (_, i) => ({ sort_by: "popularity.desc", page: i + 1 })),
-    ];
+    const requests = EPISODE_POOL_ORDERS.flatMap((sort_by) =>
+      Array.from({ length: EPISODE_POOL_PAGES }, (_, i) => ({ sort_by, page: i + 1 })),
+    );
     const pages = await Promise.all(
       requests.map((params) => get(`/discover/${t}`, { "vote_count.gte": 1, language, ...params }).catch(() => ({ results: [] }))),
     );
     const pool = dedupe(pages.flatMap((r) => r.results ?? []));
     const details = await mapLimit(pool, 12, (it) => get(`/${t}/${it.id}`, { language }).catch(() => null));
-    // Cache the *shows*; the metas are built per request (they get mutated).
-    entry.shows = dedupe(details.filter((d) => d && (d.number_of_episodes ?? Infinity) <= max));
+    // Cache the *shows* (raw records, with their counts); the metas are built per
+    // request because they get mutated.
+    entry.shows = details.filter((d) => d && Number.isFinite(d.number_of_episodes));
   }
-  return entry.shows.filter((d) => adult || !d.adult).map((d) => toMeta(d, media)).filter(Boolean);
+  return entry.shows;
 }
 
-async function episodesMetas(media, max, skip, language, adult) {
-  const metas = await episodeMetas(media, max, language, adult);
+/**
+ * The SFW guard, applied to every list this file returns.
+ *
+ * TMDB filters some endpoints by `include_adult` and simply ignores it on others
+ * (`/trending`, `/popular`, `/top_rated`, `/now_playing`, `/airing_today`,
+ * `/on_the_air` — the spec has no such parameter there). Leaving those to TMDB is
+ * exactly the leak: an adult title could still arrive on a row the switch could not
+ * reach. So the flag is carried on the meta and every list is filtered here, which
+ * is the one place that cannot be forgotten.
+ */
+const stripAdult = (metas, adult) => (adult ? metas : metas.filter((m) => !m?.adult));
+
+/** One episode bucket: `{ min, max }` — every show whose count falls inside it. */
+async function episodeMetas(media, bucket, language = activeLanguage(), adult = false) {
+  const { min = 1, max = Infinity } = bucket || {};
+  const shows = await episodeCandidates(media, language);
+  return shows
+    .filter((d) => d.number_of_episodes >= min && d.number_of_episodes <= max)
+    .filter((d) => adult || !d.adult)
+    .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
+    .map((d) => toMeta(d, media))
+    .filter(Boolean);
+}
+
+async function episodesMetas(media, bucket, skip, language, adult) {
+  const metas = await episodeMetas(media, bucket, language, adult);
   return metas.slice(skip, skip + PAGE_SIZE);
 }
 
@@ -744,10 +936,11 @@ export async function catalogMetas(media, def, skip, opts = {}) {
   const key = `${media}:${identity}:${opts.adult ? "a" : "s"}:${language}`;
 
   if (specs.length === 1 && specs[0].episodes) {
-    return episodesMetas(media, specs[0].episodes, skip, language, Boolean(opts.adult));
+    return stripAdult(await episodesMetas(media, specs[0].episodes, skip, language, Boolean(opts.adult)), Boolean(opts.adult));
   }
 
-  // The watchlist is served from the stored pins, not from TMDB.
+  // The watchlist is served from the stored pins, not from TMDB — those are titles
+  // *you* pinned, so the SFW switch does not silently take your own list away.
   if (specs.length === 1 && specs[0].watchlist) {
     return watchlistMetas(specs[0].watchlist, media, skip, PAGE_SIZE);
   }
@@ -762,7 +955,7 @@ export async function catalogMetas(media, def, skip, opts = {}) {
   // at their length, because a Top 10 really does hold ten titles.
   const entry = remember(pools, key, () => ({ at: Date.now(), media, specs, lists: specs.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
   const pool = await deepen(entry, skip + PAGE_SIZE);
-  return pool.slice(skip, skip + PAGE_SIZE);
+  return stripAdult(pool.slice(skip, skip + PAGE_SIZE), Boolean(opts.adult));
 }
 
 function parseCatalogPath(pathname) {
@@ -1105,6 +1298,9 @@ export async function handleAddon(req, res, pathname, origin) {
       const { metas, next } = query
         ? await searchTitles(query, filters, { adult, start })
         : await browseTitles(filters, { adult, start });
+      const kept = stripAdult(metas, adult);
+      metas.length = 0;
+      metas.push(...kept);
       await applyPosters(metas);
       await applyContentSource(metas);
       await enrichRatings(metas);
@@ -1114,6 +1310,75 @@ export async function handleAddon(req, res, pathname, origin) {
       json(res, 200, { query, metas: [], filters: filtersPayload(filters) });
     }
     return true;
+  }
+
+  /* -------------------------------------------------------- one title, in full */
+
+  // The **title page**: everything TMDB knows about one film or show, in the shape
+  // the page draws it — the credits, the studios, the franchise, the seasons and the
+  // recommendations — each carrying the id of the list it opens, so every name on
+  // the page is a way into that name's own catalog.
+  {
+    const m = pathname.match(/^\/title\/(movie|series)\/(\d+)\.json$/);
+    if (m) {
+      const [, type, id] = m;
+      setKey(tmdbKey());
+      if (!hasKey()) {
+        json(res, 200, { ok: false, error: "no TMDB key" });
+        return true;
+      }
+      try {
+        const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+        const payload = await titlePayload(type, id, params.get("adult") === "1");
+        json(res, 200, payload, 600);
+      } catch (err) {
+        console.error(`[addon] title ${type}/${id} failed:`, err.message);
+        json(res, 200, { ok: false, error: err.message });
+      }
+      return true;
+    }
+  }
+
+  // One name's own catalog: a person's credits, a studio's films, a franchise's
+  // parts, or one season's episodes. The title page links every one of them here.
+  {
+    const m = pathname.match(/^\/list\/(person|company|collection|season|network|genre|keyword)\/([^/]+)(?:\/(\d+))?\.json$/);
+    if (m) {
+      const [, kind, first, second] = m;
+      const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+      const media = params.get("type") === "series" ? "series" : "movie";
+      const adult = params.get("adult") === "1";
+      setKey(tmdbKey());
+      if (!hasKey()) {
+        json(res, 200, { metas: [] });
+        return true;
+      }
+      try {
+        json(res, 200, { metas: await listPayload(kind, first, second, media, adult) }, 300);
+      } catch (err) {
+        console.error(`[addon] list ${kind}/${first} failed:`, err.message);
+        json(res, 200, { metas: [] });
+      }
+      return true;
+    }
+  }
+
+  // **The streams for one title**, read from the add-ons you added (see
+  // `addon/streams.mjs`). Server-side because a browser cannot call another host's
+  // stream endpoint, and because the add-on list lives in the server's settings.
+  {
+    const m = pathname.match(/^\/streams\/(movie|series)\/(\d+)\.json$/);
+    if (m) {
+      const [, type, id] = m;
+      const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+      try {
+        json(res, 200, await streamsFor(type, id, { name: params.get("name") || "", force: params.get("force") === "1" }));
+      } catch (err) {
+        console.error(`[addon] streams ${type}/${id} failed:`, err.message);
+        json(res, 200, { ok: false, reason: "error", streams: [], sources: [], message: err.message });
+      }
+      return true;
+    }
   }
 
   /* ------------------------------------------------------- Live TV & Sports */

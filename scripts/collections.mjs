@@ -273,9 +273,19 @@ const decade = (name, d, sort) => ({ name, kind: "decade", decade: d, sort });
 const genreDecade = (name, g, from) => ({ name, kind: "genre-decade", genre: g, from });
 const continent = (name, codes) => ({ name, kind: "continent", codes });
 const country = (name, code, take) => ({ name, kind: "country", code, take });
-const runtime = (name, min) => ({ name, kind: "runtime", min });
-const episodes = (name, max) => ({ name, kind: "episodes", max });
+// A **range**, not a floor: a bare `with_runtime.gte` made "30+ mins" and
+// "180+ mins" both open on the same popular films, so every bucket looked like
+// the last one. Each step ends where the next begins.
+const runtime = (name, min, max) => ({ name, kind: "runtime", min, max });
+// Episode buckets are disjoint ranges for the same reason — see `episodes` below.
+const episodes = (name, min, max) => ({ name, kind: "episodes", min, max });
+// **More like what you watch** — the row is built from TMDB's own recommendations
+// for the titles in your Watchlist, resolved on the server (see `addon/catalogs.mjs`).
+const recommend = (name) => ({ name, kind: "recommend" });
 const keyword = (name, id, take) => ({ name, kind: "keyword", id, take });
+// A **custom** row: served from the titles you put in it (`addon/customrows.mjs`),
+// keyed by the row id so its contents survive a rename of its label.
+const customRow = (name, row) => ({ name, kind: "custom", row });
 const provider = (name, providerId, region, take) => ({ name, kind: "provider", providerId, region, take });
 /** A platform's own studio's originals — a company, not a catalog of one. */
 const original = (name, studio, take) => ({ name, kind: "original", studio: studio || null, take });
@@ -300,10 +310,22 @@ const watchlist = (name, state) => ({ name, kind: "watchlist", state });
 // **Genres** card. They are skipped wherever a theme list is built.
 const KEYWORD_NOT_A_THEME = new Set(["Documentary", "Anime", "Asian Drama"]);
 
+/**
+ * The floor a keyword row must clear to be published.
+ *
+ * The verified table records how many titles each keyword actually returns. A few
+ * labels clear zero and were already dropped; many more clear one or two, which is
+ * what made **Moods & Vibes** read as "very less contents" — a card of names opening
+ * onto a single title. Rows under this many titles are not published at all, so the
+ * card holds fewer, fuller rows. **Awards** is exempt: its ceremonies are genuinely
+ * small on TMDB, and the card is meant to name them.
+ */
+const MIN_KEYWORD_TITLES = 8;
+
 const keywordEntries = (group, type, take) =>
   Object.entries(KW[group] ?? {})
     .filter(([name]) => !KEYWORD_NOT_A_THEME.has(name))
-    .filter(([, k]) => (type === "movie" ? k.movieCount : k.tvCount) > 0)
+    .filter(([, k]) => (type === "movie" ? k.movieCount : k.tvCount) >= (group === "awards" ? 1 : MIN_KEYWORD_TITLES))
     .map(([name, k]) => keyword(name, k.id, take));
 
 /**
@@ -415,11 +437,14 @@ const discoverRow = (suffix = "", take) => [
 const CARD_ORDER = [
   "watchlist",
   "on-the-board",
+  "for-you",
   "discover-top-10",
   "discover",
   "popular-by-genre",
+  "top-rated-by-genre",
   "genres",
   "popular-by-decade",
+  "top-rated-by-decade",
   "decades",
   "genre-from-decades",
   "continental",
@@ -434,6 +459,7 @@ const CARD_ORDER = [
   "regional-ott-top-10",
   "regional-ott-popular",
   "regional-ott",
+  "custom",
 ];
 
 /**
@@ -452,11 +478,23 @@ const buildCollections = () => {
     key: "watchlist",
     lines: ["Watchlist"],
     scene: "watchlist",
+    // **Watching first**, then a horizontal rule, then Plan to Watch and Watched:
+    // what you are on now sits above what is queued and what is finished, and the
+    // rule is the boundary. `divider` rides on the entry, so the app draws the rule
+    // before that one row on the card page.
     catalogs: both([
-      watchlist("Plan to Watch", "planned"),
       watchlist("Watching", "watching"),
+      { ...watchlist("Plan to Watch", "planned"), divider: true },
       watchlist("Watched", "watched"),
     ]),
+  },
+  {
+    key: "for-you",
+    lines: ["For", "You"],
+    scene: "watchlist",
+    // **More like what you watch**: one row drawn from TMDB's own recommendations
+    // for the titles in your Watchlist — watched first, then watching, then planned.
+    catalogs: both([recommend("More Like What You Watch")]),
   },
   {
     key: "discover-top-10",
@@ -468,6 +506,10 @@ const buildCollections = () => {
     key: "on-the-board",
     lines: ["On the", "Board"],
     scene: "on-the-board",
+    // **Not a card on Home any more**: the hero banner already carries these rows
+    // (Now Playing / On the Air) on its left-hand side, so the card is kept for the
+    // banner to source but is not drawn in the grid.
+    hidden: true,
     catalogs: {
       movie: [preset("Now Playing", "now_playing")],
       show: [
@@ -504,10 +546,24 @@ const buildCollections = () => {
     },
   },
   {
+    key: "top-rated-by-genre",
+    lines: ["Top Rated", "◆ Genre"],
+    // The cover generator paints one scene per `scene` name; a new card reuses an
+    // existing painter rather than shipping with no artwork.
+    scene: "popular-by-genre",
+    catalogs: forBoth((list) => list.map((g) => genre(`Top Rated in ${g}`, g, "top_rated"))),
+  },
+  {
     key: "popular-by-decade",
     lines: ["Popular by", "◆ Decade"],
     scene: "popular-by-decade",
     catalogs: both(ALL_DECADES.map((d) => decade(`Popular in ${d}s`, d, "popular"))),
+  },
+  {
+    key: "top-rated-by-decade",
+    lines: ["Top Rated", "◆ Decade"],
+    scene: "popular-by-decade",
+    catalogs: both(ALL_DECADES.map((d) => decade(`Top Rated in ${d}s`, d, "top_rated"))),
   },
   {
     key: "decades",
@@ -593,11 +649,27 @@ const buildCollections = () => {
   {
     key: "runtimes",
     lines: ["Runtimes"],
+    // Shows are not measured in minutes: on the Shows row the same card is its
+    // episode-count ladder, so it says **Episodes** there.
+    linesByRow: { show: ["Episodes"] },
     scene: "runtimes",
     // Movies: length buckets. Shows: episode-count buckets instead of runtime.
     catalogs: {
-      movie: [runtime("30+ mins", 30), runtime("60+ mins", 60), runtime("90+ mins", 90), runtime("120+ mins", 120)],
-      show: [episodes("4 Episodes", 4), episodes("6 Episodes", 6), episodes("8 Episodes", 8), episodes("10 Episodes", 10)],
+      // Longer ladders than the old three-step version: runtime is a real TMDB
+      // filter, so every bucket is a row of its own.
+      movie: [
+        runtime("30–44 mins", 30, 44), runtime("45–59 mins", 45, 59),
+        runtime("60–74 mins", 60, 74), runtime("75–89 mins", 75, 89),
+        runtime("90–104 mins", 90, 104), runtime("105–119 mins", 105, 119),
+        runtime("120–149 mins", 120, 149), runtime("150–179 mins", 150, 179),
+        runtime("180+ mins", 180),
+      ],
+      show: [
+        episodes("4 Episodes", 1, 4), episodes("6 Episodes", 5, 6),
+        episodes("8 Episodes", 7, 8), episodes("10 Episodes", 9, 10),
+        episodes("12 Episodes", 11, 12), episodes("16 Episodes", 13, 16),
+        episodes("20 Episodes", 17, 20), episodes("24 Episodes", 21, 24),
+      ],
     },
   },
 
@@ -619,6 +691,15 @@ const buildCollections = () => {
     scene: "themes-and-tags",
     catalogs: { movie: keywordEntries("themes-and-tags", "movie"), show: keywordEntries("themes-and-tags", "show") },
   },
+  // The **Custom** card: your own list. Its label is a setting (`customLabel`),
+  // applied where the cards are served, so this card's name is whatever you called
+  // it and its row is filled from `addon/customrows.json`.
+  {
+    key: "custom",
+    lines: ["Custom"],
+    scene: "on-the-board",
+    catalogs: { movie: [customRow("My List", "add-cards")], show: [customRow("My List", "add-cards")] },
+  },
   ];
 };
 
@@ -637,7 +718,11 @@ const ordered = (cards) => {
     return i === -1 ? CARD_ORDER.length : i;
   };
   const sorted = [...cards].sort((a, b) => rank(a) - rank(b));
-  return sorted.map((c, i) => ({ ...c, divider: i === 1 }));
+  // The rule sits before the **first card after Watchlist that Home actually
+  // draws**: a hidden card (the banner's own source) cannot carry it, or the rule
+  // would disappear along with the card it was attached to.
+  const firstDrawn = sorted.findIndex((c, i) => i > 0 && !c.hidden);
+  return sorted.map((c, i) => ({ ...c, divider: i === firstDrawn }));
 };
 
 const buildCollectionsOrdered = () => ordered(buildCollections());
@@ -657,7 +742,14 @@ export const COLLECTIONS = buildCollectionsOrdered();
  */
 export const collectionsFor = (_code) => buildCollectionsOrdered();
 
-export const title = (cat) => cat.lines.join(" ");
+/**
+ * A card's name, **for one row** where the two differ.
+ *
+ * The Runtimes card is about minutes on Movies and about episode counts on Shows,
+ * so it wears a different name on each row (`linesByRow`) instead of one title that
+ * is only true half the time. Every other card falls back to its `lines`.
+ */
+export const title = (cat, row) => (cat.linesByRow?.[row] ?? cat.lines).join(" ");
 
 /** The catalog entries inside a card for one row ("movie" | "show"). */
 export const catalogEntries = (cat, row) => {

@@ -2,7 +2,7 @@
   {
     "collection": "watchlist",
     "title": "Watchlist",
-    "subtitle": "Plan to Watch · Watching · Watched",
+    "subtitle": "Watching · Plan to Watch · Watched",
     "row": "movie",
     "svg": "covers/movies/watchlist.svg",
     "png": "covers/movies/watchlist.png"
@@ -14,6 +14,14 @@
     "row": "movie",
     "svg": "covers/movies/on-the-board.svg",
     "png": "covers/movies/on-the-board.png"
+  },
+  {
+    "collection": "for-you",
+    "title": "For You",
+    "subtitle": "More Like What You Watch",
+    "row": "movie",
+    "svg": "covers/movies/for-you.svg",
+    "png": "covers/movies/for-you.png"
   },
   {
     "collection": "discover-top-10",
@@ -40,9 +48,17 @@
     "png": "covers/movies/popular-by-genre.png"
   },
   {
+    "collection": "top-rated-by-genre",
+    "title": "Top Rated ◆ Genre",
+    "subtitle": "Top Rated in Action · Top Rated in Adventure · Top Rated in Animation · Top Rated in Comedy · Top Rated in Crime · Top Rated in Documentary · Top Rated in Drama · Top Rated in Family · Top Rated in Fantasy · Top Rated in History · Top Rated in Horror · Top Rated in Music · Top Rated in Mystery · Top Rated in Romance · Top Rated in Science Fiction · Top Rated in Thriller · Top Rated in War · Top Rated in Western",
+    "row": "movie",
+    "svg": "covers/movies/top-rated-by-genre.svg",
+    "png": "covers/movies/top-rated-by-genre.png"
+  },
+  {
     "collection": "genres",
     "title": "Genres",
-    "subtitle": "Action · Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Fantasy · History · Horror · Music · Mystery · Romance · Science Fiction · Thriller · War · Western · Anime · Asian Drama",
+    "subtitle": "Action · Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Fantasy · History · Horror · Music · Mystery · Romance · Science Fiction · Thriller · War · Western",
     "row": "movie",
     "svg": "covers/movies/genres.svg",
     "png": "covers/movies/genres.png"
@@ -54,6 +70,14 @@
     "row": "movie",
     "svg": "covers/movies/popular-by-decade.svg",
     "png": "covers/movies/popular-by-decade.png"
+  },
+  {
+    "collection": "top-rated-by-decade",
+    "title": "Top Rated ◆ Decade",
+    "subtitle": "Top Rated in 1950s · Top Rated in 1960s · Top Rated in 1970s · Top Rated in 1980s · Top Rated in 1990s · Top Rated in 2000s · Top Rated in 2010s · Top Rated in 2020s",
+    "row": "movie",
+    "svg": "covers/movies/top-rated-by-decade.svg",
+    "png": "covers/movies/top-rated-by-decade.png"
   },
   {
     "collection": "decades",
@@ -90,7 +114,7 @@
   {
     "collection": "runtimes",
     "title": "Runtimes",
-    "subtitle": "30+ mins · 60+ mins · 90+ mins · 120+ mins",
+    "subtitle": "30–44 mins · 45–59 mins · 60–74 mins · 75–89 mins · 90–104 mins · 105–119 mins · 120–149 mins · 150–179 mins · 180+ mins",
     "row": "movie",
     "svg": "covers/movies/runtimes.svg",
     "png": "covers/movies/runtimes.png"
@@ -106,7 +130,7 @@
   {
     "collection": "moods-and-vibes",
     "title": "Moods & Vibes",
-    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Dreamlike · Atmospheric · Chilling · Bittersweet · Uplifting · Charming · Witty · Campy · Eerie · Hopeful · Intimate · Spooky · Stylish · Steamy · Thought-Provoking · Gripping · Playful · Harrowing · Triumphant · Meditative · Frenetic · Nerve-Wracking · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Bright · Kitschy · Cynical · Heartbreaking · Gut-Wrenching · Joyful · Euphoric · Reflective · Wistful · Haunting · Unsettling · Moody · Seductive · Healing · Irreverent · Understated · Brutal · Quiet · Deadpan · Sardonic · Absurd · Kafkaesque · Noir · Pulp · Cinematic · Cosmic · Spiritual · Sensual · Provocative · Cheerful · Weird · Hypnotic · Rousing",
+    "subtitle": "Mind Bending · Cozy & Comforting · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Melancholy · Dreamlike · Atmospheric · Bittersweet · Charming · Witty · Campy · Hopeful · Intimate · Thought-Provoking · Playful · Triumphant · Meditative · Frenetic · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Kitschy · Cynical · Gut-Wrenching · Joyful · Euphoric · Reflective · Wistful · Haunting · Healing · Irreverent · Understated · Sardonic · Absurd · Noir · Pulp · Cosmic · Spiritual · Sensual · Provocative · Rousing",
     "row": "movie",
     "svg": "covers/movies/moods-and-vibes.svg",
     "png": "covers/movies/moods-and-vibes.png"
@@ -114,7 +138,7 @@
   {
     "collection": "themes-and-tags",
     "title": "Themes & Tags",
-    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Mutant · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Devil · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Vigilante · Smuggling · Gambling · Revolution · Terrorism · Hostage · World War · Holocaust · Slavery · Apartheid · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Dreams · Genetic · Spaceship · Mars · Cannibal · Voodoo · Cryptid · Shark · Snake · Spider · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Storm · Volcano · Farming · Village · Library · Restaurant · Amusement Park · Viking · Gladiator · Treasure · Archaeology · Museum · Art · Photography · Theatre · Poetry · Chess · Olympic · Surfing · Skiing · Skateboarding · Motorcycle · Taxi · Airport · Hotel · Bakery · Coffee · Wine · Desert · Jungle · Mountain · Ocean · Nuclear · Scientist · Nurse · Teacher · Orphan · Homeless · Poverty · Inheritance · Lottery · Scam · Gang · Rap · Rock · Opera · Ballet · Orchestra · Cloning · Robot · Time Travel · Apocalypse · Colony · Ship · Fishing · Hunting · Zoo · Prom · Reunion · Secret · Identity · Reincarnation · Prophecy · Legend · Wilderness · Boarding School · Cursed Objects",
+    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Mutant · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Devil · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Vigilante · Gambling · Revolution · Terrorism · Hostage · Holocaust · Slavery · Apartheid · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Dreams · Genetic · Spaceship · Mars · Cannibal · Voodoo · Cryptid · Shark · Snake · Spider · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Storm · Volcano · Farming · Village · Library · Restaurant · Amusement Park · Gladiator · Treasure · Museum · Art · Photography · Theatre · Poetry · Chess · Olympic · Surfing · Skiing · Skateboarding · Motorcycle · Taxi · Airport · Hotel · Bakery · Coffee · Wine · Desert · Jungle · Mountain · Ocean · Nuclear · Scientist · Nurse · Teacher · Orphan · Homeless · Poverty · Inheritance · Lottery · Scam · Gang · Rap · Rock · Opera · Ballet · Orchestra · Cloning · Robot · Time Travel · Apocalypse · Colony · Ship · Fishing · Hunting · Zoo · Prom · Reunion · Secret · Identity · Reincarnation · Prophecy · Legend · Wilderness · Boarding School · Cursed Objects",
     "row": "movie",
     "svg": "covers/movies/themes-and-tags.svg",
     "png": "covers/movies/themes-and-tags.png"
@@ -168,9 +192,17 @@
     "png": "covers/movies/regional-ott.png"
   },
   {
+    "collection": "custom",
+    "title": "Custom",
+    "subtitle": "My List",
+    "row": "movie",
+    "svg": "covers/movies/custom.svg",
+    "png": "covers/movies/custom.png"
+  },
+  {
     "collection": "watchlist",
     "title": "Watchlist",
-    "subtitle": "Plan to Watch · Watching · Watched",
+    "subtitle": "Watching · Plan to Watch · Watched",
     "row": "show",
     "svg": "covers/shows/watchlist.svg",
     "png": "covers/shows/watchlist.png"
@@ -182,6 +214,14 @@
     "row": "show",
     "svg": "covers/shows/on-the-board.svg",
     "png": "covers/shows/on-the-board.png"
+  },
+  {
+    "collection": "for-you",
+    "title": "For You",
+    "subtitle": "More Like What You Watch",
+    "row": "show",
+    "svg": "covers/shows/for-you.svg",
+    "png": "covers/shows/for-you.png"
   },
   {
     "collection": "discover-top-10",
@@ -208,9 +248,17 @@
     "png": "covers/shows/popular-by-genre.png"
   },
   {
+    "collection": "top-rated-by-genre",
+    "title": "Top Rated ◆ Genre",
+    "subtitle": "Top Rated in Action & Adventure · Top Rated in Animation · Top Rated in Comedy · Top Rated in Crime · Top Rated in Documentary · Top Rated in Drama · Top Rated in Family · Top Rated in Kids · Top Rated in Mystery · Top Rated in News · Top Rated in Reality · Top Rated in Sci-Fi & Fantasy · Top Rated in Soap · Top Rated in Talk · Top Rated in War & Politics · Top Rated in Western",
+    "row": "show",
+    "svg": "covers/shows/top-rated-by-genre.svg",
+    "png": "covers/shows/top-rated-by-genre.png"
+  },
+  {
     "collection": "genres",
     "title": "Genres",
-    "subtitle": "Action & Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Kids · Mystery · News · Reality · Sci-Fi & Fantasy · Soap · Talk · War & Politics · Western · Anime · Asian Drama",
+    "subtitle": "Action & Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Kids · Mystery · News · Reality · Sci-Fi & Fantasy · Soap · Talk · War & Politics · Western",
     "row": "show",
     "svg": "covers/shows/genres.svg",
     "png": "covers/shows/genres.png"
@@ -222,6 +270,14 @@
     "row": "show",
     "svg": "covers/shows/popular-by-decade.svg",
     "png": "covers/shows/popular-by-decade.png"
+  },
+  {
+    "collection": "top-rated-by-decade",
+    "title": "Top Rated ◆ Decade",
+    "subtitle": "Top Rated in 1950s · Top Rated in 1960s · Top Rated in 1970s · Top Rated in 1980s · Top Rated in 1990s · Top Rated in 2000s · Top Rated in 2010s · Top Rated in 2020s",
+    "row": "show",
+    "svg": "covers/shows/top-rated-by-decade.svg",
+    "png": "covers/shows/top-rated-by-decade.png"
   },
   {
     "collection": "decades",
@@ -258,7 +314,7 @@
   {
     "collection": "runtimes",
     "title": "Runtimes",
-    "subtitle": "4 Episodes · 6 Episodes · 8 Episodes · 10 Episodes",
+    "subtitle": "4 Episodes · 6 Episodes · 8 Episodes · 10 Episodes · 12 Episodes · 16 Episodes · 20 Episodes · 24 Episodes",
     "row": "show",
     "svg": "covers/shows/runtimes.svg",
     "png": "covers/shows/runtimes.png"
@@ -274,7 +330,7 @@
   {
     "collection": "moods-and-vibes",
     "title": "Moods & Vibes",
-    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Atmospheric · Chilling · Bittersweet · Charming · Witty · Campy · Hopeful · Intimate · Spooky · Steamy · Thought-Provoking · Playful · Wholesome · Triumphant · Meditative · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Cynical · Heartbreaking · Joyful · Euphoric · Reflective · Wistful · Haunting · Seductive · Healing · Irreverent · Understated · Brutal · Deadpan · Sardonic · Absurd · Noir · Cosmic · Spiritual · Sensual · Provocative · Cheerful · Weird · Rousing",
+    "subtitle": "Mind Bending · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Bittersweet · Charming · Witty · Campy · Hopeful · Intimate · Thought-Provoking · Playful · Triumphant · Meditative · Gentle · Somber · Zany · Offbeat · Surreal · Cynical · Joyful · Euphoric · Reflective · Wistful · Haunting · Healing · Irreverent · Understated · Deadpan · Absurd · Provocative",
     "row": "show",
     "svg": "covers/shows/moods-and-vibes.svg",
     "png": "covers/shows/moods-and-vibes.png"
@@ -282,7 +338,7 @@
   {
     "collection": "themes-and-tags",
     "title": "Themes & Tags",
-    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Mutant · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Devil · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Vigilante · Smuggling · Gambling · Revolution · Terrorism · Hostage · World War · Holocaust · Slavery · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Dreams · Genetic · Spaceship · Mars · Cannibal · Cryptid · Shark · Snake · Spider · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Storm · Volcano · Farming · Village · Library · Restaurant · Amusement Park · Gladiator · Treasure · Archaeology · Museum · Art · Photography · Theatre · Poetry · Chess · Olympic · Surfing · Skateboarding · Motorcycle · Taxi · Airport · Hotel · Bakery · Coffee · Wine · Desert · Jungle · Mountain · Ocean · Nuclear · Scientist · Nurse · Teacher · Orphan · Homeless · Poverty · Inheritance · Lottery · Scam · Gang · Rap · Rock · Opera · Ballet · Orchestra · Robot · Time Travel · Apocalypse · Colony · Ship · Fishing · Hunting · Zoo · Reunion · Secret · Identity · Reincarnation · Prophecy · Legend · Wilderness · Boarding School · Cursed Objects",
+    "subtitle": "Detective · Gangster · Superhero · Time Loop · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Vigilante · Gambling · Revolution · Terrorism · Hostage · Holocaust · Slavery · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Spaceship · Mars · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Volcano · Farming · Village · Restaurant · Treasure · Art · Photography · Surfing · Motorcycle · Hotel · Desert · Jungle · Mountain · Ocean · Scientist · Nurse · Teacher · Orphan · Poverty · Inheritance · Scam · Gang · Rap · Rock · Ballet · Robot · Time Travel · Apocalypse · Ship · Fishing · Hunting · Reunion · Secret · Identity · Reincarnation · Prophecy · Legend · Wilderness · Boarding School",
     "row": "show",
     "svg": "covers/shows/themes-and-tags.svg",
     "png": "covers/shows/themes-and-tags.png"
@@ -334,5 +390,13 @@
     "row": "show",
     "svg": "covers/shows/regional-ott.svg",
     "png": "covers/shows/regional-ott.png"
+  },
+  {
+    "collection": "custom",
+    "title": "Custom",
+    "subtitle": "My List",
+    "row": "show",
+    "svg": "covers/shows/custom.svg",
+    "png": "covers/shows/custom.png"
   }
 ]

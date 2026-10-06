@@ -14,7 +14,7 @@
 //   /collections.json                 cards + the catalogs they own
 //   /catalog/{type}/{id}.json         a row of titles (better posters + TMDB)
 //   /calendar/{type}/{YYYY-MM}.json   a month of releases
-//   /api/source                       server-side add-on / plugin / repo lookup
+//   /api/source                       server-side add-on / plugin lookup
 //   /settings (GET/POST)              profile, providers, posters, AI
 
 const API = new URLSearchParams(location.search).get("api") || window.NUVIO_API || "";
@@ -119,16 +119,32 @@ const PROVIDERS = [
  * shows), then a divider, then the drama trackers — a different catalogue of
  * titles entirely, so it reads as its own group rather than one long list.
  */
+/**
+ * The trackers, in three groups and in this order.
+ *
+ * **Movies & TV** first — Trakt, then SIMKL, then Letterboxd — then **Anime**
+ * (MyAnimeList, AniList) and then **Asian drama** (MyDramaList), each on its own
+ * side of a rule. They were one flat list, which put the anime databases between
+ * the film trackers and made "which of these is for what?" a question the screen
+ * never answered.
+ */
 const TRACKER_GROUPS = [
   {
-    title: "Film & TV",
-    hint: "Watched history, scrobbling and lists.",
+    title: "Movies & TV",
+    hint: "Watched history, scrobbling and lists for films and shows.",
     services: [
       ["trakt", "Trakt", "Scrobbling and watched history for films and shows."],
       ["simkl", "SIMKL", "Watched history across films, shows and anime."],
+      ["letterboxd", "Letterboxd", "Film diary and lists."],
+    ],
+  },
+  {
+    title: "Anime",
+    hint: "Anime lists and watched episodes.",
+    divider: true,
+    services: [
       ["myanimelist", "MyAnimeList", "Anime lists and watched episodes — MAL."],
       ["anilist", "AniList", "Anime and manga lists, with airing progress."],
-      ["letterboxd", "Letterboxd", "Film diary and lists."],
     ],
   },
   {
@@ -139,6 +155,29 @@ const TRACKER_GROUPS = [
       ["mydramalist", "MyDramaList", "Asian drama lists, ratings and watched episodes — MDL."],
     ],
   },
+];
+
+/**
+ * Poster services. Each entry is a URL **pattern** — `{imdb_id}` and `{tmdb_id}` are
+ * filled in per title.
+ *
+ * BetterPosters (bttr.cc) needs **no key at all**, which is why the old API-key box
+ * is gone: a service whose key really is required carries it *inside its URL*, so
+ * the pattern box is the only input this pane needs.
+ */
+const POSTER_SERVICES = [
+  [
+    "bttr",
+    "BetterPosters · IMDb id",
+    "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg",
+    "No key needed. Keyed by IMDb id, so a TMDB title has its IMDb id resolved first — one extra lookup per title.",
+  ],
+  [
+    "rpdb",
+    "RPDB (ratingposterdb.com)",
+    "https://api.ratingposterdb.com/«your-key»/imdb/poster-default/{imdb_id}.jpg",
+    "Put your RPDB key where «your-key» sits — the key belongs in the URL, so there is no separate key box. Save the pattern after editing it.",
+  ],
 ];
 
 const TRACKERS = TRACKER_GROUPS.flatMap((group) => group.services);
@@ -153,13 +192,14 @@ const AI_PROVIDERS = [
   ["cerebras", "Cerebras Cloud", "https://cloud.cerebras.ai", "Free tier on wafer-scale hardware."],
 ];
 
+// Only two kinds of source: a Stremio add-on (one URL, manifests everything) and
+// a Nuvio plugin (a repository of scrapers). The Nuvio add-on and CloudStream repo
+// entries are gone.
 const ADDON_TYPES = [
-  ["stremio", "Stremio add-on", "A Stremio/Nuvio add-on URL — its manifest is read for you."],
-  ["nuvio", "Nuvio add-on", "A Nuvio add-on URL — its manifest is read for you."],
+  ["stremio", "Stremio add-on", "A Stremio add-on URL — its manifest is read for you, so its catalogs, metadata, streams and subtitles all appear as providers."],
 ];
 const PLUGIN_TYPES = [
-  ["nuvio-plugin", "Nuvio plugin", "A Nuvio plugin/repository URL."],
-  ["cloudstream", "CloudStream repo", "A CloudStream repository URL — its repo.json → plugins are listed."],
+  ["nuvio-plugin", "Nuvio plugin", "A Nuvio plugin URL — the scrapers it publishes appear as providers."],
 ];
 const SOURCE_TYPES = [...ADDON_TYPES, ...PLUGIN_TYPES];
 const typeLabel = (t) => SOURCE_TYPES.find(([v]) => v === t)?.[1] ?? t;
@@ -170,41 +210,34 @@ const typeLabel = (t) => SOURCE_TYPES.find(([v]) => v === t)?.[1] ?? t;
  * It used to be one flat row of ten names in no particular order (Profile,
  * Posters, Providers, Tracking, AI, Content, Add-ons, Plugins, Layout, Server),
  * which hid the two things you actually come here to change: what the catalogs
- * show, and who they are read from. Now the sections are grouped — what you see,
- * who it comes from, how it is tracked, and the app itself — with the group name
- * above its tabs.
+ * show, and who they are read from. The sections are grouped now, with the group
+ * name above its tabs.
+ *
+ * **One tab, one thing.** Nothing shares a pane with something else: this profile
+ * (Profile, Content, Posters), how it looks (Appearance & layout), where its
+ * content and its history come from (Trackers & providers, Add-ons & plugins), and
+ * the assistant (AI). The **Server** tab is gone.
  */
 const SETTINGS_GROUPS = [
   {
-    // Profile first, the way a streaming app opens Settings: who you are, how the
-    // app looks, and what it shows — all four are "how this profile behaves".
-    group: "Profile & playback",
+    group: "This profile",
     sections: [
       ["profile", "Profile"],
-      ["appearance", "Appearance"],
-      ["layout", "Layout"],
       ["content", "Content"],
       ["posters", "Posters"],
+      ["appearance", "Appearance & layout"],
     ],
   },
   {
     group: "Where it comes from",
     sections: [
-      ["providers", "Providers"],
-      ["addons", "Add-ons"],
-      ["plugins", "Plugins"],
+      ["providers", "Trackers & providers"],
+      ["addons", "Add-ons & plugins"],
     ],
   },
   {
-    group: "Tracking & assistant",
-    sections: [
-      ["tracking", "Tracking"],
-      ["ai", "AI"],
-    ],
-  },
-  {
-    group: "This device",
-    sections: [["server", "Server"]],
+    group: "Assistant",
+    sections: [["ai", "AI"]],
   },
 ];
 
@@ -216,7 +249,7 @@ const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((g) => g.sections);
  * The Live TV & Sports profile's own settings — the whole screen, not an extra
  * tab: where the channels come from, where the guide comes from, how often both
  * update. The Movies & Shows sections (Content, Posters, Providers, Tracking, AI,
- * Add-ons, Plugins) do not apply to a live playlist, so they are not offered
+ * Trackers, AI, Add-ons) do not apply to a live playlist, so they are not offered
  * while that profile is active.
  */
 const LIVE_SETTINGS_GROUPS = [
@@ -235,13 +268,8 @@ const LIVE_SETTINGS_GROUPS = [
     group: "Profile & playback",
     sections: [
       ["profile", "Profile"],
-      ["livelayout", "Layout"],
-      ["appearance", "Appearance"],
+      ["appearance", "Appearance & layout"],
     ],
-  },
-  {
-    group: "This device",
-    sections: [["server", "Server"]],
   },
 ];
 const LIVE_SETTINGS_SECTIONS = LIVE_SETTINGS_GROUPS.flatMap((g) => g.sections);
@@ -306,7 +334,9 @@ const state = {
   watchItems: [],
   // The custom rows you fill yourself: which row each stored title is in.
   customItems: [],
-  sources: readJSON(KEY.sources, []),
+  // The Custom card's label (a setting — see Settings → Content).
+  customLabel: "Custom",
+  sources: migrateSources(readJSON(KEY.sources, [])),
   // App language and the country whose services the regional OTT cards show.
   language: localStorage.getItem(KEY.language) || "en-US",
   country: localStorage.getItem(KEY.country) || "US",
@@ -348,6 +378,24 @@ const pinOf = (m) => ({
   description: m.description,
   hasBetterPoster: Boolean(m.hasBetterPoster),
 });
+
+/**
+ * Sources are **carried over**, not dropped.
+ *
+ * This build lists two kinds — a Stremio add-on and a Nuvio plugin — and an entry
+ * saved under an older kind is translated into the one it really was rather than
+ * thrown away: dropping them is what made a stored add-on and its providers vanish
+ * from Settings without a word. "nuvio" was a manifest add-on, so it becomes a
+ * Stremio add-on; the old CloudStream "repo" becomes a Nuvio plugin.
+ */
+function migrateSources(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((s) => {
+      const type = s?.type === "nuvio" ? "stremio" : s?.type === "repo" ? "nuvio-plugin" : s?.type;
+      return s && s.url && SOURCE_TYPES.some(([t]) => t === type) ? { ...s, type } : null;
+    })
+    .filter(Boolean);
+}
 
 function applyWatchlist(payload) {
   const map = {};
@@ -392,6 +440,15 @@ const rowOf = (c) => {
   return catalogs.length === r.catalogs.length ? r : { ...r, catalogs };
 };
 
+/**
+ * A card's name **on the row you are looking at**.
+ *
+ * One card is not the same thing on Movies and on Shows: the Runtimes card holds
+ * minutes on one and episode counts on the other, so the addon names each row and
+ * the app reads that name. Cards that only have one name fall back to it.
+ */
+const titleOf = (c, row = rowKey()) => c?.[row]?.title || c?.title || "";
+
 const get = async (path) => {
   const res = await fetch(API + path);
   if (!res.ok) throw new Error(`${res.status} ${path}`);
@@ -427,6 +484,17 @@ function mergeServerSettings(res) {
   };
   if (res.providers) fold(res.providers, state.providers, KEY.providers);
   if (res.tracking) fold(res.tracking, state.tracking, KEY.tracking);
+  if (Array.isArray(res.sources)) {
+    // The server's copy is the one the player reads, so it wins — but only when it
+    // actually holds something. A server that has never seen a source must not wipe
+    // the add-ons this device already has; it is told about them instead.
+    if (res.sources.length || !state.sources.length) {
+      state.sources = migrateSources(res.sources);
+      writeJSON(KEY.sources, state.sources);
+    } else {
+      pushSettings({ sources: state.sources });
+    }
+  }
   if (res.posters) {
     state.posters = { ...state.posters, ...res.posters };
     writeJSON(KEY.posters, state.posters);
@@ -451,6 +519,7 @@ function mergeServerSettings(res) {
     state.country = res.country;
     localStorage.setItem(KEY.country, state.country);
   }
+  if (typeof res.customLabel === "string" && res.customLabel) state.customLabel = res.customLabel;
   if (res.content?.source === "tmdb" || res.content?.source === "tvdb") {
     state.contentSource = res.content.source;
     localStorage.setItem(KEY.contentSource, state.contentSource);
@@ -495,8 +564,7 @@ async function setWatchState(item, next) {
   // The watchlist card *is* its contents, so a pin or an unpin redraws it now —
   // unlike every other card, which holds its artwork until the next launch.
   forgetCardArt(watchlistCard());
-  modal.open(item);
-  render();
+  refreshPins(item);
 }
 
 /**
@@ -560,6 +628,49 @@ function watchTag(m) {
   return label ? el("span", { class: `watch-tag ${m.state}`, text: label }) : null;
 }
 
+/* ------------------------------------------------------- the Custom card */
+
+/** The row the **Custom** card publishes — your own list, filled from the modal. */
+const CUSTOM_ROW = "add-cards";
+const customLabel = () => state.customLabel || "Custom";
+
+/** Is this title already in your custom list? */
+const inCustomRow = (m) =>
+  state.customItems.some(
+    (i) => i.row === CUSTOM_ROW && String(i.id) === String(m?.id) && (i.type === "series") === (m?.type === "series"),
+  );
+
+/**
+ * Add the title to your custom list, or take it out again.
+ *
+ * One button that toggles, exactly like the watch states: a mis-click is one click
+ * to undo, and the list is read back from the server so the Custom card's row is
+ * redrawn with what it now holds.
+ */
+async function toggleCustomRow(item) {
+  try {
+    const res = await post("/customrows", { row: CUSTOM_ROW, item: pinOf(item) });
+    if (res && Array.isArray(res.items)) applyCustomRows(res);
+  } catch {
+    /* offline — the list simply does not change */
+  }
+  if (!refreshPins(item)) render();
+}
+
+/**
+ * Redraw the pin buttons after a pin, an unpin or a custom-row toggle.
+ *
+ * They live on the **title page** (`#title-pins`) now, so they are replaced where
+ * they stand instead of by reopening a card over the page you are reading. Returns
+ * `true` when it found them, so a caller only re-renders a screen that needs it.
+ */
+function refreshPins(item) {
+  const host = document.getElementById("title-pins");
+  if (!host) return false;
+  host.replaceChildren(...pinButtons(item));
+  return true;
+}
+
 const modal = {
   root: null,
   open(item, coverUrl) {
@@ -576,6 +687,7 @@ const modal = {
     // Pin the title to a watch state. Clicking the state it is already in
     // unpins it, so a mis-tap is one click to undo.
     const current = state.watchlist[watchKey(item)] || "";
+    const customOn = inCustomRow(item);
     document.getElementById("modal-pins").replaceChildren(
       ...WATCH_STATES.map(([id, label]) =>
         el("button", {
@@ -588,6 +700,17 @@ const modal = {
           onclick: () => setWatchState(item, current === id ? null : id),
         }),
       ),
+      // The Custom card's own row: the one list that is neither a watch state nor
+      // a catalog — the titles you put there yourself.
+      el("button", {
+        class: `btn pin focusable${customOn ? " active" : ""}`,
+        type: "button",
+        id: "pin-custom",
+        title: customOn ? `In ${customLabel()} — click to remove` : `Add to ${customLabel()}`,
+        "aria-pressed": String(customOn),
+        text: customOn ? `${customLabel()} · added` : `Add to ${customLabel()}`,
+        onclick: () => toggleCustomRow(item),
+      }),
     );
   },
   close() {
@@ -606,7 +729,17 @@ function posterCard(m, opts = {}) {
     // `data-id` lets the checks tell a real duplicate apart from two TMDB
     // titles that share a name.
     "button",
-    { class: "poster focusable", type: "button", "data-id": m.id || "", onclick: () => modal.open(m) },
+    {
+      class: "poster focusable",
+      type: "button",
+      "data-id": m.id || "",
+      // The card page's frame follows the title you point at, so the backdrop it
+      // should show travels on the poster itself.
+      "data-backdrop": backdropOf(m) || heroImage(m) || "",
+      // A poster opens the title's **page**, not a quick-look modal: the page is
+      // where the cast, the studio, the franchise, the seasons and the sources are.
+      onclick: () => go(`#/t/${m.type === "series" ? "series" : "movie"}/${String(m.id || "").replace(/^tmdb:/, "")}`),
+    },
     // A card always shows something. A plan made from the calendar stores only the
     // fields the app draws, and any picture can fail to load — either way the plate
     // used to be left empty, which is the dark rectangle "glitching" on a pin. The
@@ -838,6 +971,14 @@ function chipLine(children, { className = "cats" } = {}) {
   );
 }
 
+/**
+ * A card's tag.
+ *
+ * It is a **label**, not a control: the tags on the banner and on a card page name
+ * what is inside the card, and turning them into buttons made every tag a hidden
+ * door into a catalog nobody meant to open. They are plain text in the app's own
+ * pill, so pointing at one does nothing.
+ */
 function catalogChip(card, cat) {
   return el("button", {
     class: "chip focusable",
@@ -878,7 +1019,9 @@ function openRow(key, catalogId) {
 /* ---------------------------------------------------------------- routing */
 
 function parseHash() {
-  const hash = location.hash.replace(/^#\/?/, "").split("?")[0];
+  const [raw, rawQuery = ""] = location.hash.replace(/^#\/?/, "").split("?");
+  const hash = raw;
+  const query = new URLSearchParams(rawQuery);
   if (hash.startsWith("c/")) return { view: "card", key: decodeURIComponent(hash.slice(2)) };
   if (hash.startsWith("x/")) {
     const [key, id] = hash.slice(2).split("/");
@@ -887,6 +1030,17 @@ function parseHash() {
   if (hash.startsWith("s/")) {
     const [id, name] = hash.slice(2).split("/");
     return { view: "sources", id: decodeURIComponent(id || ""), name: decodeURIComponent(name || "") };
+  }
+  // A title's own page, and the list behind any name on it (a person, a studio, a
+  // genre, a franchise, a season). Both are real routes, so they can be linked to,
+  // go Back to, and remember where they were scrolled.
+  if (hash.startsWith("t/")) {
+    const [type, id] = hash.slice(2).split("/");
+    return { view: "title", type: decodeURIComponent(type || "movie"), id: decodeURIComponent(id || "") };
+  }
+  if (hash.startsWith("l/")) {
+    const [kind, id] = hash.slice(2).split("/");
+    return { view: "list", kind: decodeURIComponent(kind || "person"), id: decodeURIComponent(id || ""), type: query.get("type") || "" };
   }
   if (hash.startsWith("channel/")) return { view: "channel", id: decodeURIComponent(hash.slice(8)) };
   if (hash === "guide") return { view: "guide" };
@@ -1032,9 +1186,11 @@ function renderProfiles() {
     el(
       "section",
       { class: "profiles" },
-      el("p", { class: "hero-kicker", text: "Profiles" }),
-      el("h1", { class: "view-title", text: "Who's watching?" }),
-      el("p", { class: "view-hint", text: "Pick a profile to start. Each one keeps its own settings." }),
+      // These are **modes**, not accounts: "Movies & Shows" and "Live TV & Sports"
+      // are two ways to use the app, and the screen reads as a mode picker.
+      el("p", { class: "hero-kicker", text: "Modes" }),
+      el("h1", { class: "view-title", text: "What do you want to watch?" }),
+      el("p", { class: "view-hint", text: "Pick a mode to start. Each one keeps its own settings." }),
       el(
         "div",
         { class: "profile-grid" },
@@ -1049,7 +1205,7 @@ function renderProfiles() {
             },
             el("span", { class: "avatar", "aria-hidden": "true" }, avatarNode(name)),
             el("span", { class: "profile-tile-name", text: name }),
-            el("span", { class: "profile-tile-sub", text: name === state.profile ? "current profile" : "switch to this profile" }),
+            el("span", { class: "profile-tile-sub", text: name === state.profile ? "current mode" : "switch to this mode" }),
           ),
         ),
       ),
@@ -1082,20 +1238,31 @@ const LAUNCH_SEED = Math.floor(Math.random() * 1e9);
 const contentDrawn = new Map();
 
 /**
- * Lay `count` pictures into the frame, from this launch's slice of the card.
+ * Lay pictures into the frame, from this launch's slice of the card.
  *
- * The frame *becomes* the posters: the generated cover is hidden the moment they
- * arrive (`art-filled` on the frame), so what you see in the banner's inner card
- * and in every card's inner card is the titles themselves, padded and gapped, each
- * keeping its own shape — not a vector scene with a strip over it.
+ * The frame *becomes* the artwork: the generated cover is hidden the moment the
+ * pictures arrive (`art-filled` on the frame), so what you see in the banner's inner
+ * card and in every card's inner card is the titles themselves — not a vector scene
+ * with a strip over it. A `backdrop` strip is the card page's frame, which holds
+ * **one landscape shot** of one of the card's titles rather than `count` posters.
  */
-function drawTiles(strip, art, count) {
-  const start = art.length > count ? LAUNCH_SEED % (art.length - count + 1) : 0;
-  strip.replaceChildren(
-    ...art.slice(start, start + count).map((m) =>
-      el("img", { class: "content-tile", src: m.poster || m.background, alt: "", loading: "lazy" }),
-    ),
-  );
+function drawTiles(strip, art, count, layout) {
+  if (layout === "backdrop") {
+    // One wide shot from the card's own titles, picked once per launch. The banner
+    // and the card page now read the same way: a landscape frame with a backdrop in
+    // it, never a 2:3 poster cropped into a 16:9 hole.
+    const shot = art[LAUNCH_SEED % art.length];
+    const src = backdropOf(shot) || heroImage(shot) || shot?.poster || "";
+    if (!src) return;
+    strip.replaceChildren(el("img", { class: "content-tile", src, alt: "", loading: "lazy" }));
+  } else {
+    const start = art.length > count ? LAUNCH_SEED % (art.length - count + 1) : 0;
+    strip.replaceChildren(
+      ...art.slice(start, start + count).map((m) =>
+        el("img", { class: "content-tile", src: m.poster || m.background, alt: "", loading: "lazy" }),
+      ),
+    );
+  }
   strip.classList.add("filled");
   // `closest` and not `parentElement`: the frame is whichever artwork container
   // the strip ended up in, and it is the frame that hides the generated cover.
@@ -1126,13 +1293,21 @@ const watchlistCard = () =>
 const contentJobs = [];
 let contentBusy = 0;
 const CONTENT_CONCURRENCY = 3;
+/** How many of a card's rows one frame will read before it gives up. */
+const CONTENT_ROW_TRIES = 3;
 
-function contentStrip(card, row, count) {
-  const strip = el("div", { class: "content-strip", "aria-hidden": "true" });
+function contentStrip(card, row, count, layout) {
+  const strip = el("div", {
+    class: layout === "backdrop" ? "content-strip backdrop" : "content-strip",
+    "aria-hidden": "true",
+  });
   // The pictures are asked for **after** the screen is in the document — see
   // `hydrateContent`. A strip built during render has no frame to fill yet, and a
   // lazy observer over a detached node is how a card kept its cover for good.
-  strip._job = { card, row, count, key: `${card.key}:${row}` };
+  // `layout` is how the frame draws what it gets: a wall of posters, or (the card
+  // page) one landscape backdrop. It is not part of the cache key — both layouts
+  // want the same list of the card's titles.
+  strip._job = { card, row, count, layout, key: `${card.key}:${row}` };
   return strip;
 }
 
@@ -1152,40 +1327,105 @@ function hydrateContent() {
     strip._job = null;
     const cached = contentDrawn.get(job.key);
     if (cached) {
-      drawTiles(strip, cached, job.count);
+      drawTiles(strip, cached, job.count, job.layout);
       continue;
     }
-    const cat = orderedCatalogs(job.card).filter(catalogVisible)[0];
-    if (!cat) continue;
-    contentJobs.push({ strip, job, cat });
+    const cats = orderedCatalogs(job.card).filter(catalogVisible);
+    if (!cats.length) continue;
+    contentJobs.push({ strip, job, cats });
   }
   pumpContent();
 }
 
 function pumpContent() {
   while (contentBusy < CONTENT_CONCURRENCY && contentJobs.length) {
-    const { strip, job, cat } = contentJobs.shift();
+    const { strip, job, cats } = contentJobs.shift();
     contentBusy++;
-    // A watchlist (or calendar) row is *your* state, not a cached list: it is read
+    fillFrame(strip, job, cats, 0).finally(() => {
+      contentBusy--;
+      pumpContent();
+    });
+  }
+}
+
+/**
+ * Ask a card's rows for pictures, and stop at the first one that answers.
+ *
+ * Reading only the **first** row is what kept the Watchlist card empty: its first
+ * row is **Watching**, which holds nothing until you start something, while **Plan
+ * to Watch** already held titles — so the frame stayed a cover with a full watchlist
+ * behind it. The frame now walks on to the next row, bounded by `CONTENT_ROW_TRIES`
+ * so a card of a hundred empty rows cannot turn one frame into a hundred requests.
+ *
+ * A **watchlist** card is the exception: its wall *is* your titles, so it collects
+ * every state's posters instead of stopping at the first one that answered.
+ */
+async function fillFrame(strip, job, cats, from) {
+  // The watchlist card's wall **is your watchlist**, so it is read from the
+  // watchlist itself rather than from one of its three catalog rows. That is the fix
+  // for "the two posters never come": those rows are per media type, so on the
+  // Movies row a watchlist of shows answered nothing at all, however full Plan to
+  // Watch was.
+  if (cats.some((cat) => cat.kind === "watchlist")) {
+    const pins = await watchlistArt(job.row);
+    if (pins.length) {
+      contentDrawn.set(job.key, pins);
+      if (strip.isConnected) drawTiles(strip, pins, job.count, job.layout);
+      return;
+    }
+  }
+  await collectArt(strip, job, job.row, cats, from, []);
+}
+
+/**
+ * The posters of your own pins, in the order the card's rows show them.
+ *
+ * Titles of the row you are on come first — the Movies card is your films. If that
+ * row holds none, **every** pin is used instead: an empty frame is a worse answer
+ * than a poster from the other row, and it is the one the card kept giving.
+ */
+async function watchlistArt(row) {
+  let payload;
+  try {
+    // A cache-buster: a pin or an unpin must be visible on the next draw, and this
+    // is the one list on the page that changes while the app is open.
+    payload = await get(`/watchlist.json?_=${Date.now()}${Math.random().toString(36).slice(2, 7)}`);
+  } catch {
+    return [];
+  }
+  const items = (payload?.items || []).filter((i) => i && (i.poster || i.background));
+  const forRow = items.filter((i) => (row === "movie" ? i.type === "movie" : i.type === "series"));
+  const use = forRow.length ? forRow : items;
+  const rank = (i) => (i.state === "watching" ? 0 : i.state === "planned" ? 1 : 2);
+  return [...use].sort((a, b) => rank(a) - rank(b));
+}
+
+/** Read a card's rows for pictures, drawing each time something arrives. */
+async function collectArt(strip, job, media, cats, from, art) {
+  // A watchlist card's wall *is* your titles, so it collects every state's posters
+  // instead of stopping at the first row that answered.
+  const gather = cats.some((cat) => cat.kind === "watchlist");
+  const last = Math.min(cats.length, from + CONTENT_ROW_TRIES);
+  for (let i = from; i < last; i++) {
+    const cat = cats[i];
+    // A watchlist (or custom) row is *your* state, not a cached list: it is read
     // with a cache-buster and answered `no-store`, so a card drawn before a pin can
     // never be replayed over it.
     const stateful = cat.kind === "watchlist" || cat.kind === "custom";
     const bust = stateful ? `&_=${Date.now()}${Math.random().toString(36).slice(2, 7)}` : "";
-    get(`/catalog/${job.row}/${encodeURIComponent(cat.id)}.json${catalogQuery()}${bust}`)
-      .then(({ metas = [] }) => {
-        const art = metas.filter((m) => m.poster || m.background);
-        if (!art.length) return;
-        contentDrawn.set(job.key, art);
-        if (strip.isConnected) drawTiles(strip, art, job.count);
-      })
-      .catch(() => {
-        /* the cover is the fallback */
-      })
-      .finally(() => {
-        contentBusy--;
-        pumpContent();
-      });
+    try {
+      const { metas = [] } = await get(`/catalog/${media}/${encodeURIComponent(cat.id)}.json${catalogQuery()}${bust}`);
+      const got = metas.filter((m) => m.poster || m.background);
+      if (!got.length) continue;
+      art.push(...got);
+      contentDrawn.set(job.key, art);
+      if (strip.isConnected) drawTiles(strip, art, job.count, job.layout);
+      if (!gather) return art;
+    } catch {
+      /* the next row may answer */
+    }
   }
+  return art;
 }
 
 /* ------------------------------------------------------------- hero rotation */
@@ -1406,19 +1646,12 @@ function heroBlock() {
         // else goes on the banner: no Explore button, no other cards' tags.
         chipLine(row.catalogs.map((cat) => catalogChip(featured, cat)), { className: "hero-cats" }),
       ),
+    // The banner's artwork is **not a control**: it is the picture the banner wears,
+    // and the banner is not the way into anything. It is an inert frame (no button,
+    // no click, out of the tab order), not a hidden door.
     el(
-      "button",
-      {
-        class: "hero-art focusable art-blank",
-        type: "button",
-        title: "Open the title on the banner",
-        "aria-label": "Open the title on the banner",
-        onclick: () => {
-          const onShot = heroList[heroAt % (heroList.length || 1)];
-          if (onShot) modal.open(onShot);
-          else go(`#/c/${encodeURIComponent(featured.key)}`);
-        },
-      },
+      "div",
+      { class: "hero-art art-blank", "aria-hidden": "true" },
       el("div", { class: "content-strip", "aria-hidden": "true" }),
     ),
   );
@@ -1432,6 +1665,7 @@ function heroBlock() {
 
 function iconBox(c, row) {
   const r = rowOf(c);
+  const name = titleOf(c, row);
   const count = r.catalogs.length;
   // The watchlist is three rows of *your own* pins, so its frame holds two posters:
   // a wider wall of them read as a chart rather than as "what you are watching".
@@ -1452,21 +1686,21 @@ function iconBox(c, row) {
         {
           class: "icon-art focusable",
           type: "button",
-          title: `Open ${c.title}`,
-          "aria-label": `Open ${c.title}`,
+          title: `Open ${name}`,
+          "aria-label": `Open ${name}`,
           onclick: () => {
             setRow(row);
             go(`#/c/${encodeURIComponent(c.key)}`);
           },
         },
-        el("img", { src: r.cover, alt: c.title, loading: "lazy" }),
+        el("img", { src: r.cover, alt: name, loading: "lazy" }),
       ),
       contentStrip(c, row, tiles),
     ),
     el(
       "span",
       { class: "icon-meta" },
-      el("span", { class: "icon-name", text: c.title }),
+      el("span", { class: "icon-name", text: name }),
       el("span", { class: "icon-sub", text: count ? `${count} catalog${count === 1 ? "" : "s"}` : "cover only" }),
     ),
   );
@@ -1481,7 +1715,9 @@ function iconBox(c, row) {
  * fixed in `scripts/collections.mjs` and Home shows all of it, always.
  */
 function collectionList() {
-  return state.collections.filter(cardVisible);
+  // A **hidden** card (the banner's own source, On the Board) is not a tile on
+  // Home: its rows are already on the left of the banner.
+  return state.collections.filter((c) => !c.hidden && cardVisible(c));
 }
 
 /** The collection grid, with the vertical divider before the marked card. */
@@ -1542,13 +1778,10 @@ function catalogRow(card, cat) {
     el(
       "header",
       { class: "cat-head" },
-      el("button", {
-        class: "cat-name focusable",
-        type: "button",
-        title: `Explore ${cat.name}`,
-        text: cat.name,
-        onclick: () => go(`#/x/${encodeURIComponent(card.key)}/${encodeURIComponent(cat.id)}`),
-      }),
+      // The row's **title is a label, not a control**: it names what is below it,
+      // and the **Explore** button beside it is the way in. Making the title itself
+      // a button made every row heading a second, unexpected door.
+      el("span", { class: "cat-name static", text: cat.name }),
       el(
         "div",
         { class: "cat-tools" },
@@ -1564,6 +1797,13 @@ function catalogRow(card, cat) {
   );
 }
 
+/* --------------------------------------------------- the page's own backdrop */
+
+/* The page used to wear the **colours of the title you were on**, as a blurred
+   backdrop layer behind the rows. It is gone: it tinted the whole screen as you
+   moved the cursor across a grid, which read as the content changing colour rather
+   than as a background. A page is now its own flat panel again. */
+
 function renderCard(key) {
   const c = cardByKey(key);
   if (!c) return [el("p", { class: "empty", text: "Collection not found." })];
@@ -1573,8 +1813,11 @@ function renderCard(key) {
   const catalogs = orderedCatalogs(c).filter(catalogVisible);
 
   // Name and tags first, the artwork card second — the same reading order as the
-  // banner — and the card's own posters sit *inside* that frame, padded, instead of
-  // the generated vector scene.
+  // banner — and the frame holds **one landscape backdrop** from the card's own
+  // titles (see `drawTiles`), not the wall of posters a Home card draws.
+  // There is **no artwork frame in the header any more**: the card page is its
+  // rows, and the artwork is the page's own background (see `setPageBackdrop`),
+  // brought up by pointing at a title. The header is the name and its tags.
   const wrapper = el(
     "section",
     { class: "section" },
@@ -1584,20 +1827,20 @@ function renderCard(key) {
       el(
         "div",
         { class: "section-meta" },
-        el("h2", { text: c.title }),
-        // The catalog labels are links into each catalog.
+        el("h2", { text: titleOf(c) }),
         chipLine(row.catalogs.filter(catalogVisible).map((cat) => catalogChip(c, cat))),
-      ),
-      el(
-        "div",
-        { class: "section-art art-blank", style: `background-image:url("${row.cover}")` },
-        contentStrip(c, apiType(), 5),
       ),
     ),
   );
 
+
   if (catalogs.length) {
-    for (const cat of catalogs) wrapper.append(catalogRow(c, cat));
+    for (const cat of catalogs) {
+      // A row marked `divider` gets a horizontal rule above it (the Watchlist's
+      // Watching → Plan to Watch boundary).
+      if (cat.divider) wrapper.append(el("div", { class: "h-divider", "aria-hidden": "true" }));
+      wrapper.append(catalogRow(c, cat));
+    }
   } else {
     wrapper.append(el("p", { class: "empty", text: "This collection is cover art only — it has no catalogs yet." }));
   }
@@ -1678,6 +1921,20 @@ function renderExplore(key, id) {
   // Explore for those rows is just the header and the list — no Shuffle, no sample
   // row, no divider.
   const stateful = cat.kind === "watchlist" || cat.kind === "custom";
+  // The Discover cards publish their titles in published order, so the sample row on
+  // top of their Explore page is noise in front of the catalog — they get no shuffle
+  // row, and the Shuffle button that drives it goes with it.
+  // The Discover cards and the banner's own rows (Now Playing / Airing Today /
+  // Airing This Week / On the Air) get **no shuffle row and no Shuffle button**:
+  // there is nothing to sample that the row itself does not already show.
+  // The **For You** rows are named after the titles you watch (`More Like …`), so a
+  // random sample on top would be a second, unlabelled copy of the same row — no
+  // shuffle row, no Shuffle button.
+  const sampled =
+    !stateful &&
+    !String(card.key).startsWith("discover") &&
+    card.key !== "on-the-board" &&
+    card.key !== "for-you";
 
   const head = el(
     "header",
@@ -1685,8 +1942,8 @@ function renderExplore(key, id) {
     el("button", {
       class: "crumb focusable",
       type: "button",
-      title: `Back to ${card.title}`,
-      text: card.title,
+      title: `Back to ${titleOf(card)}`,
+      text: titleOf(card),
       onclick: () => go(`#/c/${encodeURIComponent(card.key)}`),
     }),
     el("span", { class: "crumb-sep", "aria-hidden": "true", text: "›" }),
@@ -1700,9 +1957,8 @@ function renderExplore(key, id) {
         catMenu.hidden = !catMenu.hidden;
       },
     }),
-    stateful
-      ? null
-      : el(
+    sampled
+      ? el(
           "div",
           { class: "cat-tools" },
           el("button", {
@@ -1712,7 +1968,11 @@ function renderExplore(key, id) {
             title: "Shuffle — draw a fresh sample",
             onclick: () => samples.forEach((row) => row.reload()),
           }, shuffleIcon(), el("span", { text: " Shuffle" })),
-        ),
+        )
+      : null,
+    // The catalog switcher lives **in the header**, so it drops from the crumb it
+    // belongs to instead of floating into the grid.
+    catMenu,
   );
 
   // Endless scroll: keep paging until the catalog is exhausted.
@@ -1792,9 +2052,9 @@ function renderExplore(key, id) {
 
   // ONE random sample on top, then a horizontal rule, then the normal endlessly
   // scrolling catalog — for a catalog that can be sampled at all.
-  if (!stateful) samples.push(shuffleRow(cat));
-  const shuffles = stateful ? null : el("div", { class: "explore-shuffles" }, ...samples.map((row) => row.node));
-  const rule = stateful ? null : el("div", { class: "h-divider", "aria-hidden": "true" });
+  if (sampled) samples.push(shuffleRow(cat));
+  const shuffles = sampled ? el("div", { class: "explore-shuffles" }, ...samples.map((row) => row.node)) : null;
+  const rule = sampled ? el("div", { class: "h-divider", "aria-hidden": "true" }) : null;
 
   /* The alphabet rail — the **titles in this row**, by first letter.
    *
@@ -1896,7 +2156,6 @@ function renderExplore(key, id) {
     "section",
     { class: "section explore" },
     head,
-    catMenu,
     shuffles,
     rule,
     el(
@@ -1906,6 +2165,8 @@ function renderExplore(key, id) {
       alphaRail,
     ),
   );
+  // The catalog's own rows move the page's backdrop; the shuffle rows do not.
+
   // Kick off the first page once the section is in the document.
   queueMicrotask(() => {
     loadMore().then(() => {
@@ -2086,27 +2347,16 @@ function renderSearch() {
       el("span", { class: "suggest-text", text: label }),
     );
 
-  /** Collections and catalogs matching what has been typed so far. */
-  const localSuggestions = (text) => {
-    const needle = text.trim().toLowerCase();
-    if (!needle) return [];
-    const cards = state.collections.filter((c) => c.title.toLowerCase().includes(needle)).slice(0, 4);
-    const cats = allCatalogs()
-      .filter(({ cat }) => cat.name.toLowerCase().includes(needle))
-      .slice(0, 4);
-    return [
-      ...cards.map((c) => suggestRow("Collection", c.title, () => go(`#/c/${encodeURIComponent(c.key)}`))),
-      ...cats.map(({ card, cat }) =>
-        suggestRow("Catalog", `${cat.name} — ${card.title}`, () => openRow(card.key, cat.id)),
-      ),
-    ];
-  };
-
-  const drawSuggestions = (text, metas = []) => {
-    const nodes = [
-      ...localSuggestions(text),
-      ...metas.slice(0, 5).map((m) => suggestRow("Title", m.name, () => modal.open(m))),
-    ];
+  /**
+   * The dropdown suggests **titles, and only titles**.
+   *
+   * It used to lead with matching Collections and Catalogs, so typing "home" showed
+   * a `Catalog — Homeless — Themes & Tags` line above any film — the reported "why
+   * is search showing this in place of contents". The box now suggests the titles
+   * themselves, which is what searching for a film means.
+   */
+  const drawSuggestions = (_text, metas = []) => {
+    const nodes = metas.slice(0, 6).map((m) => suggestRow("Title", m.name, () => go(`#/t/${m.type === "series" ? "series" : "movie"}/${String(m.id || "").replace(/^tmdb:/, "")}`)));
     suggestions.replaceChildren(...nodes);
     suggestions.hidden = !nodes.length;
   };
@@ -2536,6 +2786,48 @@ function sourceProviders(source) {
   return [];
 }
 
+/** A manifest resource → the label the Sources screen shows it under. */
+const RESOURCE_LABELS = { catalog: "Catalog", meta: "Metadata", stream: "Streams", subtitles: "Subtitles", addon_catalog: "Add-on catalog" };
+const resourceLabel = (name) => RESOURCE_LABELS[name] || (name ? name.charAt(0).toUpperCase() + name.slice(1) : "");
+
+/** What one source serves, grouped: resources (add-ons) and scrapers (plugins). */
+function sourceGroups(source) {
+  const resources = (source.resources || []).map(resourceLabel).filter(Boolean);
+  const scrapers = Array.isArray(source.scrapers) ? source.scrapers : [];
+  const providers = sourceProviders(source);
+  // A repository's "providers" *are* its scrapers.
+  if (!scrapers.length && source.kind === "repo") scrapers.push(...providers);
+  return { resources, scrapers, providers };
+}
+
+/**
+ * One source's providers, laid out by what they are.
+ *
+ * A **Stremio add-on** declares resources (`catalog`, `meta`, `stream`,
+ * `subtitles`) and names its catalogs — both are shown. A **Nuvio plugin**
+ * publishes scrapers, which are the providers; a repo has no catalogs to list.
+ */
+function sourceBody(source) {
+  const { resources, scrapers, providers } = sourceGroups(source);
+  const line = (label, items) =>
+    items.length
+      ? el("div", { class: "source-line" },
+          el("span", { class: "source-line-label", text: label }),
+          el("div", { class: "chips" }, ...items.map((p) => el("span", { class: "chip", text: p }))),
+        )
+      : null;
+  const lines = scrapers.length
+    ? [line("Scrapers", scrapers)]
+    : [line("Resources", resources), line("Catalogs", providers)];
+  const nodes = lines.filter(Boolean);
+  if (nodes.length) return nodes;
+  return [
+    source.status && !source.status.ok
+      ? el("p", { class: "option-desc", text: source.status.text })
+      : el("p", { class: "option-desc", text: "Reading this source's providers…" }),
+  ];
+}
+
 function sourceGraph(meta) {
   const hubs = state.sources.map((s) => ({
     label: s.name || typeLabel(s.type),
@@ -2619,7 +2911,7 @@ function renderSources(id, name) {
         el("p", { class: "view-hint", text: "Providers connected by the add-on, plugin or repository that returns them." }),
       ),
       el("div", { class: "graph-legend" },
-        el("span", { class: "dot hub" }), el("span", { text: "add-on / plugin / repo" }),
+        el("span", { class: "dot hub" }), el("span", { text: "add-on / plugin" }),
         el("span", { class: "dot leaf" }), el("span", { text: "provider" }),
       ),
     ),
@@ -2647,22 +2939,276 @@ function renderSources(id, name) {
   for (const [title, list] of [["Add-ons", addons], ["Plugins & repositories", plugins]]) {
     if (!list.length) continue;
     nodes.push(el("h3", { class: "result-head", text: title }));
-    nodes.push(el("div", { class: "source-provider-list" }, ...list.map((s) => {
-      const provs = sourceProviders(s);
-      return el("div", { class: "source-providers" },
+    nodes.push(el("div", { class: "source-provider-list" }, ...list.map((s) =>
+      el("div", { class: "source-providers" },
         el("div", { class: "source-providers-head" },
-          el("span", { class: "source-type", text: s.name || typeLabel(s.type) }),
+          el("span", { class: "source-type", text: `${typeLabel(s.type)}${s.name ? ` · ${s.name}` : ""}` }),
           el("span", { class: "source-url", text: s.url }),
         ),
-        provs.length
-          ? el("div", { class: "chips" }, ...provs.map((p) => el("span", { class: "chip", text: p })))
-          : s.status && !s.status.ok
-            ? el("p", { class: "option-desc", text: s.status.text })
-            : el("p", { class: "option-desc", text: "Reading this source's providers…" }),
-      );
-    })));
+        ...sourceBody(s),
+      ))));
   }
   return nodes;
+}
+
+/* ---------------------------------------------------------- a title, in full */
+
+/**
+ * One title's own page.
+ *
+ * The title used to be a modal over whatever screen you were on — a poster, a
+ * description and five buttons. It is a **page** now, because what you want from a
+ * title does not fit in a card: who made it, who is in it, what studio and what
+ * franchise it belongs to, its rating, its seasons, and what else is like it — and
+ * every one of those is a way into its own catalog, not a label.
+ */
+async function renderTitle(type, id) {
+  const media = type === "series" ? "series" : "movie";
+  setRow(media);
+  let data;
+  try {
+    data = await get(`/title/${media}/${encodeURIComponent(id)}.json${state.safe ? "" : "?adult=1"}`);
+  } catch (err) {
+    return [el("div", { class: "empty-panel" }, el("p", { text: `Could not load this title — ${err.message}` }))];
+  }
+  if (!data?.ok) {
+    return [el("div", { class: "empty-panel" }, el("p", { text: data?.error || "This title could not be loaded." }))];
+  }
+
+  const meta = { ...data.meta, type: media };
+  const art = backdropOf(meta) || posterOf(meta);
+  const facts = [
+    data.certification,
+    media === "movie"
+      ? (data.runtime ? `${data.runtime} min` : "")
+      : [data.seasonsCount ? `${data.seasonsCount} season${data.seasonsCount === 1 ? "" : "s"}` : "", data.episodesCount ? `${data.episodesCount} episodes` : ""].filter(Boolean).join(" · "),
+    meta.releaseInfo,
+    meta.imdbRating ? `★ ${meta.imdbRating}` : "",
+    data.status,
+  ].filter(Boolean);
+
+  const node = el(
+    "article",
+    { class: "title-page" },
+
+    // **The backdrop is the page.** The title's own wide shot fills the top of the
+    // screen, with the actions sitting on it — so Play is the first thing you see,
+    // not something you scroll to.
+    el(
+      "header",
+      { class: "title-hero" },
+      art ? el("img", { class: "title-hero-art", src: art, alt: "", loading: "eager" }) : null,
+      el("div", { class: "title-hero-scrim", "aria-hidden": "true" }),
+      el(
+        "div",
+        { class: "title-hero-inner" },
+        el("button", { class: "crumb focusable", type: "button", text: "‹ Back", onclick: () => history.back() }),
+        el("h1", { class: "title-name", text: meta.name || "Untitled" }),
+        facts.length ? el("p", { class: "title-facts", text: facts.join("  ·  ") }) : null,
+        el(
+          "div",
+          { class: "title-actions" },
+          el("button", {
+            class: "btn primary play-btn focusable",
+            type: "button",
+            id: "title-play",
+            text: "▶  Play",
+            onclick: () => openSources(meta),
+          }),
+          el("button", {
+            class: "btn subtle focusable",
+            type: "button",
+            id: "title-sources",
+            text: "Sources",
+            title: "Choose which add-on plays this title",
+            onclick: () => openSources(meta),
+          }),
+          // The pin buttons live on the page now, not in a modal.
+          el("div", { class: "title-pins", id: "title-pins" }, ...pinButtons(meta)),
+        ),
+      ),
+    ),
+
+    el(
+      "div",
+      { class: "title-body" },
+      data.tagline ? el("p", { class: "title-tagline", text: data.tagline }) : null,
+      meta.description ? el("p", { class: "title-overview", text: meta.description }) : null,
+
+      data.genres.length
+        ? el("div", { class: "title-row" },
+            el("h3", { class: "row-head", text: "Genres" }),
+            el("div", { class: "chips" }, ...data.genres.map((g) =>
+              el("button", {
+                class: "chip focusable",
+                type: "button",
+                text: g.name,
+                onclick: () => go(`#/l/genre/${g.id}?type=${media}`),
+              })
+            )),
+          )
+        : null,
+
+      peopleRow("Directed by", [...data.creators, ...data.directors]),
+      peopleRow("Written by", data.writers),
+      peopleRow("Cast", data.cast),
+      logoRow("Studios", data.companies, "company"),
+      logoRow("Networks", data.networks, "network"),
+
+      // **The franchise**, when the film is part of one: its own parts, in order.
+      data.collection ? titleStrip("The franchise", `The ${data.collection.name}`) : null,
+      // **Seasons**, for a show: each one opens its own episode list.
+      data.seasons.length
+        ? el("section", { class: "title-row" },
+            el("h3", { class: "row-head", text: "Seasons" }),
+            el("div", { class: "season-grid" }, ...data.seasons.map((s) =>
+              el("button", {
+                class: "season-card focusable",
+                type: "button",
+                onclick: () => go(`#/l/season/${encodeURIComponent(id)}/${s.number}?type=${media}`),
+              },
+                s.poster ? el("img", { src: s.poster, alt: "", loading: "lazy" }) : el("div", { class: "poster-fallback", text: `S${s.number}` }),
+                el("span", { class: "season-name", text: s.name }),
+                el("span", { class: "season-sub", text: [s.year, s.episodes ? `${s.episodes} episodes` : ""].filter(Boolean).join(" · ") }),
+              )
+            )),
+          )
+        : null,
+
+      data.more.length ? titleStrip("More like this", null, data.more) : null,
+    ),
+  );
+
+  // The two strips that need their own request are filled once the page is drawn.
+  queueMicrotask(() => {
+    if (data.collection) fillStripFrom(node.querySelector(`[data-strip="collection"]`), `/list/collection/${data.collection.tmdbId}.json${listQuery("movie")}`, "This franchise has no other titles.");
+  });
+
+  return [node];
+}
+
+/** One name's own catalog, as a grid — a person's credits, a studio, a genre. */
+async function renderList(kind, id, type) {
+  const media = type === "series" ? "series" : "movie";
+  let metas = [];
+  try {
+    ({ metas = [] } = await get(`/list/${kind}/${encodeURIComponent(id)}.json${listQuery(media)}`));
+  } catch (err) {
+    return [el("div", { class: "empty-panel" }, el("p", { text: `Could not load this list — ${err.message}` }))];
+  }
+  const heading = { person: "Credits", company: "From this studio", network: "On this network", genre: "In this genre", keyword: "With this tag", season: "Episodes", collection: "In this franchise" }[kind] || "Titles";
+  return [
+    el("div", { class: "sources-head" },
+      el("div", {},
+        el("p", { class: "hero-kicker", text: heading }),
+        el("h2", { class: "view-title", text: `${metas.length} ${media === "movie" ? "films" : "shows"}` }),
+      ),
+      el("div", { class: "row-switch" },
+        ...[['movie', 'Movies'], ['series', 'Shows']].map(([value, label]) =>
+          el("button", {
+            class: `row-btn focusable${media === value ? " active" : ""}`,
+            type: "button",
+            text: label,
+            onclick: () => go(`#/l/${kind}/${encodeURIComponent(id)}?type=${value}`),
+          })
+        ),
+      ),
+    ),
+    metas.length
+      ? el("div", { class: "grid-titles" }, ...metas.map((m) => posterCard(m)))
+      : el("p", { class: "empty", text: "Nothing here for this row." }),
+  ];
+}
+
+/** The query every list request carries: the row, and the SFW switch. */
+const listQuery = (type) => `?type=${encodeURIComponent(type)}${state.safe ? "" : "&adult=1"}`;
+
+/** The pin buttons for a title — the same ones the quick-look modal draws. */
+function pinButtons(item) {
+  const current = state.watchlist[watchKey(item)] || "";
+  const customOn = inCustomRow(item);
+  return [
+    ...WATCH_STATES.map(([sid, label]) =>
+      el("button", {
+        class: `btn pin focusable${current === sid ? " active" : ""}`,
+        type: "button",
+        id: `pin-${sid}`,
+        title: current === sid ? `Pinned as ${label} — click to unpin` : `Pin as ${label}`,
+        "aria-pressed": String(current === sid),
+        text: current === sid ? `${label} · pinned` : label,
+        onclick: () => setWatchState(item, current === sid ? null : sid),
+      }),
+    ),
+    el("button", {
+      class: `btn pin focusable${customOn ? " active" : ""}`,
+      type: "button",
+      id: "pin-custom",
+      title: customOn ? `In ${customLabel()} — click to remove` : `Add to ${customLabel()}`,
+      "aria-pressed": String(customOn),
+      text: customOn ? `${customLabel()} · added` : `Add to ${customLabel()}`,
+      onclick: () => toggleCustomRow(item),
+    }),
+  ];
+}
+
+/** A row of people, each opening their own credits. */
+function peopleRow(label, people) {
+  const list = (people || []).filter((p) => p && p.name && p.tmdbId);
+  if (!list.length) return null;
+  return el("section", { class: "title-row" },
+    el("h3", { class: "row-head", text: label }),
+    el("div", { class: "people" }, ...list.map((p) =>
+      el("button", {
+        class: "person focusable",
+        type: "button",
+        title: `${p.name} — open their credits`,
+        onclick: () => go(`#/l/person/${p.tmdbId}?type=${state.row}`),
+      },
+        p.poster ? el("img", { class: "person-face", src: p.poster, alt: "", loading: "lazy" }) : el("span", { class: "person-face person-initials", text: initialsOf(p.name).toUpperCase() }),
+        el("span", { class: "person-name", text: p.name }),
+        p.role ? el("span", { class: "person-role", text: p.role }) : null,
+      )
+    )),
+  );
+}
+
+/** A row of studios / networks, each opening its own titles. */
+function logoRow(label, list, kind) {
+  const items = (list || []).filter((c) => c && c.name && c.tmdbId);
+  if (!items.length) return null;
+  return el("section", { class: "title-row" },
+    el("h3", { class: "row-head", text: label }),
+    el("div", { class: "chips" }, ...items.map((c) =>
+      el("button", {
+        class: "chip focusable",
+        type: "button",
+        text: c.name,
+        title: `${c.name} — open its titles`,
+        onclick: () => go(`#/l/${kind}/${c.tmdbId}?type=${state.row}`),
+      })
+    )),
+  );
+}
+
+/** A titled row of posters — the franchise, or "more like this". */
+function titleStrip(label, emptyText, metas) {
+  const strip = el("div", { class: "strip", "data-strip": label === "The franchise" ? "collection" : "inline" });
+  if (metas) for (const m of metas) strip.append(posterCard(m));
+  else strip.append(el("p", { class: "empty", text: "Loading…" }));
+  return el("section", { class: "title-row" }, el("h3", { class: "row-head", text: label }), strip);
+}
+
+/** Fill a strip that needed its own request. */
+async function fillStripFrom(strip, url, emptyText) {
+  if (!strip) return;
+  try {
+    const { metas = [] } = await get(url);
+    strip.replaceChildren();
+    if (!metas.length) strip.append(el("p", { class: "empty", text: emptyText }));
+    else for (const m of metas) strip.append(posterCard(m));
+  } catch (err) {
+    strip.replaceChildren(el("p", { class: "empty", text: `Could not load — ${err.message}` }));
+  }
 }
 
 /* ----------------------------------------------------------------- settings */
@@ -2973,7 +3519,7 @@ function visCard(card, v) {
   const shownRows = rows.filter((cat) => v.catalogs[cat.id] !== false).length;
   const shown = v.cards[card.key] !== false;
   return el("div", { class: `vis-card${shown ? "" : " off"}` },
-    visRow(shown, "card", card.key, card.title, rows.length ? `${shownRows} of ${rows.length} catalog rows on` : "No catalog rows yet"),
+    visRow(shown, "card", card.key, titleOf(card), rows.length ? `${shownRows} of ${rows.length} catalog rows on` : "No catalog rows yet"),
     rows.length
       ? el("div", { class: "vis-card-rows" },
           ...rows.map((cat) => visRow(v.catalogs[cat.id] !== false, "catalog", cat.id, cat.name, "", 1)),
@@ -2982,21 +3528,34 @@ function visCard(card, v) {
   );
 }
 
+/**
+ * Settings → Posters: one switch, the poster service, and its URL pattern.
+ *
+ * There is **no API-key box**: the service bttr.cc needs no key at all, and the one
+ * that does (RPDB) carries it inside its own URL — so the pattern is the single
+ * input this pane needs, and a second box would only ask for a key nothing reads.
+ */
 function panePosters() {
   const pattern = el("input", {
     class: "text-input focusable",
     type: "text",
     id: "poster-pattern",
-    value: state.posters.pattern || "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg",
+    value: state.posters.pattern || POSTER_SERVICES[0][2],
     placeholder: "https://…/{imdb_id}.jpg",
   });
-  const keyInput = el("input", {
-    class: "text-input focusable",
-    type: "password",
-    id: "poster-key",
-    placeholder: state.posters.hasKey ? "•••••••• (set)" : "API key (if the service needs one)",
-  });
   const status = el("span", { class: "source-status", text: "" });
+
+  // Which service the stored pattern belongs to. Matched on the host rather than on
+  // the whole string, because an RPDB URL carries the user's own key in it and would
+  // never equal the template.
+  const host = (url) => String(url || "").match(/^https?:\/\/([^/]+)/i)?.[1]?.toLowerCase() || "";
+  const current = String(state.posters.pattern || POSTER_SERVICES[0][2]);
+  const hostname = host(current);
+  const active = hostname.includes("btttr.cc")
+    ? "bttr"
+    : hostname.includes("ratingposterdb.com")
+      ? "rpdb"
+      : "custom";
 
   return [
     toggleRow(state.posters.enabled !== false, "Upgrade posters everywhere", "Use the poster service for every title; titles it cannot cover keep their original artwork.", (e) => {
@@ -3007,23 +3566,28 @@ function panePosters() {
     }),
     el("div", { class: "provider" },
       el("span", { class: "option-title", text: "Poster service" }),
-      el("p", { class: "option-desc", text: "BetterPosters (bttr.cc) serves enhanced posters keyed by IMDb id, so a TMDB id is resolved first. Change the pattern to use another service — {imdb_id} and {tmdb_id} are filled in per title." }),
+      el("p", { class: "option-desc", text: "Which service supplies the artwork, and the URL it is asked for. Pick one and its pattern is filled in below; edit the pattern to use anything else — {imdb_id}, {tmdb_id} and {type} are filled in per title." }),
+      ...POSTER_SERVICES.map(([id, label, url, desc]) =>
+        radioRow(active === id, "posterservice", label, desc, async () => {
+          state.posters = { ...state.posters, source: id, pattern: url, enabled: true };
+          writeJSON(KEY.posters, state.posters);
+          await pushSettings({ posters: { source: id, pattern: url, enabled: true } });
+          render();
+        }),
+      ),
+      active === "custom"
+        ? el("p", { class: "option-desc", text: "A pattern of your own — save it below and check that it answers." })
+        : null,
+    ),
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "URL pattern" }),
       el("div", { class: "source-form" }, pattern,
         el("button", { class: "btn primary focusable", type: "button", text: "Save pattern", onclick: async () => {
-          state.posters = { ...state.posters, pattern: pattern.value.trim() };
+          const value = pattern.value.trim();
+          if (!value) return;
+          state.posters = { ...state.posters, pattern: value };
           writeJSON(KEY.posters, state.posters);
-          await pushSettings({ posters: { pattern: state.posters.pattern } });
-          render();
-        } }),
-      ),
-      el("div", { class: "source-form" }, keyInput,
-        el("button", { class: "btn primary focusable", type: "button", text: "Save key", onclick: async () => {
-          const v = keyInput.value.trim();
-          if (!v) return;
-          state.posters = { ...state.posters, hasKey: true };
-          writeJSON(KEY.posters, state.posters);
-          await pushSettings({ posters: { apiKey: v } });
-          keyInput.value = "";
+          await pushSettings({ posters: { pattern: value } });
           render();
         } }),
         el("button", { class: "btn subtle focusable", type: "button", text: "Check service", onclick: async () => {
@@ -3351,6 +3915,28 @@ function paneContent() {
     el("div", { class: "provider" },
       el("button", { class: "btn primary focusable", type: "button", text: "Refresh now", onclick: () => refreshNow() }),
     ),
+    // The Custom card's label. The card holds *your* list, so what it is called is
+    // yours to say; the name is stored server-side (Settings) and the card set is
+    // re-read so Home shows the new label immediately.
+    el("p", { class: "option-title", text: "Custom card" }),
+    el("p", { class: "option-desc", text: "The name of the Custom card on Home — the list you fill yourself from any title's modal." }),
+    el("div", { class: "provider" },
+      el("input", {
+        class: "text-input focusable",
+        type: "text",
+        id: "custom-label",
+        maxlength: "40",
+        placeholder: "Custom",
+        value: state.customLabel || "",
+        onchange: async (event) => {
+          const value = String(event.currentTarget.value || "").trim().slice(0, 40) || "Custom";
+          state.customLabel = value;
+          await pushSettings({ customLabel: value });
+          await refreshCollections();
+          render();
+        },
+      }),
+    ),
   ];
 }
 
@@ -3422,10 +4008,19 @@ function paneLayout() {
   );
 }
 
-function paneServer() {
+/**
+ * Settings → Appearance & layout, one pane: how the app looks (accent, motion) and
+ * how its cards are laid out. They were two tabs for one question.
+ */
+function paneAppearanceLayout() {
   return [
-    el("p", { class: "option-desc", text: API || "same origin (embedded server)" }),
-    el("p", { class: "option-desc", text: `${state.collections.length} collections · ${state.collections.reduce((n, c) => n + rowOf(c).catalogs.length, 0)} catalogs for this row.` }),
+    ...paneAppearance(),
+    el("div", { class: "h-divider", "aria-hidden": "true" }),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Layout" }),
+      el("span", { class: "option-desc", text: "How Home holds its cards." }),
+    ),
+    ...paneLayout(),
   ];
 }
 
@@ -3453,8 +4048,17 @@ function sourceSection(title, hint, types, list) {
   ];
 }
 
+/**
+ * Keep the sources on the server as well as in this page.
+ *
+ * They have to live server-side because **reading a stream happens there** (a
+ * browser cannot call another host's `/stream/…`), and because the addon publishes
+ * what it can play to Nuvio itself. The page keeps its own copy so Settings draws
+ * instantly and works offline.
+ */
 function saveSources() {
   writeJSON(KEY.sources, state.sources);
+  pushSettings({ sources: state.sources });
 }
 
 /**
@@ -3472,6 +4076,9 @@ async function inspectSource(index, { quiet = false } = {}) {
   try {
     const res = await post("/api/source", { type: source.type, url: source.url });
     source.providers = res.providers || [];
+    source.resources = res.resources || [];
+    source.scrapers = res.scrapers || [];
+    source.kind = res.kind || "";
     source.name = res.name || source.name;
     source.status = { ok: Boolean(res.ok), text: res.ok ? `${res.name || typeLabel(source.type)} · ${res.message}` : res.message };
   } catch (err) {
@@ -3481,14 +4088,29 @@ async function inspectSource(index, { quiet = false } = {}) {
   if (!quiet) render();
 }
 
+/**
+ * Read every source the app has not read yet — quietly, and only once.
+ *
+ * A source restored from an older build (or added on another device) is stored
+ * without its providers, and its row then shows nothing under it. Reading them here
+ * is what makes the providers appear on their own instead of waiting for a click
+ * that nothing on screen tells you to make. A source that answered badly keeps its
+ * status, so this never runs twice for the same source.
+ */
+async function hydrateSources() {
+  const pending = state.sources.filter((s) => s && !s.status);
+  if (!pending.length) return;
+  for (const source of pending) await inspectSource(state.sources.indexOf(source), { quiet: true });
+  render();
+}
+
 function sourceRow(source, index) {
-  const providers = sourceProviders(source);
   return el("div", { class: "source" },
     el("div", { class: "source-main" },
       el("span", { class: "source-type", text: `${typeLabel(source.type)}${source.name ? ` · ${source.name}` : ""}` }),
       el("span", { class: "source-url", text: source.url }),
       source.status ? el("span", { class: `source-status ${source.status.ok ? "ok" : "bad"}`, text: source.status.text }) : null,
-      providers.length ? el("div", { class: "chips" }, ...providers.map((p) => el("span", { class: "chip", text: p }))) : null,
+      ...sourceBody(source),
     ),
     el("div", { class: "source-actions" },
       el("button", { class: "btn subtle focusable", type: "button", text: "Providers", title: "Read this source's providers", onclick: () => inspectSource(index) }),
@@ -3506,30 +4128,51 @@ function sourceRow(source, index) {
   );
 }
 
-function renderSettings() {
-  const section = state.settingsSection;
+/**
+ * Settings → Add-ons & plugins, one pane: both kinds of source, each with its own
+ * form, so "where do I add a source?" has one answer.
+ */
+function paneAddonsPlugins() {
   const addons = state.sources.filter((s) => ADDON_TYPES.some(([t]) => t === s.type));
   const plugins = state.sources.filter((s) => PLUGIN_TYPES.some(([t]) => t === s.type));
+  return [
+    ...sourceSection("Stremio add-ons", "A Stremio add-on URL is read on the server (manifest.json), so it works even when the host sends no CORS headers — its catalogs, metadata, streams and subtitles are listed as providers.", ADDON_TYPES, addons),
+    el("div", { class: "h-divider tracking-divider", "aria-hidden": "true" }),
+    ...sourceSection("Nuvio plugins", "A Nuvio plugin is read on the server and the scrapers it publishes are listed as providers.", PLUGIN_TYPES, plugins),
+  ];
+}
+
+/**
+ * Settings → Trackers & providers, one pane.
+ *
+ * The trackers come **first**, in their three groups, then the providers that supply
+ * the content and the keys that make them work.
+ */
+function paneTrackersProviders() {
+  return [...paneTracking(), el("div", { class: "h-divider tracking-divider", "aria-hidden": "true" }), ...paneProviders()];
+}
+
+function renderSettings() {
+  const section = state.settingsSection;
 
   const panes = {
     livesource: paneLiveSource,
-    // `livelayout` is the Live TV profile's Layout: without its own entry it fell
-    // through to the Profile pane, so the tab said "Layout" and showed the profile.
-    livelayout: paneLayout,
     livecountries: paneLiveCountries,
     liveguide: paneLiveGuide,
     liverefresh: paneLiveRefresh,
     profile: paneProfile,
     posters: panePosters,
-    providers: paneProviders,
-    tracking: paneTracking,
+    providers: paneTrackersProviders,
+    // The old tabs are kept as aliases so a section id remembered in localStorage
+    // still lands on the pane it named instead of falling back to the first one.
+    tracking: paneTrackersProviders,
     ai: paneAi,
     content: paneContent,
-    addons: () => sourceSection("Add-ons", "An add-on URL is read on the server (manifest.json), so it works even when the host sends no CORS headers.", ADDON_TYPES, addons),
-    plugins: () => sourceSection("Plugins & repositories", "A CloudStream repository is read on the server (repo.json → plugins.json) and every plugin is listed as a provider.", PLUGIN_TYPES, plugins),
-    layout: paneLayout,
-    appearance: paneAppearance,
-    server: paneServer,
+    addons: paneAddonsPlugins,
+    plugins: paneAddonsPlugins,
+    layout: paneAppearanceLayout,
+    appearance: paneAppearanceLayout,
+    livelayout: paneAppearanceLayout,
   };
 
   // A stored section that does not exist for this profile (the Live TV profile has
@@ -3615,9 +4258,9 @@ const routeOf = (r) => [r.view, r.key || "", r.id || "", r.name || "", r.group |
 const scrollMemory = new Map();
 let lastRoute = "";
 
-function render() {
+async function render() {
   const parsed = parseHash();
-  const { view, key, id, name, group } = parsed;
+  const { view, key, id, name, group, type, kind } = parsed;
   const browsing = ["home", "card", "explore"].includes(view);
 
   // A screen you are **returning to** is put back where you left it, and a screen
@@ -3643,6 +4286,8 @@ function render() {
   else if (view === "categories") nodes = renderLiveCategories();
   else if (view === "category") nodes = renderLiveCategory(group);
   else if (view === "channel") nodes = renderChannel(id);
+  else if (view === "title") nodes = await renderTitle(type, id);
+  else if (view === "list") nodes = await renderList(kind, id, type);
   else if (view === "profiles") nodes = renderProfiles();
   else if (view === "card") nodes = renderCard(key);
   else if (view === "explore") nodes = renderExplore(key, id);
@@ -3673,6 +4318,9 @@ function render() {
   else stopHeroRotation();
   // The catalog refresh runs on every browsing view, not just Home.
   startAutoRefresh();
+  // A source stored without its providers is read once, so its providers appear
+  // without anyone having to press anything.
+  queueMicrotask(hydrateSources);
 }
 
 /* ------------------------------------------------------------ keyboard nav */
@@ -4895,24 +5543,134 @@ function stopPlayer() {
 }
 
 function playerKey(e) {
-  if (e.key === "Escape") stopPlayer();
+  if (e.key === "Escape") return stopPlayer();
+  if (e.target?.tagName === "INPUT" || e.target?.tagName === "SELECT") return;
+  const video = document.querySelector(".player-video");
+  if (!video) return;
+  const seek = (n) => {
+    video.currentTime = Math.max(0, (video.currentTime || 0) + n);
+  };
+  if (e.key === " " || e.key === "k") {
+    e.preventDefault();
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+  } else if (e.key === "ArrowRight") seek(10);
+  else if (e.key === "ArrowLeft") seek(-10);
+  else if (e.key === "ArrowUp") video.volume = Math.min(1, video.volume + 0.1);
+  else if (e.key === "ArrowDown") video.volume = Math.max(0, video.volume - 0.1);
+  else if (e.key === "m") video.muted = !video.muted;
+  else if (e.key === "f") toggleFullscreen();
+  else if (e.key === "p") video.requestPictureInPicture?.().catch(() => {});
 }
 
-async function openPlayer(url, title) {
+function toggleFullscreen() {
+  const target = document.querySelector(".player") || document.documentElement;
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  else target.requestFullscreen?.().catch(() => {});
+}
+
+/** `1:04:07` / `4:07` — a clock, not a number. */
+const timecode = (seconds) => {
+  const n = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(n / 3600);
+  const m = Math.floor((n % 3600) / 60);
+  const s = n % 60;
+  return `${h ? `${h}:${String(m).padStart(2, "0")}` : m}:${String(s).padStart(2, "0")}`;
+};
+
+/**
+ * The player.
+ *
+ * Full screen, with the controls a streaming app is expected to have — play/pause,
+ * a seek bar you can drag, the time, volume and mute, playback speed, picture-in-
+ * picture and fullscreen — plus, for a title, a **Sources** drawer: every stream the
+ * add-ons you added answered with, grouped by add-on, one click to play. Keyboard:
+ * space/k play, ←/→ seek 10s, ↑/↓ volume, m mute, f fullscreen, p picture-in-picture,
+ * Esc close.
+ */
+async function openPlayer(url, title, opts = {}) {
   const src = String(url || "").trim();
   if (!src) return;
   stopPlayer();
-  const video = el("video", { class: "player-video", controls: true, playsinline: true });
+
+  const video = el("video", { class: "player-video", playsinline: true, autoplay: true });
+  const seek = el("input", { class: "player-seek focusable", type: "range", min: "0", max: "1000", value: "0", step: "1" });
+  const volume = el("input", { class: "player-volume focusable", type: "range", min: "0", max: "1", value: "1", step: "0.05" });
+  const clock = el("span", { class: "player-time", text: "0:00 / 0:00" });
+  const rate = el("select", { class: "player-rate text-input focusable" },
+    ...[0.5, 0.75, 1, 1.25, 1.5, 2].map((v) => el("option", { value: String(v), text: `${v}×`, selected: v === 1 })),
+  );
+  const playBtn = el("button", {
+    class: "player-icon focusable", type: "button", text: "❚❚", title: "Play / pause",
+    onclick: () => (video.paused ? video.play().catch(() => {}) : video.pause()),
+  });
+
+  video.addEventListener("play", () => { playBtn.textContent = "❚❚"; });
+  video.addEventListener("pause", () => { playBtn.textContent = "▶"; });
+  video.addEventListener("timeupdate", () => {
+    const d = video.duration || 0;
+    seek.value = d ? String(Math.round((video.currentTime / d) * 1000)) : "0";
+    clock.textContent = `${timecode(video.currentTime)} / ${d ? timecode(d) : "live"}`;
+  });
+  seek.addEventListener("input", () => {
+    const d = video.duration || 0;
+    if (d) video.currentTime = (Number(seek.value) / 1000) * d;
+  });
+  volume.addEventListener("input", () => { video.volume = Number(volume.value); video.muted = Number(volume.value) === 0; });
+  rate.addEventListener("change", () => { video.playbackRate = Number(rate.value) || 1; });
+
+  // The Sources drawer: which add-on this stream came from, and the others on offer.
+  const drawer = el("aside", { class: "player-sources", hidden: true });
+  const drawSources = (list, currentUrl) => {
+    drawer.replaceChildren(
+      el("h3", { class: "row-head", text: "Sources" }),
+      list && list.length
+        ? el("div", { class: "stream-list" }, ...list.map((s) =>
+            el("button", {
+              class: `stream focusable${s.url === currentUrl ? " active" : ""}`,
+              type: "button",
+              onclick: async () => {
+                drawer.hidden = true;
+                await openPlayer(s.url, opts.title || title, { ...opts, current: s.url });
+              },
+            },
+              el("span", { class: "stream-name", text: s.name || s.source || "Stream" }),
+              el("span", { class: "stream-detail", text: [s.quality, s.source, s.title].filter(Boolean).join(" · ") }),
+            )
+          ))
+        : el("p", { class: "empty", text: "No streams returned. Add or fix an add-on in Settings → Add-ons & plugins, then press Sources again." }),
+    );
+  };
+  drawSources(opts.streams || [], src);
+
   const node = el(
     "div",
     { class: "player" },
     el(
       "div",
       { class: "player-head" },
-      el("span", { class: "player-title", text: title || "Live" }),
+      el("span", { class: "player-title", text: opts.title || title || "Live" }),
+      opts.streams?.length
+        ? el("button", {
+            class: "btn subtle focusable", type: "button", text: "Sources", id: "player-sources",
+            onclick: () => { drawer.hidden = !drawer.hidden; },
+          })
+        : null,
       el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: stopPlayer }),
     ),
-    video,
+    el("div", { class: "player-stage" }, video, drawer),
+    el(
+      "div",
+      { class: "player-controls" },
+      playBtn,
+      seek,
+      clock,
+      el("button", { class: "player-icon focusable", type: "button", text: "🔇", title: "Mute", onclick: () => { video.muted = !video.muted; } }),
+      volume,
+      rate,
+      el("button", { class: "player-icon focusable", type: "button", text: "PiP", title: "Picture in picture", onclick: () => video.requestPictureInPicture?.().catch(() => {}) }),
+      el("button", { class: "player-icon focusable", type: "button", text: "⛶", title: "Fullscreen", onclick: toggleFullscreen }),
+    ),
     el("p", { class: "player-note", text: src }),
   );
   document.body.append(node);
@@ -4939,6 +5697,65 @@ async function openPlayer(url, title) {
   } catch (err) {
     node.append(el("p", { class: "player-error", text: `Could not play this stream — ${err.message}` }));
   }
+}
+
+/**
+ * Play a title: ask the server for its streams, then open the player.
+ *
+ * The streams come from the Stremio add-ons you added (see `addon/streams.mjs`) —
+ * read on the server, because a browser cannot call another host's `/stream/…`.
+ * With none configured, or with none answering, the player still opens and says so.
+ */
+async function openSources(meta) {
+  const media = meta.type === "series" ? "series" : "movie";
+  const id = String(meta.id || "").replace(/^tmdb:/, "");
+  const overlay = el("div", { class: "player loading-player" },
+    el("div", { class: "player-head" },
+      el("span", { class: "player-title", text: `Finding sources — ${meta.name || ""}` }),
+      el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
+    ),
+    el("p", { class: "player-note", text: "Asking the add-ons and plugins you added…" }),
+  );
+  document.body.append(overlay);
+  let payload = null;
+  try {
+    payload = await get(`/streams/${media}/${encodeURIComponent(id)}.json?name=${encodeURIComponent(meta.name || "")}`);
+  } catch (err) {
+    overlay.replaceChildren(
+      el("div", { class: "player-head" },
+        el("span", { class: "player-title", text: meta.name || "" }),
+        el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
+      ),
+      el("p", { class: "player-error", text: `Could not read the streams — ${err.message}` }),
+    );
+    return;
+  }
+  const streams = payload?.streams || [];
+  const lines = (payload?.sources || []).map((s) => `${s.name}: ${s.ok ? s.message : `failed — ${s.message}`}`);
+  overlay.remove();
+
+  if (!streams.length) {
+    const reason =
+      payload?.reason === "no-sources"
+        ? "No add-on is configured to play anything. Add a Stremio add-on in Settings → Add-ons & plugins."
+        : payload?.reason === "no-imdb"
+          ? "This title has no IMDb id, so an add-on cannot be asked for streams."
+          : "No playable stream came back.";
+    document.body.append(el("div", { class: "player" },
+      el("div", { class: "player-head" },
+        el("span", { class: "player-title", text: meta.name || "" }),
+        el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: (e) => e.currentTarget.closest(".player").remove() }),
+      ),
+      el("p", { class: "player-error", text: reason }),
+      lines.length ? el("div", { class: "stream-list" }, ...lines.map((l) => el("p", { class: "player-note", text: l }))) : null,
+    ));
+    return;
+  }
+
+  // The first stream that is not a trailer/cam rip plays straight away; the rest are
+  // one click away in the Sources drawer.
+  const best = streams.find((s) => !/cam|trailer|sample/i.test(`${s.name} ${s.title}`)) || streams[0];
+  await openPlayer(best.url, meta.name, { title: meta.name, meta, streams, current: best.url });
 }
 
 async function boot() {

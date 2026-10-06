@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="Themes &amp; Tags — shows collection cover" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-  <title>Themes &amp; Tags — shows collection cover</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="Custom — shows collection cover" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <title>Custom — shows collection cover</title>
   <defs>
     <linearGradient id="titleFill" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#FFFFFF"/>
@@ -58,18 +58,22 @@
   <g clip-path="url(#cardClip)">
     <g transform="translate(2830 0) scale(-1 1)">
       <circle cx="1415" cy="540" r="528" fill="url(#glow)" class="glow"/>
-    <rect x="1160.3" y="309.6" width="209.9" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1405.8" y="309.6" width="222.6" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1139" y="424.8" width="242.7" height="72" rx="36" fill="rgba(200,169,106,0.14)" stroke="#C8A96A" stroke-width="2"/>
-    <rect x="1417.3" y="424.8" width="152.4" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1605.3" y="424.8" width="202.3" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1114.6" y="540" width="189.8" height="72" rx="36" fill="rgba(200,169,106,0.14)" stroke="#C8A96A" stroke-width="2"/>
-    <rect x="1340" y="540" width="191.8" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1162.2" y="655.2" width="226.5" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1424.3" y="655.2" width="133.7" height="72" rx="36" fill="rgba(200,169,106,0.14)" stroke="#C8A96A" stroke-width="2"/>
-    <rect x="1153.1" y="770.4" width="178.1" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1366.7" y="770.4" width="222.7" height="72" rx="36" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="2"/>
-    <rect x="1625.1" y="770.4" width="222.8" height="72" rx="36" fill="rgba(200,169,106,0.14)" stroke="#C8A96A" stroke-width="2"/>
+    <line x1="1103.5" y1="818.4" x2="1717.6" y2="357.6" stroke="url(#ivoryS)" stroke-width="2.4" opacity="0.6"/>
+    <line x1="1103.5" y1="866.4" x2="1103.5" y2="904.8" stroke="url(#ivoryS)" stroke-width="2" opacity="0.22"/>
+    <line x1="1257" y1="751.2" x2="1257" y2="789.6" stroke="url(#ivoryS)" stroke-width="2" opacity="0.22"/>
+    <line x1="1410.6" y1="636" x2="1410.6" y2="674.4" stroke="url(#ivoryS)" stroke-width="2" opacity="0.22"/>
+    <line x1="1564.1" y1="520.8" x2="1564.1" y2="559.2" stroke="url(#ivoryS)" stroke-width="2" opacity="0.22"/>
+    <line x1="1717.6" y1="405.6" x2="1717.6" y2="444" stroke="url(#ivoryS)" stroke-width="2" opacity="0.22"/>
+    <circle cx="1103.5" cy="818.4" r="8" fill="none" stroke="url(#ivoryS)" stroke-width="2.5" opacity="0.45"/>
+    <circle cx="1103.5" cy="818.4" r="3" fill="#E7EBF3" opacity="0.4"/>
+    <circle cx="1257" cy="703.2" r="8" fill="none" stroke="url(#ivoryS)" stroke-width="2.5" opacity="0.5625"/>
+    <circle cx="1257" cy="703.2" r="3" fill="#E7EBF3" opacity="0.525"/>
+    <circle cx="1410.6" cy="588" r="8" fill="none" stroke="url(#ivoryS)" stroke-width="2.5" opacity="0.675"/>
+    <circle cx="1410.6" cy="588" r="3" fill="#E7EBF3" opacity="0.65"/>
+    <circle cx="1564.1" cy="472.8" r="8" fill="none" stroke="url(#ivoryS)" stroke-width="2.5" opacity="0.7875000000000001"/>
+    <circle cx="1564.1" cy="472.8" r="3" fill="#E7EBF3" opacity="0.775"/>
+    <circle cx="1717.6" cy="357.6" r="105.6" fill="url(#glow)" class="glow"/>
+    <path d="M 1717.6 285.6 L 1737.8 337.4 L 1789.6 357.6 L 1737.8 377.8 L 1717.6 429.6 L 1697.4 377.8 L 1645.6 357.6 L 1697.4 337.4 Z" fill="#C8A96A"/>
     </g>
     <rect x="970" y="60" width="890" height="960" fill="url(#panelShade)"/>
     <rect x="970" y="60" width="373.8" height="960" fill="url(#feather)"/>
@@ -78,11 +82,8 @@
   <rect x="0" y="0" width="1920" height="1080" fill="url(#vignette)"/>
 
   <g>
-    <text x="140" y="452.9" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">Themes</text>
-    <text x="140" y="569.1" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">&amp; Tags</text>
-    <text x="140" y="673.7" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Detective  ·  Gangster</text>
-    <text x="140" y="719.2" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Superhero  ·  Time Loop  ·  Slasher</text>
-    <text x="140" y="764.6" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Possession  ·  +134 more</text>
+    <text x="140" y="556.5" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">Custom</text>
+    <text x="140" y="661.1" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">My List</text>
   </g>
 
   <rect x="0.75" y="0.75" width="1918.5" height="1078.5" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1.5"/>

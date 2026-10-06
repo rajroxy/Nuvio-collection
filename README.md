@@ -232,11 +232,13 @@ eased frame loop rather than jumping a wheel-notch at a time.
 
 **A card's artwork is the card's own titles — and the generated cover is never
 drawn.** Every frame carries `art-blank` from the first paint: the card, the banner
-and a card page open as the app's own **flat panel**, and become the wall of that
-card's own titles the moment they answer — padded from the frame's edges, separated
-by a gap, each picture keeping its own shape (`object-fit: cover`, never stretched).
-The collection's vector scene used to be the layer under all of that, so every card
-arrived as an illustration of itself and then changed under you; it is no longer on
+and a card page open as the app's own **flat panel**, and become that card's own art
+the moment it answers. A card on Home is a **wall** of its titles — padded from the
+frame's edges, separated by a gap, each picture keeping its own shape (`object-fit:
+cover`, never stretched) — while **a card page's frame holds one landscape backdrop**
+from the same titles, full-bleed in its 16:9 box (the wide shot the banner uses),
+not five posters. The collection's vector scene used to be the layer under all of
+that, so every card arrived as an illustration of itself and then changed under you; it is no longer on
 screen at all. `art-filled` still marks "the pictures are here"; `art-blank` is what
 the frame is before that. Which
 slice of a card is drawn is decided **once per launch**, so the artwork changes on
@@ -594,7 +596,7 @@ Details that make it safe to switch:
 
 - The title's `id` stays `tmdb:` — row membership, watchlist pins and the title
   modal do not move when the source does.
-- TVDB needs to be enabled **with a key** (Settings → Providers). Asking for TVDB
+- TVDB needs to be enabled **with a key** (Settings → Trackers & providers). Asking for TVDB
   without one falls back to TMDB content rather than serving blank rows, and
   `/addon-status.json` says what is actually in force: `contentSource` (asked),
   `contentSourceActive` (in force) and `contentSourceStats` (how many titles were
@@ -701,7 +703,7 @@ http instead of `file://` keeps every request same-origin, so the catalogs, the
 cover images and the add-on / plugin / repository lookup (`POST /api/source`) work
 in the desktop app exactly as they do in the browser preview. The Electron app is
 fully self-contained and needs no deployed host, unlike the APK. Only the *first*
-run needs a TMDB key (environment variable or Settings → Providers → TMDB).
+run needs a TMDB key (environment variable or Settings → Trackers & providers → TMDB).
 
 - `main.js` calls `startServer({ port: 0 })`, so the app picks its own free port
   and never fights the preview server. Nothing to configure.
@@ -713,7 +715,7 @@ run needs a TMDB key (environment variable or Settings → Providers → TMDB).
   TMDB_API_KEY=your_key npm start
   ```
 
-  or paste it once in the running app under **Settings → Providers → TMDB**,
+  or paste it once in the running app under **Settings → Trackers & providers → TMDB**,
   which writes it to `addon/settings.json` for every later run (the Electron app
   and the preview share that file).
 - **A missing Electron binary installs itself.** `npm start` runs
@@ -992,18 +994,27 @@ belong to.
   hand-written URL falls back to "all" instead of emptying the screen. Text searches
   can only honour what TMDB's search endpoint supports (genre and year); the screen
   says so when a filter can only apply while browsing.
-- **Settings**, grouped, with the group name over its tabs:
-  **What you see** — **Content** (SFW / NSFW), **Layout**, **Posters**,
-  **Appearance** (the accent colour and how much the app moves);
-  **Where it comes from** — **Providers** (TMDB / TVDB / MDBList keys *and* which
-  of them supplies the row content), **Add-ons**, **Plugins**;
-  **Tracking & assistant** — **Tracking** (film & TV trackers, then a divider, then
-  the drama trackers), **AI** (the free providers — Groq Cloud, Google AI Studio,
+- **Settings**, grouped, with the group name over its tabs, and **one tab per
+  question** — nothing shares a pane with something else:
+  **This profile** — **Profile** (only the profile you are on — switching happens on
+  the switch-profile screen — plus **what this profile shows**), **Content**
+  (SFW / NSFW and the refresh clock), **Posters**, **Appearance & layout** (the
+  accent colour, how much the app moves, and how Home holds its cards — one tab,
+  because all three answer "how does it look?");
+  **Where it comes from** — **Trackers & providers** (the **trackers first**, in
+  three groups: **Movies & TV** — Trakt, SIMKL, Letterboxd — then **Anime**
+  (MyAnimeList, AniList) and **Asian drama** (MyDramaList) behind a divider; below
+  them the **providers** — TMDB / TVDB / MDBList keys *and* which of them supplies
+  the row content), **Add-ons & plugins** (a Stremio add-on read through
+  `manifest.json`, and a Nuvio plugin's scrapers — one tab, two forms);
+  **Assistant** — **AI** (the free providers — Groq Cloud, Google AI Studio,
   OpenRouter, Cerebras Cloud — each with its key box, a *Test connection* and a
   *Load models* that turns the models the provider really serves into pickable
-  chips, plus the poster options and a text/voice ask box);
-  **This app** — **Profile** (only the profile you are on — switching happens on the
-  switch-profile screen — plus **what this profile shows**) and **Server**.
+  chips, plus the poster options and a text/voice ask box).
+  There is no **Server** tab. **Posters** has no key box either: BetterPosters
+  (bttr.cc) needs no key, and the one that does (RPDB) carries it inside its own
+  URL — so the pane is a service picker (BetterPosters, RPDB) plus the URL pattern,
+  which is the single input a poster service needs when its key lives in it.
 
 **Settings → Content** is the **SFW / NSFW** switch (mapped to TMDB's
 `include_adult`, and enforced on the addon's side for the endpoints that ignore
@@ -1024,7 +1035,7 @@ rows, and the pictures stay with the launch. Both pickers that used to sit here 
   Setting it is a one-line POST:
   `curl -X POST localhost:4173/settings -H 'content-type: application/json' -d '{"country":"NZ"}'`.
 
-**Content source lives in Settings → Providers.** TMDB and TVDB are providers; the
+**Content source lives in Settings → Trackers & providers.** TMDB and TVDB are providers; the
 switch that says *which* one supplies the titles inside a row belongs next to the
 keys that make it possible, not in a second place that drifts from it:
 
@@ -1049,7 +1060,7 @@ cards and catalogs for this profile*:
   master switch is drawn in **Settings → AI** as *Pick the cards for you*, because
   that is where it used to live.
 
-**Settings → Appearance** is the accent and the motion:
+**Settings → Appearance & layout** is the accent and the motion:
 
 - **Accent colour** — the colour the app is painted in. Every tint in the
   stylesheet is built from `--accent-rgb` and every gradient from `--accent-deep`,

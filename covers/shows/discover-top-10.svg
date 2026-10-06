@@ -77,7 +77,7 @@
     <text x="140" y="452.9" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">Discover</text>
     <text x="140" y="569.1" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">◆ Top 25</text>
     <text x="140" y="673.7" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Latest ◆ Top 25</text>
-    <text x="140" y="719.2" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">New Release ◆ Top 25</text>
+    <text x="140" y="719.2" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Newest ◆ Top 25</text>
     <text x="140" y="764.6" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Trending ◆ Top 25  ·  +2 more</text>
   </g>
 

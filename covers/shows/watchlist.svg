@@ -79,7 +79,7 @@
 
   <g>
     <text x="140" y="533.7" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">Watchlist</text>
-    <text x="140" y="638.4" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Plan to Watch  ·  Watching</text>
+    <text x="140" y="638.4" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Watching  ·  Plan to Watch</text>
     <text x="140" y="683.8" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Watched</text>
   </g>
 

@@ -10,6 +10,7 @@
 import { collectionsFor, catalogEntries } from "../scripts/collections.mjs";
 import { genres, resolveGenre, tmdbPath } from "./tmdb.mjs";
 import { activeCountry } from "./settings.mjs";
+import { list as watchlistState } from "./watchlist.mjs";
 
 export const CATALOG_ID_PREFIX = "nuvio-";
 
@@ -116,13 +117,39 @@ async function specsFor(entry, media, opts = {}) {
     case "country":
       return [page({ with_origin_country: entry.code, sort_by: "popularity.desc", "vote_count.gte": 5 }, entry.take)];
 
-    case "runtime":
-      return [page({ "with_runtime.gte": entry.min, sort_by: "popularity.desc", "vote_count.gte": 20 }, entry.take)];
+    // A length **bucket**: floor and ceiling both, so "30–44 mins" is a row of
+    // short films rather than "every popular film over half an hour", which is
+    // what every other bucket already was.
+    case "runtime": {
+      const params = { "with_runtime.gte": entry.min, sort_by: "popularity.desc", "vote_count.gte": 20 };
+      if (Number.isFinite(entry.max)) params["with_runtime.lte"] = entry.max;
+      return [page(params, entry.take)];
+    }
 
-    // Episode counts cannot be filtered by TMDB discover — the handler builds
-    // this row from a pool of popular shows, keeping those with <= max episodes.
+    // **More like what you watch**: TMDB's own recommendation list for each title
+    // in your Watchlist — the ones you have finished first, then what you are on,
+    // then what you planned — merged into one row by the paging pool. Nothing
+    // pinned yet falls back to what is trending, so the card is never empty.
+    case "recommend": {
+      // A **For You** row carries the title it was built for: the row is that one
+      // title's own recommendations.
+      if (entry.seed) return [q(`/${t}/${entry.seed.id}/recommendations`, {}, entry.take)];
+      const pinned = ["watched", "watching", "planned"]
+        .flatMap((state) => watchlistState(state))
+        .filter((i) => (media === "movie" ? i.type === "movie" : i.type === "series"))
+        .map(tmdbIdOf)
+        .filter((id) => /^\d+$/.test(id))
+        .slice(0, 5);
+      if (!pinned.length) return [q(`/trending/${t}/week`, {}, entry.take)];
+      return pinned.map((id) => q(`/${t}/${id}/recommendations`, {}, entry.take));
+    }
+
+    // Episode counts cannot be filtered by TMDB discover — the handler builds this
+    // row from a pool of shows, keeping those whose count falls inside the bucket.
+    // The bucket is a **range** (`min`..`max`), so the 4-episode row and the
+    // 24-episode row can never open on the same titles.
     case "episodes":
-      return [{ episodes: entry.max }];
+      return [{ episodes: { min: Number.isFinite(entry.min) ? entry.min : 1, max: Number.isFinite(entry.max) ? entry.max : Infinity } }];
 
     // Keyword cards ("Books", "Zombie", …). The id is baked in from
     // `tmdb-verified.json` rather than searched at request time: TMDB's keyword
@@ -201,9 +228,18 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g
 
 function buildCatalogDefs(collections) {
   const defs = [];
+  const recommendCards = [];
   for (const c of collections) {
+    let wantsRecommend = false;
     for (const type of ["movie", "series"]) {
       for (const entry of catalogEntries(c, type === "movie" ? "movie" : "show")) {
+        // The **For You** rows are built from your Watchlist — one row per title
+        // you watched — so they cannot live in the cached static list. The card is
+        // noted here and expanded per request (see `catalogDefs`).
+        if (entry.kind === "recommend") {
+          wantsRecommend = true;
+          continue;
+        }
         // A region-scoped service id carries its region, so two regions can never
         // collide on the same service name.
         const region = entry.region ? `-${String(entry.region).toLowerCase()}` : "";
@@ -216,23 +252,96 @@ function buildCatalogDefs(collections) {
         });
       }
     }
+    if (wantsRecommend) recommendCards.push(c);
   }
-  return defs;
+  return { defs, recommendCards };
 }
+
+/**
+ * The titles the For You rows are built from: **watched first**, then what you are
+ * on, then what you planned. One row per title, named after it.
+ */
+/**
+ * A pinned title's numeric TMDB id.
+ *
+ * Pins are stored with the app's own namespaced id (`tmdb:73223`), which is what
+ * the watchlist row and the title modal key on — so the numeric id the TMDB
+ * endpoint needs has to be read out of it. Comparing the raw id against `/^\d+$/`
+ * is what kept every For You row on its trending fallback: no pin ever matched.
+ */
+const tmdbIdOf = (item) => String(item?.id || "").replace(/^tmdb:/, "");
+
+function recommendSeeds(type) {
+  const seen = new Set();
+  const out = [];
+  for (const state of ["watched", "watching", "planned"]) {
+    for (const item of watchlistState(state)) {
+      const id = tmdbIdOf(item);
+      if (item?.type !== type || !/^\d+$/.test(id) || seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, name: String(item.name || "this title") });
+      if (out.length >= 6) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether the For You card has anything to be about.
+ *
+ * The card is a promise about *you* — "more like what you watch". With an empty
+ * watchlist there is nothing to be like, so the card is not published at all
+ * instead of being filled with trending titles that have nothing to do with anyone.
+ */
+export const hasRecommendSeeds = () => Boolean(recommendSeeds("movie").length || recommendSeeds("series").length);
 
 const defsCache = new Map();
 
 /**
  * Every catalog row the addon publishes for one country (movie + series).
  *
- * Memoised per country: the list is rebuilt only when the setting changes, and
- * the regional OTT rows carry their region in the id, so two countries never
- * collide on the same catalog.
+ * The static list is memoised per country — the regional OTT rows carry their
+ * region in the id, so two countries never collide on the same catalog — but the
+ * **For You** rows are rebuilt on every call: a title you just watched has to get
+ * its own row without restarting the server.
  */
 export function catalogDefs(code = activeCountry()) {
   const key = String(code || "US").toUpperCase();
   if (!defsCache.has(key)) defsCache.set(key, buildCatalogDefs(collectionsFor(key)));
-  return defsCache.get(key);
+  const { defs, recommendCards } = defsCache.get(key);
+  if (!recommendCards.length) return defs;
+  // Nothing pinned, nothing to say: the For You rows are not published and the
+  // card itself is hidden (see `collectionsPayload`).
+  if (!hasRecommendSeeds()) return defs;
+  return [
+    ...defs,
+    ...recommendCards.flatMap((c) => {
+      const rows = [];
+      // **Per row type**, not per card: a watchlist holding only shows must still
+      // leave the Movies row standing. Deciding this once for the whole card made
+      // the Movies row vanish as soon as a single show was pinned.
+      for (const type of ["movie", "series"]) {
+        const seeds = recommendSeeds(type);
+        if (seeds.length) {
+          for (const seed of seeds) {
+            rows.push({
+              id: `${CATALOG_ID_PREFIX}${c.key}--${type}--${seed.id}`,
+              type,
+              key: c.key,
+              entry: { kind: "recommend", seed },
+              name: `More Like ${seed.name}`,
+            });
+          }
+        } else {
+          // Nothing pinned on this row yet: keep one row so the card is not empty —
+          // it falls back to what is trending (see the `recommend` case in `specsFor`).
+          const entry = catalogEntries(c, type === "movie" ? "movie" : "show").find((e) => e.kind === "recommend");
+          if (entry) rows.push({ id: `${CATALOG_ID_PREFIX}${c.key}--${slug(entry.name)}`, type, key: c.key, entry, name: entry.name });
+        }
+      }
+      return rows;
+    }),
+  ];
 }
 
 // Stremio identifies a catalog by (type, id) — the same id is used for the movie

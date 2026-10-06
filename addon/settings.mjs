@@ -19,6 +19,10 @@ const FILE = process.env.NUVIO_SETTINGS_FILE || path.join(__dirname, "settings.j
 const DEFAULTS = {
   profile: "Movies & Shows",
   safe: true,
+  // The **Custom** card's label. The card holds your own list; what it is called
+  // is yours to say, so the name is a setting rather than a constant in the card
+  // set (which is shared by the addon and the cover generator).
+  customLabel: "Custom",
   // The language every row is served in (TMDB's `language`), and the primary
   // subtitle language the app and a player should prefer — one setting, because
   // you want your subtitles in the language you browse in.
@@ -73,6 +77,12 @@ const DEFAULTS = {
     letterboxd: { enabled: false, key: "" },
     mydramalist: { enabled: false, key: "" },
   },
+  // Add-ons and plugins the user added. They live **on the server**, not only in the
+  // page, because reading a stream needs a server-side request: a browser cannot
+  // call another host's `/stream/...` unless that host sends permissive CORS
+  // headers, which most add-ons do not. Nothing here is a secret — a source is a
+  // URL — so they travel back to the page verbatim.
+  sources: [],
   // Poster artwork. BetterPosters (bttr.cc) serves enhanced, tagged posters keyed
   // by IMDb id; the pattern is editable so another service can be dropped in.
   posters: {
@@ -146,6 +156,7 @@ export function publicSettings() {
   return {
     profile: s.profile,
     safe: s.safe,
+    customLabel: String(s.customLabel ?? DEFAULTS.customLabel).slice(0, 40),
     refresh: { minutes: activeRefreshMinutes() },
     language: s.language || DEFAULTS.language,
     country: String(s.country || DEFAULTS.country).toUpperCase(),
@@ -162,6 +173,7 @@ export function publicSettings() {
     },
     providers: mask("providers"),
     tracking: mask("tracking"),
+    sources: Array.isArray(s.sources) ? s.sources : [],
     posters: {
       enabled: s.posters?.enabled !== false,
       source: s.posters?.source || "bttr",

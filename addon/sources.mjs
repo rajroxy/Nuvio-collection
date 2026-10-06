@@ -73,7 +73,19 @@ async function cloudStreamRepo(url) {
   throw new Error("no repo.json");
 }
 
-/** A Stremio/Nuvio add-on manifest → its catalogs (the providers it offers). */
+/**
+ * Read a `manifest.json` and report what it offers.
+ *
+ * Two different things publish a `manifest.json`, and until this read them apart a
+ * Nuvio plugin came back as an add-on with **0 catalogs**:
+ *
+ *   Stremio add-on  `{ name, resources: ["catalog", "stream", …], catalogs: [ … ] }`
+ *   Nuvio plugin    `{ name, scrapers: [ { name, filename, formats, … } ] }`
+ *
+ * A Nuvio plugin manifest has **no** `catalogs` and **no** `resources` at all — its
+ * providers are the entries in `scrapers`, which is why every plugin read as empty.
+ * Both shapes are returned here and the caller decides which one it is.
+ */
 async function addonManifest(url) {
   const clean = String(url || "").replace(/^stremio:\/\//i, "https://").replace(/\/+$/, "");
   const candidates = clean.endsWith("/manifest.json") ? [clean] : [`${clean}/manifest.json`];
@@ -81,11 +93,25 @@ async function addonManifest(url) {
   for (const candidate of candidates) {
     try {
       const manifest = await getJSON(candidate);
+      // A catalog is not required to carry a `name` — plenty of add-ons publish
+      // `{ id, type }` only, and reading `name` alone left those add-ons looking
+      // like they had no providers at all.
+      const catalogs = uniq((manifest.catalogs || []).map((c) => c.name || c.id || c.type));
+      // A Nuvio plugin's providers. `name` is the label Nuvio shows; `id` is the
+      // fallback for a scraper that did not name itself.
+      const scrapers = uniq((manifest.scrapers || []).map((s) => s?.name || s?.id));
       return {
         name: manifest.name || null,
         description: manifest.description || "",
-        providers: uniq((manifest.catalogs || []).map((c) => c.name)),
-        resources: manifest.resources || [],
+        providers: catalogs.length ? catalogs : scrapers,
+        scrapers,
+        // What the add-on actually serves: `catalog`, `meta`, `stream`, `subtitles`
+        // — a string or an object with a `name`, per the manifest spec.
+        resources: uniq(
+          (manifest.resources || [])
+            .map((r) => (typeof r === "string" ? r : r?.name))
+            .filter(Boolean),
+        ),
       };
     } catch (err) {
       lastErr = err;
@@ -105,21 +131,33 @@ export async function inspectSource(type, url) {
   if (!url) return { ok: false, kind: type, message: "no url" };
   try {
     if (ADDON_KINDS.has(type)) {
-      const { name, providers, resources } = await addonManifest(url);
+      const { name, providers, resources, scrapers } = await addonManifest(url);
+      // A Stremio add-on that happens to publish `scrapers` is really a plugin.
+      if (scrapers.length) {
+        return { ok: true, kind: "plugin", name, providers, scrapers, message: `${scrapers.length} scrapers` };
+      }
       return { ok: true, kind: "addon", name, providers, resources, message: `${providers.length} catalogs` };
     }
-    // Nuvio plugins and CloudStream repos are repositories, not add-ons — but a
-    // Nuvio plugin may speak the manifest protocol, so try that first.
+    // A Nuvio plugin publishes `scrapers` in its own `manifest.json`. That is the
+    // modern layout and it is tried first; the older CloudStream-style `repo.json`
+    // is kept as the fallback, so both kinds of URL the app has ever offered work.
     if (type === "nuvio-plugin") {
       try {
-        const { name, providers } = await addonManifest(url);
-        return { ok: true, kind: "addon", name, providers, message: `${providers.length} catalogs` };
+        const { name, providers, resources, scrapers } = await addonManifest(url);
+        if (scrapers.length) {
+          return { ok: true, kind: "plugin", name, providers, scrapers, message: `${scrapers.length} scrapers` };
+        }
+        // No scrapers but it did answer as a manifest: report what it serves rather
+        // than pretending it is a repository.
+        if (resources.length || providers.length) {
+          return { ok: true, kind: "addon", name, providers, resources, message: `${providers.length} catalogs` };
+        }
       } catch {
         /* fall through to the repo layout */
       }
     }
     const { name, providers, description } = await cloudStreamRepo(url);
-    return { ok: true, kind: "repo", name, description, providers, message: `${providers.length} plugins` };
+    return { ok: true, kind: "repo", name, description, providers, scrapers: providers, message: `${providers.length} scrapers` };
   } catch (err) {
     return {
       ok: false,

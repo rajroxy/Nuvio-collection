@@ -84,7 +84,7 @@
 
   <g>
     <text x="140" y="533.7" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">Discover</text>
-    <text x="140" y="638.4" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Latest  ·  New Release  ·  Trending</text>
+    <text x="140" y="638.4" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Latest  ·  Newest  ·  Trending</text>
     <text x="140" y="683.8" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">Popular  ·  Top Rated</text>
   </g>
 

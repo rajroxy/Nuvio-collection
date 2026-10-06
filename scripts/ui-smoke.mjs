@@ -602,8 +602,8 @@ $$(".icon-art")[1].click();
 await settle(160);
 check("a collection opens from its artwork", $$(".cat-row").length > 0, `${$$(".cat-row").length} rows`);
 // The card page's artwork is the card's own frame — the generated cover is its
-// background, and the card's titles are laid inside it — with the name and tags on
-// the left, exactly like the banner.
+// background, and **one landscape backdrop from the card's own titles** fills it —
+// with the name and tags on the left, exactly like the banner.
 check("the card's artwork is on the right of its name and tags",
   (() => {
     const head = $(".section-head");
@@ -614,11 +614,11 @@ check("the card's artwork is on the right of its name and tags",
   $(".section-head")?.children?.[1]?.className || "no head");
 check("and the tags line comes before it in that frame",
   Boolean($(".section-meta")?.querySelector(".cats")), "no tags");
-check("the card's own posters are laid inside that frame, padded and never stretched",
-  /position:\s*absolute/.test(ruleFor(".content-strip")) &&
-    /inset:\s*10px/.test(ruleFor(".content-strip")) &&
+check("the card's frame holds one landscape backdrop from its own titles",
+  Boolean($(".section-art .content-strip.backdrop")) &&
+    /inset:\s*0/.test(ruleFor(".content-strip.backdrop")) &&
     /object-fit:\s*cover/.test(ruleFor(".content-tile")),
-  `strip: ${ruleFor(".content-strip").trim().slice(0, 60)}`);
+  `strip: ${$(".section-art .content-strip")?.className || "none"}`);
 check("collection catalog labels are clickable", $$(".cats button.chip").length === $$(".cats .chip").length && $$(".cats button.chip").length > 0);
 // A row carries its catalog's name and Explore — and no shuffle. A shuffle there
 // could only reorder the rows, which is not what "shuffle" means to anyone using

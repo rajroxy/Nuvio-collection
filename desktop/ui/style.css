@@ -960,7 +960,7 @@ button:focus-visible,
 
 /* ------------------------------------------------------- Movies / Shows switch */
 
-.row-switch { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); margin: 26px 0 6px; }
+.row-switch { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); margin: 26px 0 34px; }
 .row-btn { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 700; padding: 9px 22px; border-radius: 999px; cursor: pointer; }
 .row-btn:hover { color: var(--text); }
 .row-btn.active { background: linear-gradient(160deg, var(--accent), var(--accent-deep)); color: #14110a; }
@@ -1855,3 +1855,164 @@ textarea:focus-visible {
   font-weight: 800;
 }
 .live-hero .hero-line { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+
+/* --------------------------------------------- the card page's own backdrop */
+
+/* A card page's frame holds **one landscape backdrop** taken from the card's own
+   titles — the same wide shot the banner uses — instead of the wall of posters a
+   Home card draws. One picture fills the whole 16:9 box: no inset, no gap, and the
+   frame's own radius clips it. */
+.content-strip.backdrop { inset: 0; gap: 0; border-radius: 0; }
+.content-strip.backdrop .content-tile { border-radius: 0; box-shadow: none; }
+
+/* --------------------------------------------------- held-in-place screens */
+
+/* A card page reads **like Home**: its header (the name and its tags) scrolls away
+   with the rest of the page. There is no second pinned area. */
+
+/* The blurred colour layer that used to sit behind every page is gone — the screen
+   is its own flat panel again. Nothing here tints the content any more. */
+
+/* The catalog switcher drops from the header it belongs to — anchored under its
+   own crumb — instead of floating 44px down into the grid over the first row. */
+.explore-head { position: relative; }
+.cat-menu { top: calc(100% + 6px); left: 0; margin-top: 0; }
+
+/* One line per kind of provider a source publishes (resources, catalogs, scrapers). */
+.source-line { display: flex; align-items: baseline; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.source-line-label { flex: none; min-width: 76px; font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.source-line .chips { margin: 0; }
+
+/* ------------------------------------------------------------- a title page */
+
+/* The title is a **page**, not a card over one: its own wide shot at the top with
+   the actions on it, then everything about the title underneath. */
+.title-page { display: block; }
+.title-hero {
+  position: relative;
+  min-height: 56vh;
+  margin: -26px -26px 26px;
+  padding: 0;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+}
+.title-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* The scrim is what keeps the name and the buttons readable over any artwork. */
+.title-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(4, 5, 8, 0.92) 0%, rgba(4, 5, 8, 0.55) 55%, rgba(4, 5, 8, 0.25) 100%),
+    linear-gradient(0deg, rgba(4, 5, 8, 0.96) 0%, rgba(4, 5, 8, 0) 55%);
+}
+.title-hero-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  min-height: 56vh;
+  padding: 30px 30px 34px;
+  justify-content: flex-end;
+}
+.title-name { margin: 0; font-size: clamp(30px, 4.2vw, 56px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.02; }
+.title-facts { margin: 0; font-size: 14px; font-weight: 600; color: var(--muted); }
+.title-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.play-btn { font-size: 16px; font-weight: 800; padding: 12px 26px; }
+.title-pins { display: flex; gap: 8px; flex-wrap: wrap; }
+.title-body { display: flex; flex-direction: column; gap: 22px; max-width: 1100px; }
+.title-tagline { margin: 0; font-size: 17px; font-style: italic; color: var(--accent); }
+.title-overview { margin: 0; font-size: 15.5px; line-height: 1.65; color: var(--text); max-width: 78ch; }
+.title-row { display: flex; flex-direction: column; gap: 10px; }
+.row-head { margin: 0; font-size: 13px; font-weight: 800; color: var(--muted); }
+
+/* People: a face, a name and what they did — the whole card opens their credits. */
+.people { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+.people::-webkit-scrollbar { height: 0; display: none; }
+.person {
+  flex: none; width: 116px; display: flex; flex-direction: column; gap: 6px;
+  padding: 0; border: 0; background: none; color: inherit; cursor: pointer; text-align: left;
+}
+.person-face { display: block; width: 116px; height: 116px; border-radius: 14px; object-fit: cover; background: var(--panel-2); }
+.person-initials { display: grid; place-items: center; font-size: 30px; font-weight: 800; color: var(--faint); }
+.person-name { font-size: 13px; font-weight: 700; line-height: 1.2; }
+.person-role { font-size: 11px; color: var(--muted); }
+.person:hover .person-face, .person:focus-visible .person-face { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Seasons: the show's own list, each one a way into its episodes. */
+.season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.season-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px; text-align: left;
+  border: 0; border-radius: 12px; background: var(--panel); color: inherit; cursor: pointer;
+}
+.season-card:hover, .season-card:focus-visible { background: var(--panel-2); }
+.season-card img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 8px; }
+.season-card .poster-fallback { font-size: 22px; }
+.season-name { font-size: 13px; font-weight: 700; }
+.season-sub { font-size: 11px; color: var(--muted); }
+
+/* ------------------------------------------------------------------- player */
+
+.player-stage { position: relative; display: flex; flex: 1; min-height: 0; }
+.player-stage .player-video { flex: 1; }
+.player-controls {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.06);
+}
+.player-icon {
+  border: 0; border-radius: 10px; padding: 8px 12px; background: rgba(255, 255, 255, 0.08);
+  color: var(--text); font: inherit; font-weight: 700; cursor: pointer;
+}
+.player-icon:hover, .player-icon:focus-visible { background: rgba(255, 255, 255, 0.16); }
+.player-seek { flex: 1; min-width: 160px; accent-color: var(--accent); }
+.player-volume { width: 84px; accent-color: var(--accent); }
+.player-time { font-size: 12.5px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.player-rate { padding: 8px 12px; }
+
+/* The sources drawer sits over the video, so choosing one does not lose your place. */
+.player-sources {
+  position: absolute; top: 14px; right: 14px; bottom: 14px; width: min(420px, 46%);
+  display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto;
+  border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
+}
+.player-sources[hidden] { display: none; }
+.stream-list { display: flex; flex-direction: column; gap: 8px; }
+.stream {
+  display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; text-align: left;
+  border: 0; border-radius: 10px; background: rgba(255, 255, 255, 0.07); color: inherit; cursor: pointer;
+}
+.stream:hover, .stream:focus-visible { background: rgba(255, 255, 255, 0.14); }
+.stream.active { background: rgba(var(--accent-rgb), 0.24); }
+.stream-name { font-size: 13px; font-weight: 700; }
+.stream-detail { font-size: 11.5px; color: var(--muted); }
+.loading-player { justify-content: center; align-items: center; }
+
+/* ------------------------------------------------------------------ selects */
+
+/* A dropdown is one of the app's own fields, not the browser's grey box: the same
+   fill and radius every `.text-input` has, and a chevron this app draws. */
+select.text-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23b9bfcc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  color: var(--text);
+  cursor: pointer;
+}
+select.text-input:hover { background-color: rgba(255, 255, 255, 0.11); }
+select.text-input:focus { background-color: rgba(255, 255, 255, 0.15); outline: none; }
+select.text-input option { background: #14161c; color: var(--text); }
+
+/* ------------------------------------------------------- no flat black bands */
+
+/* Artwork fills its own box everywhere, and nothing behind it is a flat black
+   plate: a card's picture is the whole card, and the surface under a loading
+   picture is the app's panel, not a black rectangle. */
+.poster { background: linear-gradient(160deg, var(--panel-2), var(--panel)); }
+.poster img, .content-tile, .icon-art img, .season-card img { object-fit: cover; background: transparent; }
+.content-strip { padding: 0; }
+/* The frame itself carries no inner padding, so a card's pictures reach its edges
+   instead of leaving a band above and below them. */
+.icon-wrap, .hero-art { padding: 0; }

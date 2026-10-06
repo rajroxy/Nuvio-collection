@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="Runtimes — shows collection cover" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
-  <title>Runtimes — shows collection cover</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-label="Episodes — shows collection cover" shape-rendering="geometricPrecision" text-rendering="geometricPrecision">
+  <title>Episodes — shows collection cover</title>
   <defs>
     <linearGradient id="titleFill" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#FFFFFF"/>
@@ -73,9 +73,10 @@
   <rect x="0" y="0" width="1920" height="1080" fill="url(#vignette)"/>
 
   <g>
-    <text x="140" y="533.7" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">Runtimes</text>
-    <text x="140" y="638.4" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">4 Episodes  ·  6 Episodes</text>
-    <text x="140" y="683.8" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">8 Episodes  ·  10 Episodes</text>
+    <text x="140" y="511" font-family="Inter" font-size="121" font-weight="800" letter-spacing="-4.24" fill="url(#titleFill)">Episodes</text>
+    <text x="140" y="615.7" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">4 Episodes  ·  6 Episodes</text>
+    <text x="140" y="661.1" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">8 Episodes  ·  10 Episodes</text>
+    <text x="140" y="706.5" font-family="Inter" font-size="32" font-weight="600" letter-spacing="6.40" fill="rgba(231,235,243,0.52)">12 Episodes  ·  +3 more</text>
   </g>
 
   <rect x="0.75" y="0.75" width="1918.5" height="1078.5" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1.5"/>

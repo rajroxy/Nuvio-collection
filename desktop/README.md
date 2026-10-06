@@ -71,14 +71,14 @@ Routing mirrors Nuvio:
 | Home | `#/` | a **hero** panel, then **Movies / Shows** buttons, then the cards |
 | Collection | `#/c/<key>` | the collection's cover + **its catalogs as rows**, each with **Shuffle** and **Explore** |
 | Explore | `#/x/<key>/<catalogId>` | **one shuffled row** on top, then a divider, then the catalog **scrolling endlessly** — a **watchlist** catalog is just its header and your titles |
-| Sources | `#/s/<id>/<name>` | providers as a **graph**, grouped by add-on / plugin / repo |
+| Sources | `#/s/<id>/<name>` | providers as a **graph**, grouped by add-on / plugin |
 | Calendar | `#/calendar` | a real **month calendar** of releases (films *and* shows) |
 | Search | `#/search` | searches **titles**, collections and catalogs — in the Live TV profile it searches **channels** |
 | Guide | `#/guide` | the Live TV profile's **TiviMate-shaped grid**: time ruler, channel column, programme blocks |
 | Categories | `#/categories` | the Live TV profile's own categories, each with its channel count |
 | Category | `#/categories/<group>` | one category's channels |
 | Channel | `#/channel/<id>` | one channel: logo, groups, country, now/next, and its stream URL |
-| Settings | `#/settings` | grouped: **What you see** (Content · Layout · Posters · Appearance) · **Where it comes from** (Providers · Add-ons · Plugins) · **Tracking & assistant** (Tracking · AI) · **This app** (Profile · Server) |
+| Settings | `#/settings` | grouped, one tab per question: **This profile** (Profile · Content · Posters · Appearance & layout) · **Where it comes from** (Trackers & providers · Add-ons & plugins) · **Assistant** (AI) |
 
 **Live TV & Sports replaces Settings entirely** while that profile is active:
 **Source** (the **Premium & DTH catalogue** / **M3U** URL / **Xtream Codes** login),
@@ -258,10 +258,11 @@ nothing above it is covered.
 
 **A card's own titles replace its cover — and the cover is never drawn.** Every
 card, the banner and a card page wear `art-blank` from the first paint, so what
-opens is the app's own **flat panel**; the frame becomes the card's own poster wall
-the moment the pictures arrive (`art-filled`), padded and gapped, each picture keeping
-its own shape. The generated vector scene is not on screen at any point — it used to
-be the layer under all of this, which made every card arrive as an illustration of
+opens is the app's own **flat panel**; the moment the titles arrive (`art-filled`) a
+card on Home becomes its own **poster wall** — padded and gapped, each picture keeping
+its own shape — while **a card page's frame holds one landscape backdrop** from that
+same card, full-bleed in its 16:9 box. The generated vector scene is not on screen at
+any point — it used to be the layer under all of this, which made every card arrive as an illustration of
 itself and then change under you. The cut changes **once per launch** (the banner is
 the one thing that redraws while the app runs: every ten seconds, at random, frozen
 under the cursor).

@@ -551,11 +551,16 @@ const layout = new Map();
 // neighbours. TITLE_SIZE is the largest size that still fits every
 // collection's widest line, so no card's title can look smaller than another's.
 const TITLE_AVAIL = TEXT_RIGHT - PAD;
+// A card can wear a different name on each row (`linesByRow`) — the Runtimes card
+// is **Episodes** on Shows — so the one shared size has to fit every line of every
+// name, not just the card's default one.
+const allLines = (c) => [c.lines, ...Object.values(c.linesByRow ?? {})];
+
 const TITLE_SIZE = (() => {
   const fits = (size) => {
     const ls = TRACK * size;
     return COLLECTIONS.every((c) =>
-      c.lines.every((l) => measure(l, size, TITLE_WEIGHT, ls) <= TITLE_AVAIL),
+      allLines(c).every((set) => set.every((l) => measure(l, size, TITLE_WEIGHT, ls) <= TITLE_AVAIL)),
     );
   };
   let lo = 1;
@@ -581,7 +586,7 @@ const SUB_MIN = 18;
 const SUB_SEP = "  ·  ";
 
 // The subtitle names the catalogs that live inside the card — "Discover" →
-// Latest, New Release, Trending, Popular, Top Rated — so it can differ between
+// Latest, Newest, Trending, Popular, Top Rated — so it can differ between
 // the movies and shows rows. Names wrap onto as many lines as needed and shrink
 // to fit. Never an editorial descriptor.
 function wrapLabels(labels, size, maxW) {
@@ -665,7 +670,8 @@ function buildSVG(cat, row) {
     ? ` transform="translate(${n(2 * CARD_CX)} 0) scale(-1 1)"`
     : "";
 
-  const lines = cat.lines;
+  // The name this cover carries: Runtimes on Movies, **Episodes** on Shows.
+  const lines = cat.linesByRow?.[row.dir === "movies" ? "movie" : "show"] ?? cat.lines;
   const size = TITLE_SIZE;
   const ls = TRACK * size;
   const lineH = size * 0.96;

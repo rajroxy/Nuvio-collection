@@ -312,4 +312,17 @@ export const KEYWORD_CANDIDATES = {
     Wilderness: ["wilderness", "nature"],
     "Desert Adventure": ["desert adventure"],
   },
+  // The **Awards** card: the ceremonies TMDB's keyword index actually carries. Each
+  // label is probed like every other keyword row — accepted only when TMDB's own
+  // name for the keyword contains the phrase we searched and the keyword returns
+  // titles — so a label with no usable keyword simply does not appear.
+  awards: {
+    "Academy Awards": ["academy award", "oscar"],
+    "Golden Globes": ["golden globe"],
+    BAFTA: ["bafta"],
+    "Emmy Awards": ["emmy award", "emmy"],
+    Cannes: ["cannes film festival", "palme d or"],
+    Sundance: ["sundance film festival"],
+    "Film Festival": ["film festival"],
+  },
 };

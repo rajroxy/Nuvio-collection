@@ -6846,6 +6846,43 @@
         "movieCount": 12,
         "tvCount": 3
       }
+    },
+    "awards": {
+      "Academy Awards": {
+        "name": "academy award",
+        "id": 353465,
+        "tmdbName": "academy award winner",
+        "movieCount": 1,
+        "tvCount": 0
+      },
+      "Golden Globes": {
+        "name": "golden globe",
+        "id": 239682,
+        "tmdbName": "golden globe race",
+        "movieCount": 1,
+        "tvCount": 0
+      },
+      "Emmy Awards": {
+        "name": "emmy",
+        "id": 384626,
+        "tmdbName": "emmy nominee",
+        "movieCount": 1,
+        "tvCount": 0
+      },
+      "Cannes": {
+        "name": "cannes film festival",
+        "id": 366594,
+        "tmdbName": "cannes film festival",
+        "movieCount": 1,
+        "tvCount": 0
+      },
+      "Film Festival": {
+        "name": "film festival",
+        "id": 314753,
+        "tmdbName": "film festival",
+        "movieCount": 6,
+        "tvCount": 0
+      }
     }
   },
   "genreDecades": {
