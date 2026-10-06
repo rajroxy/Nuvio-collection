@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { get, hasKey } from "../addon/tmdb.mjs";
 import { COUNTRIES, PLATFORMS } from "./collections.mjs";
 import { REGIONAL_CANDIDATES } from "./regional-candidates.mjs";
+import { KEYWORD_CANDIDATES } from "./keyword-candidates.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(__dirname, "tmdb-verified.json");
@@ -171,59 +172,8 @@ const countries = await pool(COUNTRIES, 6, async ([name, code]) => {
 });
 
 // 3. keywords: first candidate that resolves AND returns titles.
-const KEYWORD_CANDIDATES = {
-  "based-on-the": {
-    Books: ["based on book", "based on novel"],
-    Comics: ["based on comic", "comic book"],
-    "Graphic Novels": ["graphic novel", "based on graphic novel"],
-    "Video Games": ["based on video game"],
-    "True Stories": ["based on true story"],
-    Plays: ["based on play"],
-    "Short Stories": ["based on short story"],
-    Musicals: ["musical", "broadway musical"],
-    "TV Adaptations": ["based on tv series", "remake"],
-  },
-  "moods-and-vibes": {
-    "Adrenaline Rush": ["adrenaline rush", "high octane", "pursuit"],
-    "Mind Bending": ["mind bending", "twist ending", "psychological", "surreal", "nonlinear"],
-    "Cozy & Comforting": ["cozy", "heartwarming", "feel good", "small town", "friendship"],
-    "Epic & Sweeping": ["epic", "sweeping", "ensemble cast"],
-    "Feel Good": ["feel good", "feel-good", "uplifting", "cheerful"],
-    "Slow Burn": ["slow burn", "slow-burn"],
-    Tearjerkers: ["tearjerker", "tear jerker", "grief"],
-    "Dark & Gritty": ["dark", "gritty", "neo-noir"],
-    Nostalgic: ["nostalgia", "nostalgic", "coming of age"],
-    Suspenseful: ["suspense", "suspenseful", "tense"],
-    Whimsical: ["whimsical", "quirky", "magical realism"],
-    Romantic: ["romantic", "romance", "love story"],
-  },
-  "themes-and-tags": {
-    Detective: ["detective", "investigation", "police detective"],
-    Gangster: ["gangster", "mafia", "yakuza"],
-    Superhero: ["superhero", "super hero", "based on comic"],
-    "Time Loop": ["time loop", "time travel"],
-    "Animal Attack": ["animal attack", "shark attack"],
-    Slasher: ["slasher", "serial killer"],
-    Possession: ["possession", "exorcism", "demonic possession"],
-    Zombie: ["zombie", "undead", "zombie apocalypse"],
-    Heist: ["heist", "robbery", "caper"],
-    Spy: ["spy", "espionage", "secret agent"],
-    Dystopia: ["dystopia", "dystopian", "post-apocalyptic"],
-    "Artificial Intelligence": ["artificial intelligence", "android", "robot"],
-    Vampire: ["vampire", "vampires"],
-    Werewolf: ["werewolf", "lycanthrope"],
-    Witch: ["witch", "witchcraft", "sorcery"],
-    Alien: ["alien", "aliens", "extraterrestrial"],
-    Amnesia: ["amnesia", "memory loss"],
-    Courtroom: ["courtroom", "trial", "lawyer"],
-    Sports: ["sport", "sports", "boxing"],
-    Survival: ["survival", "stranded", "wilderness"],
-    Revenge: ["revenge", "revenge story"],
-    Cursed: ["curse", "cursed", "haunted house"],
-    "Road Trip": ["road trip", "road movie"],
-    Documentary: ["documentary footage", "mockumentary"],
-  },
-};
+// The candidate table lives in ./keyword-candidates.mjs so this full run and the
+// incremental `probe-keywords.mjs` run verify exactly the same list.
 
 // A keyword only counts when TMDB's name actually contains what we searched for
 // ("/search/keyword" for "based on novel" happily returns "based on visual

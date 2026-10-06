@@ -9,6 +9,7 @@
     "desktop:install": "node scripts/start-desktop.mjs --install-only",
     "preview": "node serve.mjs",
     "generate": "cd scripts && npm install && npm run generate",
+    "vendor:hls": "node --input-type=module -e \"import fs from 'node:fs';fs.copyFileSync('desktop/node_modules/hls.js/dist/hls.min.js','desktop/ui/vendor/hls.min.js')\"",
     "test": "node addon/selftest.mjs",
     "test:ui": "node scripts/ui-smoke.mjs"
   },

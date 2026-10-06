@@ -17,8 +17,8 @@
   },
   {
     "collection": "discover-top-10",
-    "title": "Discover ◆ Top 10",
-    "subtitle": "Latest ◆ Top 10 · New Release ◆ Top 10 · Trending ◆ Top 10 · Popular ◆ Top 10 · Top Rated ◆ Top 10",
+    "title": "Discover ◆ Top 25",
+    "subtitle": "Latest ◆ Top 25 · New Release ◆ Top 25 · Trending ◆ Top 25 · Popular ◆ Top 25 · Top Rated ◆ Top 25",
     "row": "movie",
     "svg": "covers/movies/discover-top-10.svg",
     "png": "covers/movies/discover-top-10.png"
@@ -42,7 +42,7 @@
   {
     "collection": "genres",
     "title": "Genres",
-    "subtitle": "Action · Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Fantasy · History · Horror · Music · Mystery · Romance · Science Fiction · Thriller · War · Western",
+    "subtitle": "Action · Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Fantasy · History · Horror · Music · Mystery · Romance · Science Fiction · Thriller · War · Western · Anime · Asian Drama",
     "row": "movie",
     "svg": "covers/movies/genres.svg",
     "png": "covers/movies/genres.png"
@@ -82,7 +82,7 @@
   {
     "collection": "countries",
     "title": "Countries",
-    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Ghana · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia",
+    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Ghana · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia · Iceland · Slovakia · Slovenia · Lithuania · Latvia · Estonia · Bosnia and Herzegovina · Albania · North Macedonia · Malta · Luxembourg · Cyprus · Moldova · Georgia · Kazakhstan · Nepal · Lebanon · Iraq · Jordan · Kuwait · Qatar · Venezuela · Uruguay · Ecuador · Bolivia · Paraguay · Costa Rica · Panama · Dominican Republic · Puerto Rico · Guatemala · Cuba · Tunisia · Algeria · Senegal · Afghanistan · American Samoa · Andorra · Angola · Antarctica · Antigua and Barbuda · Armenia · Aruba · Azerbaijan · Bahamas · Bahrain · Belarus · Belize · Benin · Bermuda · Bhutan · Botswana · British Indian Ocean Territory · Brunei Darussalam · Burkina Faso · Burundi · Cambodia · Cameroon · Cape Verde · Central African Republic · Chad · Comoros · Congo (DRC) · Congo (Republic) · Cote D'Ivoire · Czechoslovakia · Djibouti · Dominica · East Germany · El Salvador · Eritrea · Ethiopia · Faeroe Islands · Falkland Islands · Fiji · French Polynesia · French Southern Territories · Gabon · Gambia · Gibraltar · Greenland · Guadaloupe · Guam · Guinea · Guinea-Bissau · Guyana · Haiti · Holy See · Honduras · Iran · Jamaica · Kiribati · Kosovo · Kyrgyz Republic · Lao People's Democratic Republic · Liberia · Libyan Arab Jamahiriya · Liechtenstein · Macao · Madagascar · Malawi · Mali · Martinique · Mauritania · Mauritius · Mayotte · Monaco · Mongolia · Montenegro · Mozambique · Myanmar · Namibia · Nauru · Netherlands Antilles · Nicaragua · Niger · Niue · Norfolk Island · North Korea · Northern Ireland · Oman · Palestinian Territory · Papua New Guinea · Reunion · Rwanda · Samoa · Serbia and Montenegro · Somalia · South Georgia and the South Sandwich Islands · South Sudan · Soviet Union · St. Kitts and Nevis · Sudan · Suriname · Svalbard & Jan Mayen Islands · Swaziland · Syrian Arab Republic · Tajikistan · Tanzania · Timor-Leste · Togo · Tokelau · Trinidad and Tobago · Turkmenistan · Turks and Caicos Islands · Tuvalu · Uganda · US Virgin Islands · Uzbekistan · Western Sahara · Yemen · Yugoslavia · Zambia · Zimbabwe",
     "row": "movie",
     "svg": "covers/movies/countries.svg",
     "png": "covers/movies/countries.png"
@@ -96,22 +96,6 @@
     "png": "covers/movies/runtimes.png"
   },
   {
-    "collection": "moods-and-vibes",
-    "title": "Moods & Vibes",
-    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic",
-    "row": "movie",
-    "svg": "covers/movies/moods-and-vibes.svg",
-    "png": "covers/movies/moods-and-vibes.png"
-  },
-  {
-    "collection": "themes-and-tags",
-    "title": "Themes & Tags",
-    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip",
-    "row": "movie",
-    "svg": "covers/movies/themes-and-tags.svg",
-    "png": "covers/movies/themes-and-tags.png"
-  },
-  {
     "collection": "based-on-the",
     "title": "Based on the",
     "subtitle": "Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories · Musicals · TV Adaptations",
@@ -120,9 +104,25 @@
     "png": "covers/movies/based-on-the.png"
   },
   {
+    "collection": "moods-and-vibes",
+    "title": "Moods & Vibes",
+    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Dreamlike · Atmospheric · Chilling · Bittersweet · Uplifting · Charming · Witty · Campy · Eerie · Hopeful · Intimate · Spooky · Stylish · Steamy · Thought-Provoking · Gripping · Playful · Harrowing · Triumphant · Meditative · Frenetic · Nerve-Wracking · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Bright · Kitschy · Cynical · Heartbreaking · Gut-Wrenching · Joyful · Euphoric · Reflective · Wistful · Haunting · Unsettling · Moody · Seductive · Healing · Irreverent · Understated · Brutal · Quiet · Deadpan · Sardonic · Absurd · Kafkaesque · Noir · Pulp · Cinematic · Cosmic · Spiritual · Sensual · Provocative · Cheerful · Weird · Hypnotic · Rousing",
+    "row": "movie",
+    "svg": "covers/movies/moods-and-vibes.svg",
+    "png": "covers/movies/moods-and-vibes.png"
+  },
+  {
+    "collection": "themes-and-tags",
+    "title": "Themes & Tags",
+    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Mutant · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Devil · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Vigilante · Smuggling · Gambling · Revolution · Terrorism · Hostage · World War · Holocaust · Slavery · Apartheid · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Dreams · Genetic · Spaceship · Mars · Cannibal · Voodoo · Cryptid · Shark · Snake · Spider · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Storm · Volcano · Farming · Village · Library · Restaurant · Amusement Park · Viking · Gladiator · Treasure · Archaeology · Museum · Art · Photography · Theatre · Poetry · Chess · Olympic · Surfing · Skiing · Skateboarding · Motorcycle · Taxi · Airport · Hotel · Bakery · Coffee · Wine · Desert · Jungle · Mountain · Ocean · Nuclear · Scientist · Nurse · Teacher · Orphan · Homeless · Poverty · Inheritance · Lottery · Scam · Gang · Rap · Rock · Opera · Ballet · Orchestra · Cloning · Robot · Time Travel · Apocalypse · Colony · Ship · Fishing · Hunting · Zoo · Prom · Reunion · Secret · Identity · Reincarnation · Prophecy · Legend · Wilderness · Boarding School · Cursed Objects",
+    "row": "movie",
+    "svg": "covers/movies/themes-and-tags.svg",
+    "png": "covers/movies/themes-and-tags.png"
+  },
+  {
     "collection": "global-ott-top-10",
     "title": "Global OTT ◆ Top 10",
-    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10 · Crunchyroll ◆ Top 10 · HIDIVE ◆ Top 10 · iQIYI ◆ Top 10 · Viki ◆ Top 10 · MUBI ◆ Top 10 · Google Play ◆ Top 10 · Plex ◆ Top 10 · Tubi ◆ Top 10 · Shudder ◆ Top 10",
+    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10",
     "row": "movie",
     "svg": "covers/movies/global-ott-top-10.svg",
     "png": "covers/movies/global-ott-top-10.png"
@@ -130,7 +130,7 @@
   {
     "collection": "global-ott-popular",
     "title": "Popular Global OTT",
-    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+ · Popular Crunchyroll · Popular HIDIVE · Popular iQIYI · Popular Viki · Popular MUBI · Popular Google Play · Popular Plex · Popular Tubi · Popular Shudder",
+    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+",
     "row": "movie",
     "svg": "covers/movies/global-ott-popular.svg",
     "png": "covers/movies/global-ott-popular.png"
@@ -138,7 +138,7 @@
   {
     "collection": "global-ott",
     "title": "Global OTT",
-    "subtitle": "Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+ · Crunchyroll · HIDIVE · iQIYI · Viki · MUBI · Google Play · Plex · Tubi · Shudder",
+    "subtitle": "Netflix · Netflix Originals · Prime Video · Prime Video Originals · Disney+ · Disney+ Originals · Max · Max Originals · Apple TV+ · Apple TV+ Originals · Paramount+ · Paramount+ Originals",
     "row": "movie",
     "svg": "covers/movies/global-ott.svg",
     "png": "covers/movies/global-ott.png"
@@ -185,8 +185,8 @@
   },
   {
     "collection": "discover-top-10",
-    "title": "Discover ◆ Top 10",
-    "subtitle": "Latest ◆ Top 10 · New Release ◆ Top 10 · Trending ◆ Top 10 · Popular ◆ Top 10 · Top Rated ◆ Top 10",
+    "title": "Discover ◆ Top 25",
+    "subtitle": "Latest ◆ Top 25 · New Release ◆ Top 25 · Trending ◆ Top 25 · Popular ◆ Top 25 · Top Rated ◆ Top 25",
     "row": "show",
     "svg": "covers/shows/discover-top-10.svg",
     "png": "covers/shows/discover-top-10.png"
@@ -210,7 +210,7 @@
   {
     "collection": "genres",
     "title": "Genres",
-    "subtitle": "Action & Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Kids · Mystery · News · Reality · Sci-Fi & Fantasy · Soap · Talk · War & Politics · Western",
+    "subtitle": "Action & Adventure · Animation · Comedy · Crime · Documentary · Drama · Family · Kids · Mystery · News · Reality · Sci-Fi & Fantasy · Soap · Talk · War & Politics · Western · Anime · Asian Drama",
     "row": "show",
     "svg": "covers/shows/genres.svg",
     "png": "covers/shows/genres.png"
@@ -250,7 +250,7 @@
   {
     "collection": "countries",
     "title": "Countries",
-    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia",
+    "subtitle": "United States · India · Japan · South Korea · United Kingdom · France · Spain · Germany · Italy · China · Mexico · Brazil · Turkey · Australia · Canada · Nigeria · Russia · Netherlands · Sweden · Norway · Denmark · Poland · Ireland · Portugal · Greece · Argentina · Colombia · Chile · Peru · Egypt · South Africa · Kenya · Morocco · Israel · Saudi Arabia · United Arab Emirates · Indonesia · Thailand · Philippines · Taiwan · Hong Kong · Malaysia · Singapore · Vietnam · Pakistan · Bangladesh · Sri Lanka · New Zealand · Ukraine · Czech Republic · Hungary · Romania · Finland · Switzerland · Belgium · Austria · Bulgaria · Serbia · Croatia · Iceland · Slovakia · Lithuania · Latvia · Estonia · Bosnia and Herzegovina · Luxembourg · Cyprus · Moldova · Georgia · Kazakhstan · Lebanon · Iraq · Jordan · Kuwait · Qatar · Venezuela · Uruguay · Ecuador · Bolivia · Dominican Republic · Puerto Rico · Guatemala · Cuba · Tunisia · British Indian Ocean Territory · Czechoslovakia · East Germany · Honduras · Iran · Jamaica · North Korea · Northern Ireland · Serbia and Montenegro · Soviet Union · Syrian Arab Republic · Tonga · Yugoslavia",
     "row": "show",
     "svg": "covers/shows/countries.svg",
     "png": "covers/shows/countries.png"
@@ -264,22 +264,6 @@
     "png": "covers/shows/runtimes.png"
   },
   {
-    "collection": "moods-and-vibes",
-    "title": "Moods & Vibes",
-    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic",
-    "row": "show",
-    "svg": "covers/shows/moods-and-vibes.svg",
-    "png": "covers/shows/moods-and-vibes.png"
-  },
-  {
-    "collection": "themes-and-tags",
-    "title": "Themes & Tags",
-    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip",
-    "row": "show",
-    "svg": "covers/shows/themes-and-tags.svg",
-    "png": "covers/shows/themes-and-tags.png"
-  },
-  {
     "collection": "based-on-the",
     "title": "Based on the",
     "subtitle": "Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories · Musicals · TV Adaptations",
@@ -288,9 +272,25 @@
     "png": "covers/shows/based-on-the.png"
   },
   {
+    "collection": "moods-and-vibes",
+    "title": "Moods & Vibes",
+    "subtitle": "Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Atmospheric · Chilling · Bittersweet · Charming · Witty · Campy · Hopeful · Intimate · Spooky · Steamy · Thought-Provoking · Playful · Wholesome · Triumphant · Meditative · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Cynical · Heartbreaking · Joyful · Euphoric · Reflective · Wistful · Haunting · Seductive · Healing · Irreverent · Understated · Brutal · Deadpan · Sardonic · Absurd · Noir · Cosmic · Spiritual · Sensual · Provocative · Cheerful · Weird · Rousing",
+    "row": "show",
+    "svg": "covers/shows/moods-and-vibes.svg",
+    "png": "covers/shows/moods-and-vibes.png"
+  },
+  {
+    "collection": "themes-and-tags",
+    "title": "Themes & Tags",
+    "subtitle": "Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Mutant · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Devil · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Vigilante · Smuggling · Gambling · Revolution · Terrorism · Hostage · World War · Holocaust · Slavery · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Dreams · Genetic · Spaceship · Mars · Cannibal · Cryptid · Shark · Snake · Spider · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Storm · Volcano · Farming · Village · Library · Restaurant · Amusement Park · Gladiator · Treasure · Archaeology · Museum · Art · Photography · Theatre · Poetry · Chess · Olympic · Surfing · Skateboarding · Motorcycle · Taxi · Airport · Hotel · Bakery · Coffee · Wine · Desert · Jungle · Mountain · Ocean · Nuclear · Scientist · Nurse · Teacher · Orphan · Homeless · Poverty · Inheritance · Lottery · Scam · Gang · Rap · Rock · Opera · Ballet · Orchestra · Robot · Time Travel · Apocalypse · Colony · Ship · Fishing · Hunting · Zoo · Reunion · Secret · Identity · Reincarnation · Prophecy · Legend · Wilderness · Boarding School · Cursed Objects",
+    "row": "show",
+    "svg": "covers/shows/themes-and-tags.svg",
+    "png": "covers/shows/themes-and-tags.png"
+  },
+  {
     "collection": "global-ott-top-10",
     "title": "Global OTT ◆ Top 10",
-    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10 · Crunchyroll ◆ Top 10 · HIDIVE ◆ Top 10 · iQIYI ◆ Top 10 · Viki ◆ Top 10 · MUBI ◆ Top 10 · Google Play ◆ Top 10 · Plex ◆ Top 10 · Tubi ◆ Top 10 · Shudder ◆ Top 10",
+    "subtitle": "Netflix ◆ Top 10 · Prime Video ◆ Top 10 · Disney+ ◆ Top 10 · Max ◆ Top 10 · Apple TV+ ◆ Top 10 · Paramount+ ◆ Top 10",
     "row": "show",
     "svg": "covers/shows/global-ott-top-10.svg",
     "png": "covers/shows/global-ott-top-10.png"
@@ -298,7 +298,7 @@
   {
     "collection": "global-ott-popular",
     "title": "Popular Global OTT",
-    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+ · Popular Crunchyroll · Popular HIDIVE · Popular iQIYI · Popular Viki · Popular MUBI · Popular Google Play · Popular Plex · Popular Tubi · Popular Shudder",
+    "subtitle": "Popular Netflix · Popular Prime Video · Popular Disney+ · Popular Max · Popular Apple TV+ · Popular Paramount+",
     "row": "show",
     "svg": "covers/shows/global-ott-popular.svg",
     "png": "covers/shows/global-ott-popular.png"
@@ -306,7 +306,7 @@
   {
     "collection": "global-ott",
     "title": "Global OTT",
-    "subtitle": "Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+ · Crunchyroll · HIDIVE · iQIYI · Viki · MUBI · Google Play · Plex · Tubi · Shudder",
+    "subtitle": "Netflix · Netflix Originals · Prime Video · Prime Video Originals · Disney+ · Disney+ Originals · Max · Max Originals · Apple TV+ · Apple TV+ Originals · Paramount+ · Paramount+ Originals",
     "row": "show",
     "svg": "covers/shows/global-ott.svg",
     "png": "covers/shows/global-ott.png"

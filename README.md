@@ -33,8 +33,15 @@ scripts/
                             keyword ids — every one verified to return titles
   probe-tmdb.mjs            regenerates tmdb-verified.json against live TMDB
   regional-candidates.mjs   the OTT brands tried for each country
-  probe-countries.mjs       adds only the new countries to the fact table
+  keyword-candidates.mjs    the keyword phrases tried for the moods / themes cards
+  probe-countries.mjs       adds the new countries to the fact table; `--refresh`
+                            re-probes known regions so a grown candidate list is
+                            picked up (`PROBE_ONLY=US,IN` narrows a refresh)
+  probe-keywords.mjs        verifies the missing moods / themes keyword labels and
+                            merges them in; `PROBE_GROUP=` / `--refresh` narrow it
   probe-genre-decades.mjs   verifies the Genre from ◆ Decades rows, per row type
+  probe-originals.mjs       the studio behind each global platform's Originals rows
+                            (company id per row type, verified to return titles)
   probe-ott.mjs             every OTT row, and which filter empties one
   probe-ai.mjs              which AI provider answers, and which models it serves
   probe-platforms.mjs       adds newly verified global OTT platforms to the fact
@@ -54,13 +61,13 @@ serve.mjs                   server: gallery + addon on one origin
 ```
 
 All 21 collections × 2 rows = **42 covers**. In the app the order is **Watchlist
-first**, then a vertical divider, then **Discover ◆ Top 10** and the rest:
+first**, then a vertical divider, then **Discover ◆ Top 25** and the rest:
 
 The order is the owner's list, and `npm test` asserts it key by key, so a card
 cannot drift:
 
 1. **Watchlist** (then a vertical divider)
-2. Discover ◆ Top 10
+2. Discover ◆ Top 25
 3. On the Board
 4. Discover
 5. Popular by Genre
@@ -113,19 +120,23 @@ cannot drift:
 | `/app/` | the app UI: movies/shows, collections, live rows |
 | `/app/...` | the app UI assets |
 | `/gallery` | the cover gallery (every cover, with PNG/SVG downloads) |
-| `/manifest.json` | addon manifest — one row per catalog (445 for the configured country) |
+| `/manifest.json` | addon manifest — one row per catalog (**1 824** catalogs for the configured country, every (type, id) unique) |
 | `/catalog/{type}/{id}.json` | one live row of titles, e.g. `/catalog/movie/nuvio-discover--trending.json` |
 | `/catalog/{type}/{id}/skip=100.json` | the same row, paged |
 | `/catalog/{type}/{id}/shuffle=12.json` | a random sample of that row |
 | `/collections.json` | every card + the catalogs it owns (used by the desktop app) |
-| `/settings` | GET/POST the app's settings (profile, providers, tracking, AI, **content source**, **language**, **country**), plus the language and country lists the Content pane is built from |
+| `/settings` | GET/POST the app's settings (profile, providers, tracking, AI, **content source**, **language**, **country**, and the **live** source: mode, playlist, Xtream login, EPG, refresh), plus the language and country lists the Content pane is built from. Keys, the playlist URL and the password are never returned — only whether they are set |
 | `/watchlist.json` | GET the pinned titles + per-state counts |
 | `/watchlist` | POST `{item, state}` to pin/move, or `{item, remove:true}` to unpin |
 | `/catalog/{type}/nuvio-watchlist--*.json` | your pins — requested with a cache-buster and answered `cache-control: no-store` |
 | `/ai.json` | which free AI providers exist, which is chosen, whether a key is set |
 | `/ai/ask` | POST `{prompt}` — turns a sentence into a search query via that provider |
 | `/ai/verify` | POST `{provider}` — checks that provider's stored key live |
-| `/search.json` | `?q=` — title search across movies and shows |
+| `/search.json` | `?q=` — title search across movies and shows. Browsing (no `q`) takes the panel's filters: `continent`, `country`, `provider`, `category`, `mood`, `theme`, `period`, `sort`, `type` |
+| `/search/filters.json` | the panel's vocabulary — the cards' own continents, countries, platforms, genre lists, mood and theme keywords, periods and sorts |
+| `/live/status.json` | the Live TV source's state: mode, channel count, categories, whether an EPG is set (never the playlist URL or the password) |
+| `/live/channels.json` | the channel catalog — `?group=` one of the playlist's categories, `?q=` by name, `?country=`, `?force=1` to re-read now, each channel with its logo, groups, country and stream URL |
+| `/live/guide.json` | `?hours=6` — the XMLTV guide: the lineup plus programme blocks per channel id, and `epg: false` when no EPG URL is configured |
 | `/providers.json` | the same, plus which provider is active |
 | `/providers/verify` | POST `{name}` — checks that provider's stored key live |
 | `/api/source` | POST `{type,url}` — reads an add-on's manifest or a repo's `repo.json` **server-side** |
@@ -139,26 +150,26 @@ drawn on the cover:
 | Card | Catalogs (movies / shows) |
 |---|---|
 | Watchlist | `Plan to Watch` · `Watching` · `Watched` (both) — served from your pins, not from TMDB |
-| Discover ◆ Top 10 | Latest/New Release/Trending/Popular/Top Rated, each **Top 10** (both) |
+| Discover ◆ Top 25 | Latest/New Release/Trending/Popular/Top Rated, each **Top 25** (both) |
 | On the Board | Now Playing / Airing Today · Airing This Week · On the Air |
 | Discover | Latest · New Release · Trending · Popular · Top Rated (both) |
 | Popular by ◆ Genre | `Popular in <Genre>` — movie genres / TV genres |
-| Genres | `<Genre>` — movie genres / TV genres |
+| Genres | `<Genre>` — the movie genres / TV genres, and nothing else (Anime and Asian Drama are keywords, not genres) |
 | Popular by ◆ Decade | `Popular in <decade>s` (both) |
 | Decades | `<decade>s`, 1950s–2020s (both) |
 | Genre from ◆ Decades | `<Genre> ◆ 1950 → Present` — movie genres / TV genres (both) |
 | Global OTT ◆ Top 10 | `<Platform> ◆ Top 10` — the six platforms the card carries: Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+ (both) |
 | Popular Global OTT | `Popular <Platform>` — that platform's most popular right now (both) |
-| Global OTT | `<Platform>` — everything on that platform (both) |
-| Regional OTT Top 10 | `<Service> ◆ Top 10` — **every region's** regional OTT services (78 rows), then **Crunchyroll** and **Viki** (both) |
+| Global OTT | `<Platform>` — everything on that platform, **followed by that platform's own `<Platform> Originals` row** (both) |
+| Regional OTT Top 10 | `<Service> ◆ Top 10` — **every region's** regional OTT services (128 rows), then **Crunchyroll** and **Viki** (both) |
 | Popular Regional OTT | `Popular <Service>` — the same set (both) |
 | Regional OTT | `<Service>` — everything on each of those services, plus the two Asian-catalogue services (both) |
 | Continental | continent names (both) |
-| Countries | 60 country names (movies) / 59 (shows — Ghana has no series on TMDB) |
+| Countries | **every country TMDB lists** — 214 publish a movies row and 97 a shows row, of 251 known; the rest are territories and historical states with nothing on TMDB (Bouvet Island, Heard and McDonald Islands) and simply do not publish |
 | Runtimes | `30+ mins … 120+ mins` (**movies**) / `4 · 6 · 8 · 10 Episodes` (**shows**) |
 | Based on the | Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories (both) |
-| Moods & Vibes | Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic (both) |
-| Themes & Tags | Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip (both) — **not Documentary**: that is a genre, not a theme |
+| Moods & Vibes | 75 moods: Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Dreamlike · Atmospheric · Chilling · Bittersweet · Uplifting · Charming · Campy · Eerie · Hopeful · Intimate · Spooky · Stylish · Steamy · Thought-Provoking · Gripping · Playful · Witty · Wholesome · Harrowing · Triumphant · Meditative · Frenetic · Nerve-Wracking · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Bright · Kitschy · Cynical · Sleek · Sultry |
+| Themes & Tags | 182 themes and tags (both rows — 185 labels, less *Anime*, *Asian Drama* and *Documentary* below): Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Mutant · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Devil · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Anime · Asian Drama · Vigilante · Smuggling · Gambling · Revolution · Terrorism · Hostage · World War · Holocaust · Slavery · Apartheid · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Dreams · Genetic · Spaceship · Mars · Cannibal · Voodoo · Cryptid · Shark · Snake · Spider · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Storm · Volcano · Farming · Village · Library · Restaurant · Amusement Park — **not Documentary**: that is a genre, not a theme. **Anime** is the TMDB `anime` keyword and is well covered; **Asian Drama** is backed by TMDB's `japanese drama` keyword, because TMDB has no Korean-drama keyword (searching "korean drama" returns nothing), so that row is real but thin — and neither is published as a row of its own: they are **keywords, not genres**, so they are not in Themes & Tags and not in the **Genres** card either. The cards that genuinely hold that content carry it — Japan in Countries, Crunchyroll and Viki on the OTT cards |
 
 **Global OTT publishes six platforms and only those six** — Netflix · Prime Video ·
 Disney+ · Max · Apple TV+ · Paramount+. A platform the probe verifies later is kept
@@ -166,12 +177,21 @@ as a fact in `PLATFORMS` (so the probes and the selftest still know about it) bu
 deliberately not published as a global row, so the card cannot quietly grow a
 seventh. Hulu is a US service and was never one of the six.
 
+**Each platform is followed by its own `<Platform> Originals` row.** An "original"
+is not a catalog, it is a studio: `scripts/probe-originals.mjs` looks each
+platform's production company up against TMDB and keeps only candidates that really
+return titles (Netflix's films come from company 178464, its shows from 185004;
+Disney's from Walt Disney Pictures and Walt Disney Television), so the rows are real
+and the probe reports every platform it could not place. The Originals rows are in
+the **Global OTT** card only — the Top 10 and Popular cards stay one row per platform.
+
 The three **Regional OTT** cards publish the **regional OTT data itself** — not one
 country's slice of it and not the **Countries** card's list. `tmdb-verified.json`
 records each region under its own name with its ISO code on the entry, and
 `REGIONAL_SERVICES(type)` folds those entries into one list: **one row per service**
-(78 of them — 7plus, aha, Arte, BBC iPlayer, BINGE, Canal+, CBC Gem, Crave, JioHotstar,
-Peacock Premium, Pluto TV, Sky Go, Stan, TVING, Zee5, …), in name order, each row
+(128 of them, up to ten services per region, 132 distinct services in the table — 7plus, aha, Arte, BBC iPlayer, BINGE, Canal+, CBC Gem,
+Crave, Go3, JioHotstar, Peacock Premium, Pluto TV, Shahid VIP, Sky Go, SkyShowtime,
+Stan, TVING, Viaplay, Viu, Voyo, Zee5, …), in name order, each row
 carrying the region it was verified in. A service verified in several regions is one
 row scoped to one of them, so the card has no empty duplicates, and the last two rows
 are Crunchyroll and Viki — the Asian-catalogue services, which are not regional data,
@@ -185,6 +205,54 @@ hold every region's services. It still scopes the rows that have *no* region of 
 own (`activeRegion()` in `addon/catalogs.mjs`) and the per-country counts
 `/settings` reports.
 
+**One surface language, on every screen.** The app draws **no hairline outlines**:
+cards, tiles, the banner, the panels, the fields, the buttons and the rail are single
+flat fills that lift or brighten under the cursor, and the accent is spent on what you
+act on — the chosen chip, the primary button, a focused field, the letter you picked,
+the profile you are on. The few lines that are left mean something: the calendar's grid,
+the guide's ruler and its channel column, the dividers between sections, the plate on
+the tag arrows, and the ring around a chosen colour. **One pill** carries every chip in
+the app — a card's catalog tags, the search panel's filter choices, the model chips —
+and **one voice** carries every caption: the labels that used to be small-caps with
+letter-spacing (the result heads, the filter labels, the card subtitles, the guide
+corner, the calendar's weekday row) are bold sentence case now, which is what makes the
+screens read as one product instead of five.
+
+**Home opens on a boot screen** that fades out once the first screen is drawn, and the
+banner — **Spotlight** — shows **one landscape backdrop** drawn from the row that means
+*out now* (**Now Playing** on movies, **On the Air** on shows) and moves to another
+title **in that same catalog** every ten seconds, holding still while the cursor is on
+it; the name on the banner is the name of the title on it. A tag line is a **two-row window with up/down arrows that scroll
+it** a row at a time (the wheel works over it too, and each arrow dims at its own end
+of the list): the Themes & Tags card carries nearly two hundred tags, and expanding
+them in place pushed every row off the page. The arrows are drawn as **buttons** —
+a bordered, accent-tinted plate with a stroked chevron inside, 32×28 with a hover
+lift and a focus ring — not a bare mark on the background. Rows scroll with an
+eased frame loop rather than jumping a wheel-notch at a time.
+
+**A card's artwork is the card's own titles — and the generated cover is never
+drawn.** Every frame carries `art-blank` from the first paint: the card, the banner
+and a card page open as the app's own **flat panel**, and become the wall of that
+card's own titles the moment they answer — padded from the frame's edges, separated
+by a gap, each picture keeping its own shape (`object-fit: cover`, never stretched).
+The collection's vector scene used to be the layer under all of that, so every card
+arrived as an illustration of itself and then changed under you; it is no longer on
+screen at all. `art-filled` still marks "the pictures are here"; `art-blank` is what
+the frame is before that. Which
+slice of a card is drawn is decided **once per launch**, so the artwork changes on
+app start; the banner is the one thing that redraws while the app runs, every ten
+seconds.
+
+**A card does not lift, and nothing spills out of its corners.** The grid lifted
+every card on hover; a transform makes a stacking context, so the lifted card painted
+*over* the floated top bar and its rounded corners cut across what sat behind them —
+the reported "both upper corners and upper lines go over". The response is a fill and
+an inset ring (no geometry change), the card is `overflow: hidden`, and the poster
+strip is clipped to the frame's radius, so a photograph can never cross a card's edge.
+
+**The name and its tags read on the left, the artwork frame on the right** — on the
+banner and on a card page alike.
+
 **Watchlist** is a real card with a real row. A shared addon cannot know your
 account, so the rows are served from the pins stored in `addon/watchlist.json`
 (runtime state, git-ignored) rather than from TMDB — pin a title in the app and it
@@ -197,6 +265,45 @@ genres are a different set (there is no "Science Fiction", there is "Sci-Fi &
 Fantasy"), and `scripts/probe-genre-decades.mjs` checks every combination
 returns titles from 1950 before it is published — all 18 movie genres and all 16
 show genres pass, so nothing is dropped.
+
+### Live TV & Sports: channels and the guide
+
+`addon/live.mjs` is the source behind that profile. Three modes, in the order the
+settings offer them:
+
+| Mode | What it reads |
+|---|---|
+| **Premium & DTH catalogue** (default) | a catalogue of **real DTH, cable and premium operators**, per country, shipped with the app in `addon/dth.mjs` — Sky, DIRECTV, DISH, Xfinity, Tata Play, Airtel Digital TV, d2h, Sun Direct, DStv, GOtv, StarTimes, Astro, Unifi, Cignal, Sky Cable, Foxtel, Sky NZ, beIN, OSN, Canal+, Polsat Box, Digiturk and the rest. **No public free-TV directory and no iptv-org** — a premium profile opening on free public streams is the wrong app. Pick the providers you subscribe to and Live TV draws their **lineup and their guide**: a provider's XMLTV feed declares its own channels (`<channel>`) as well as its schedule (`<programme>`), so one read answers both. Providers with a public feed — Foxtel, Freeview Australia, Sky New Zealand — bring the schedule with them; the others are scheduled from your own EPG URL. |
+| **M3U playlist** | your own `.m3u`/`.m3u8` URL, or a path on the server — what your set-top box or operator app exports. Parsed properly: attributes are optional, the name is the last comma-separated part, the trailing quality marker is dropped, and `group-title` is treated as the `;`-separated category list it is. |
+| **Xtream Codes** | host + username + password; the live streams and their categories come from the panel, and the stream URL is composed per channel. |
+
+**Streams are never shipped and never invented.** A premium channel's stream is
+delivered to a subscriber's box; it is not a public URL, and the app has no business
+inventing one. The catalogue supplies the **lineup and the guide**, and your own
+export supplies the streams — the two meet on **`tvg-id`**, which is the key the
+guide is built on, so an exported playlist lands exactly on the catalogue's lineup.
+
+A **channel** is the same shape whatever it came from — id, name, logo, groups,
+country, stream URL — and everything is **cached on disk** (git-ignored) and re-read
+on the refresh clock (its own 15/30/60/180-minute setting, or the Content interval).
+A failed read keeps the last good list rather than emptying Live TV, and reports
+what went wrong.
+
+The **country pick is the one switch that moves the whole profile**. `live.countries`
+is a list of ISO codes and `live.allCountries` reads the whole directory; whichever
+is set decides what `/live/channels.json` and `/live/guide.json` answer with, so the
+Guide and the Categories card are scoped together. `/live/countries.json` serves the
+directory's own country table (name, ISO code, flag; cached for a day) for the
+settings picker, and a picked code is matched through a small equivalence set, so
+`GB` (the table's spelling) and `UK` (the directory's) both mean the United Kingdom.
+
+The **Guide** is XMLTV. `live.epg` is an XMLTV URL; channels are matched by their
+`tvg-id` (or the Xtream `epg_channel_id`), and `parseXMLTV` scans the document
+rather than DOM-parsing tens of megabytes of one flat element. With an EPG set, the
+grid draws real programme blocks positioned by their own start and stop times; with
+none, it draws the lineup and says so once — it does not invent a schedule. The
+playlist URL and the Xtream password stay **server-side**; the browser is told only
+whether they are set.
 
 ### No empty rows — and how that is guaranteed
 
@@ -214,6 +321,8 @@ every single published row and reports any that come back empty:
 ```sh
 node scripts/probe-tmdb.mjs      # re-verify provider ids / keywords (needs a key)
 node scripts/probe-countries.mjs # add just the newest countries to the table
+node scripts/probe-countries.mjs --refresh   # re-probe every region (grown candidate list)
+PROBE_GROUP=moods-and-vibes node scripts/probe-keywords.mjs  # add the missing keyword labels
 node scripts/probe-genre-decades.mjs # re-verify the Genre from ◆ Decades rows
 node scripts/probe-ott.mjs      # every OTT row, and which filter empties one
 node scripts/audit-catalogs.mjs # every row, against live TMDB
@@ -221,7 +330,12 @@ node scripts/audit-catalogs.mjs # every row, against live TMDB
 
 Run the probe again when TMDB renames or moves a service. `probe-countries.mjs`
 probes **only** the countries missing from the fact table and merges them in, so
-the list (now **60 countries**) can grow without a full re-probe.
+the list (now **every country TMDB lists**, 251 of them) can grow without a full
+re-probe; `--refresh`
+re-probes the regions it has already seen, which is what picks up a region that
+gained services in `regional-candidates.mjs`. `probe-keywords.mjs` does the same for
+the mood/theme labels, so the moods and themes cards grow from
+`keyword-candidates.mjs` without re-probing every country.
 
 A catalog is identified by `(type, id)`, and TMDB paths map the Stremio `series`
 type to TMDB's `tv`. Three entry kinds need care: **genre** names are resolved to
@@ -238,7 +352,7 @@ widened the thinnest rows — measured *Epic & Sweeping* 3 → 11, *Adrenaline R
 
 **Paging.** Rows read TMDB 20 titles at a time into a growing, cached pool, so a
 window of 40 continues where the last stopped. A row serves up to 300 titles; the
-`◆ Top 10` rows stop at ten.
+`◆ Top 10` rows stop at ten (and the Discover card's `◆ Top 25` rows at twenty-five).
 
 **Nothing else is capped.** The OTT cards' `Popular`/everything rows used to carry
 a `take` of 30/40, which made an OTT card the one place whose rows ended after a
@@ -248,16 +362,34 @@ loading as you scroll it: reaching the end of a strip asks the server for the ne
 window, so a row behaves the same whether you scroll it sideways or open it in
 Explore.
 
+**Explore carries an alphabet rail** down the right-hand gutter. It indexes the
+**titles in the row**, not the card's tags: picking a letter **shows only that
+letter's titles** — the grid is filtered to them and the row is **paged in until the
+letter is filled out**, so it is all of that letter's titles rather than the one or
+two the first window held. The chosen letter is filled on the rail, a line above the
+grid names it and carries the way back, and picking the same letter again restores
+everything. Letters the loaded pages do not cover are dimmed, never dead. The rail
+is a column **in the grid's own row** (`.explore-body`, so it begins at the catalog
+row and not at the shuffle sample above it), `sticky` at `50vh` so its letters sit
+**level with the middle of the screen** beside the poster columns rather than pinned
+under the header, and it is not an overlay.
+
 ### Symbols on the covers
 
 Covers render with the bundled Inter fonts and system fonts disabled, so a glyph
 Inter lacks becomes an empty box. `◆`, `→`, `★`, `·`, `•`, `–` and `—` are all
-present and safe to use — and, per the design, are used to set off `Top 10`,
+present and safe to use — and, per the design, are used to set off `Top 10`/`Top 25`,
 `from … to` ranges and separators. Avoid `✦`, `➜` and other decorative arrows:
 Inter does not contain them.
 
 Only the `catalog` resource is advertised — **no search, no discover**. Rows are refreshed from
-TMDB and cached in memory for 30 minutes (`TMDB_CACHE_TTL_MS` to change it).
+TMDB and cached in memory for the interval in **Settings → Content → Refresh
+catalogs & metadata** (15 / 30 / 60 / 180 minutes, or *Only when you ask*), and the
+app re-reads the screen on the same clock. One setting drives both halves of
+"update itself": set it to an hour and the addon's cache may see new data every
+hour, set it to *Only when you ask* and nothing changes behind your back until you
+press **Refresh now**. `TMDB_CACHE_TTL_MS` still overrides both — that is what the
+probes and tests use.
 
 **Install it in Nuvio:** add `https://<your-host>/manifest.json` as an addon. Each catalog's
 `name` is the same string drawn as the cover subtitle, so you can pair each row with its art.
@@ -305,10 +437,15 @@ curl -X POST localhost:4173/customrows -H 'content-type: application/json' \
 
 The store behind `/customrows` still exists, and it backs exactly one thing now:
 the **calendar's** plan-to-watch pins. Each is a plan about a *date* — a release you
-saw on the grid and mean to get to — so it lives in its own row (`calendar-plans`),
-is shown only for the **last 30 days** under *Recently planned*, and is never
-published as a catalog. It therefore cannot appear in the Watchlist card, which is
-what "the calendar pin showed up in my watchlist" was.
+saw on the grid and mean to get to — so it lives in its own row (`calendar-plans`)
+and is never published as a catalog. It therefore cannot appear in the Watchlist
+card, which is what "the calendar pin showed up in my watchlist" was.
+
+**The pin is a toggle, and the calendar no longer lists the plans.** A *Recently
+planned* shelf under the grid used to draw the last 30 days of pins; with the pin
+reduced to add-only, that shelf was a list you could add to and never prune. It is
+gone, and the pin removes its own plan again: a planned release says **planned**,
+and pressing it puts the plan back.
 
 **There is no "add cards" row any more.** The Watchlist card is its three states
 and nothing else, the title modal offers the same three states, and no *Add cards
@@ -365,7 +502,10 @@ the key, and the answer is handed to the title search (`/search.json`).
 Every call is plain `fetch` from Node, so there is no SDK to install, and the key
 is stored beside the provider keys in `addon/settings.json` — never returned to
 the browser (`/settings` and `/ai.json` report only *whether* a key is set). With
-no key the Ask box still works: it searches the words you typed. The model can be
+no key the Ask box still works: it searches the words you typed. **Pick movies or
+shows for me** sits under the box and tells it which row to answer with: pick
+*Movies* and the answers are films (the same picker the search screen calls *Type*),
+pick *Both* and nothing changes. The model can be
 overridden in the same section, since providers rename models faster than this
 ships.
 
@@ -380,9 +520,17 @@ which models it currently serves, so the defaults stay facts rather than guesses
 
 The app's Content setting rides along as `?adult=1` on a catalog request; the
 addon maps it to TMDB's `include_adult`. TMDB excludes adult titles by default,
-so the switch is only ever able to add them. The three `/now_playing`,
-`/airing_today` and `/on_the_air` endpoints take no such parameter and are
-unaffected.
+so the switch is only ever able to add them.
+
+`include_adult` alone is not enough, though — it is a hint, and several endpoints
+take no such parameter at all: `/trending`, `/now_playing`, `/airing_today` and
+`/top_rated`. A title TMDB itself flags `adult: true` on a list item would reach a
+safe-for-work app from any of them. So SFW is enforced a second time where the
+metas are built (`metasFor` in `addon/index.mjs`), on the raw list items, before
+the meta exists — and in the search, browse, episode-cap and calendar paths too.
+The NSFW pools are keyed separately, so turning the switch on cannot be served
+from a filtered cache. `npm test` pins it: the stub marks three of its twelve
+trending titles adult, and SFW must return nine where NSFW returns twelve.
 
 ### Verify
 
@@ -483,6 +631,54 @@ previous install skipped it. `cd desktop && npm start` does the same thing.
 `desktop/ui/` is plain web code, so the **same UI is also the web app** — it is
 served at `/` (redirects to `/app/`) by `serve.mjs`, where it talks to the server
 on the same origin.
+
+### Run it: the steps
+
+On your own machine, from the repository root:
+
+```sh
+# 1. nothing to install to *look* at it — the app ships its own server
+#    (Node 20+ is the only requirement)
+
+# 2. give it a TMDB key, once (either of these; the app also writes it back)
+TMDB_API_KEY=your_key npm start
+
+# 3. open the desktop window
+npm start
+
+# — or the browser version of the same UI, on http://127.0.0.1:4173/app/
+npm run start:web
+```
+
+`npm start` fetches Electron's ~100MB binary on the first run only, so a fresh clone
+needs no separate install step. `npm run desktop:install` does just that half and
+exits. If you only want the Android target, `ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install`
+inside `desktop/` skips the binary.
+
+**Android TV / APK.** `desktop/capacitor.config.json` sets `webDir: "ui"`, so
+Capacitor ships `desktop/ui` — `app.js`, `style.css`, `index.html`, `config.js` and
+now `vendor/hls.min.js` — as the app's assets:
+
+```sh
+cd desktop
+npm run android:sync     # cap sync android — copies ui/ into the Android project
+npm run android:build    # ./gradlew assembleDebug
+npm run android:apk      # ./gradlew assembleRelease
+```
+
+The APK is a thin client with no Node server on the device, so point it at a
+hosted addon first: set `window.NUVIO_HOST` in `desktop/ui/config.js`, *then*
+`android:sync` (the sync is what copies `config.js` into the build).
+`desktop/android/app/src/main/assets/public/` is git-ignored — it is generated by
+`android:sync`, not source.
+
+**Live streams.** The player needs no setup: `hls.js` is vendored at
+`desktop/ui/vendor/hls.min.js`, so both the Electron window and the APK play HLS
+with no CDN. To refresh that copy after a version bump:
+
+```sh
+cd desktop && npm install hls.js@^1 && cd .. && npm run vendor:hls
+```
 
 ### Test it as an Electron app
 
@@ -595,15 +791,70 @@ The UI is Nuvio-shaped:
 - **Top bar** — no app logo/label, **no Movies/Shows tabs** and **no counts line**.
   On the left, a **profile icon** (a person glyph — no name pill, no dropdown), the
   **calendar** button, then a **vertical divider**; on the right, a **search** button
-  and **Settings**.
+  and **Settings** — a **real cog**, not the centre-dot-with-spokes glyph that read
+  as a brightness control.
+- **The page keeps its place** — every screen remembers its scroll. Going back
+  returns to where you left; re-rendering the screen you are already on (a pin, a
+  filter, a settings toggle, a row switch) does not move the page at all, and a
+  screen you have not opened starts at the top. The browser's own scroll restore is
+  switched off so the two cannot fight over it.
+- **A poster plate is never left empty** — a calendar plan stores only the fields
+  the app draws and any picture can fail to load, so a card with no artwork draws the
+  title's own **initials** instead of a dark rectangle.
+- **Live TV & Sports** — the second profile is a **different app**, and its Home is
+  **two cards**. The first is the **Guide** (a preview of what is on now, opening the
+  full grid); the second is **Categories** (the playlist's own categories with their
+  channel counts, opening `#/categories`, then `#/categories/<group>` for one of
+  them). Under the two cards are the same two buttons as Movies & Shows, named
+  **Live TV** and **Sports**, and then a card per category holding a row of
+  **channel tiles** (logo, name, group and country). The **Guide** is a
+  TiviMate-shaped grid: a time ruler across the top with a "now" marker, a numbered
+  channel column down the left, and one programme block per channel — real programmes
+  with their times when an **XMLTV** URL is set, and an honest "no programme data"
+  track when it is not. Clicking a channel opens its page (logo, groups, country,
+  what is on now and next, and its stream URL). **Search** in this profile searches
+  **channels**.
+- **Live TV settings** — entering that profile **replaces the settings screen
+  entirely**: **Source** (the **Premium & DTH catalogue** with a provider picker,
+  your own **M3U** URL or file, or an **Xtream Codes** host/username/password),
+  **Countries** (**All countries**, or pick the ones you want), **Guide & EPG** (an
+  XMLTV URL, `.xml` or `.xml.gz`), **Refresh** (follow the content setting, or
+  15/30/60/180 minutes), then **Profile & playback** and **This device**. The
+  catalogue is shipped with the app, so the provider and country pickers work with
+  no network and nothing to log in to; picking a provider adds its lineup to Live TV
+  and to the Guide, and each chip says whether that provider ships a public guide.
+  **Layout** is
+  the real Layout pane (it used to fall through to the Profile pane, so the tab said
+  "Layout" and showed the profile). Content, Posters, Providers, Add-ons, Plugins,
+  Tracking and AI do not apply to a live playlist, so they are not offered while it
+  is active; switching back restores them. The playlist URL and the password are
+  kept **server-side** — the browser is told only whether they are set.
+- **A channel plays in the app.** Its page carries **Play** as well as *Copy link*,
+  and the player is the app's own: an `.m3u8` live stream is handed to it and
+  `hls.js` — **vendored at `desktop/ui/vendor/hls.min.js`**, not pulled from a CDN,
+  so the Electron window and the APK work offline — decodes it. Browsers that play
+  HLS natively (Safari, Android TV) use their own player. Escape or **Close**
+  returns to the page you came from.
 - **Home** — a **hero** panel, then **Movies** and **Shows** buttons below it.
   Movies is the default; picking Shows swaps both the cards *and* the hero banner.
   The banner carries no counters — just its **Explore** action.
+  The banner reads **left to right: text, then picture**. The titles, their catalog
+  chips, the cards beside it and **Explore** sit on the **left**, and the artwork
+  holds the **right-hand slot** — it was moved to the left by mistake and is back.
+  The frame is a **button**: the landscape shot is the way into the title on it
+  (falling back to the collection before the shot arrives).
+  Under the chips is a second line, **the cards beside the one on the banner** — each
+  one's label and one of its own rows — and that line **refreshes on the banner's own
+  clock**, so the left side moves with the picture instead of standing still.
+  The frame wears **no generated vector scene at any point**: while the backdrop is on
+  its way you see the app's own flat panel, never the collection's cover.
   A tile is opened by clicking its **artwork**, not the whole tile.
   The cards are always in the published order: *pick the cards for you* chooses
   **which** cards appear, never their order, so Home never looks shuffled.
 - **Watchlist** — the first card, holding the three states a title moves through:
-  **Plan to Watch**, **Watching**, **Watched** — and nothing else. Pin a title from
+  **Plan to Watch**, **Watching**, **Watched** — and nothing else. Its frame holds
+  **two posters**: it is three rows of *your own* pins, and a wider wall of them read
+  as a chart rather than as "what you are watching". Pin a title from
   its modal (open any title and pick a state; picking the current state unpins it)
   and it lands in the matching row, tagged with its state. The three rows scan
   *everything* in that state; a *calendar* plan is not a watch state, so it never
@@ -627,8 +878,9 @@ scrolling catalog.
 - **How deep a row goes** — the addon reads TMDB 20 titles at a time and keeps a
   growing, cached pool per catalog, so each window of 40 continues where the last
   stopped and repeat requests cost nothing. A row can serve up to **300 titles**
-  (15 TMDB pages per query); the `◆ Top 10` rows stop at **ten**, because that is
-  what they claim — and nothing else is capped, OTT cards included. Episode-cap
+  (15 TMDB pages per query); the `◆ Top 10` rows stop at **ten** and the Discover
+  card's `◆ Top 25` rows at **twenty-five**, because that is what they claim — and
+  nothing else is capped, OTT cards included. Episode-cap
   rows are bounded by what TMDB actually has — the `4 Episodes` row is short
   because few shows are that short. A strip in a collection keeps loading too:
   scrolling it to the end asks for the next window instead of stopping.
@@ -640,16 +892,53 @@ scrolling catalog.
   A day lists **films and shows together** (each card says which it is), clicking the
   selected day again **deselects** it, and the grid carries no captions — no
   "everything releasing this month", no "N titles" line over the results.
-  Every release carries its own **Plan to Watch** pin, and it is deliberately not a
-  watchlist row: a calendar pin is **plan-only** (a dated release you mean to get
-  to) and **recent-only** — *Recently planned* under the grid lists the last 30
-days, while the Watchlist card lists every Plan to Watch, Watching and Watched
-title whatever its date. Calendar plans live in their own stored row
-(`calendar-plans`), so pinning a release never fills the Watchlist card's Plan to
-Watch row with something you did not put there. *Recently planned* is a heading and
-its cards — no paragraph of explanation under it.
-- **Search** — searches **titles** (TMDB, through the server) as well as collections
-  and catalogs in the current row. This is what the Ask box feeds.
+  Every release carries its own **Plan to Watch** pin, and it is a **toggle**: a
+  planned release says **planned** and pressing it puts the plan back. (It was
+  briefly add-only, which left a plan you had changed your mind about with no way
+off the calendar.) It is deliberately not a watchlist row: a calendar pin is
+**plan-only** (a dated release you mean to get to), while the Watchlist card lists
+every Plan to Watch, Watching and Watched title whatever its date. Calendar plans
+live in their own stored row (`calendar-plans`), so pinning a release never fills
+the Watchlist card's Plan to Watch row with something you did not put there. **The
+grid no longer carries a *Recently planned* shelf** — the plans live on the day they
+belong to.
+- **Search** — a **full-width bar** wearing the app's own panel styling. **No
+  magnifier**: the bar is one flat panel and the field fills it, with the filter
+  control that closes it as a **named control** — the funnel *and* the word
+  **Filters**. The field inside the bar draws no border of its own — it used to carry
+  `text-input` as well as `search-input`, so a second bordered box was painted inside
+  the bar — and it draws **no focus ring of its own** either; the accent ring belongs
+  to the whole bar (`:focus-within`), because the bar is the control. It searches
+  **titles** (TMDB,
+  through the server) as well as collections and catalogs in the current row, and
+  titles come back as two lists, **Movies** then **Shows**, never one mixed grid:
+  the row type is the first thing you want to know about a result. A query reads
+  **six pages of TMDB per row type** (20 results a page) to fill the first window,
+  and **Load more results** reads the next window — **there is no ceiling**, it keeps
+  going until TMDB has nothing left. It used to keep only its first page, which is why
+  "disney+" looked like it had barely twenty results. Typing shows **suggestions**,
+  and this is what the Ask box feeds.
+
+  **Which page the next window starts at is the server's answer, not the app's
+  arithmetic.** A window reads up to six TMDB pages and stops early at a short one —
+  a search for forty titles is over on page two — so "six pages further on" stepped
+  straight past the end of a short result set and the button appeared to do nothing.
+  The response now carries `next`, the page to continue from (null when the row type
+  is finished), and the button hides on that instead of on a number the client picked.
+- **Search filters are one row per card line** — **Type**, **Continent**,
+  **Country** (every country the Countries card publishes, clamped to two rows with
+  a chevron), **OTT** (the Global OTT card's own six platforms), **Genre**, **Mood**
+  and **Theme** (the keyword rows those cards publish, clamped too), **Time**, and
+  **Sort**. The choices are the app's own **pills** — the same flat fill the tag lines
+  and the card labels use, 999px radius, solid accent when chosen, no outline — not
+  underlined words that match nothing else on screen, and the clamped rows say
+  **More (N)** / **Less** rather than showing a bare chevron. They are the cards' own vocabulary, served from
+  `/search/filters.json`, so the panel can never offer a genre, a country or a
+  keyword TMDB does not have. A continent expands to its origin-country set, OTT is
+  a watch-provider filter scoped to your region, and Mood/Theme are keyword ids. An
+  unknown value in a hand-written URL falls back to "all" instead of emptying the
+  screen. Text searches can only honour what TMDB's search endpoint supports (genre
+  and year), and the screen says so when a filter can only apply while browsing.
 - **Settings**, grouped, with the group name over its tabs:
   **What you see** — **Content** (SFW / NSFW), **Layout**, **Posters**,
   **Appearance** (the accent colour and how much the app moves);
@@ -663,8 +952,14 @@ its cards — no paragraph of explanation under it.
   **This app** — **Profile** (only the profile you are on — switching happens on the
   switch-profile screen — plus **what this profile shows**) and **Server**.
 
-**Settings → Content** is one switch: **SFW / NSFW** (mapped to TMDB's
-`include_adult`). Both pickers that used to sit here are gone:
+**Settings → Content** is the **SFW / NSFW** switch (mapped to TMDB's
+`include_adult`, and enforced on the addon's side for the endpoints that ignore
+it), plus **Refresh catalogs & metadata** — 15 / 30 / 60 / 180 minutes or *Only
+when you ask*, with a **Refresh now** button. The banner has its own clock and it
+is not this one: **Spotlight moves every ten seconds** by default, at random, and
+freezes while the cursor is on it. Every **card** redraws its artwork **on app
+start** (one draw per launch), not on the refresh clock — a refresh re-reads the
+rows, and the pictures stay with the launch. Both pickers that used to sit here are gone:
 
 - **The app-language picker** read as if it changed the regional OTT cards and it
   never did — nothing about a row's *membership* is language-dependent. Rows are
@@ -694,7 +989,7 @@ cards and catalogs for this profile*:
   gone from Home and its catalog rows are gone from the card; a hidden row is gone
   from the card and from its catalog chips.
 - The editor is **sectioned** rather than one long list: a *Media rows* block, then a
-  *Cards* block where each card is its own bordered box holding that card's catalog
+  *Cards* block where each card is its own panel holding that card's catalog
   rows, each box headed by its own switch and how many of its rows are on (`npm run
   test:ui` pins the structure).
 - Picks are per profile and live in `localStorage` (`nuvio.visibility`). The same
@@ -705,7 +1000,7 @@ cards and catalogs for this profile*:
 
 - **Accent colour** — the colour the app is painted in. Every tint in the
   stylesheet is built from `--accent-rgb` and every gradient from `--accent-deep`,
-  so one pick re-tints buttons, chips, borders, highlights and the calendar
+  so one pick re-tints buttons, chips, highlights and the calendar
   together instead of leaving half the UI gold. Gold stays the default.
 - **Motion** — *Follow system* (default, honours `prefers-reduced-motion`),
   *Always animate*, or *No animation*. It covers the screen-to-screen transition,

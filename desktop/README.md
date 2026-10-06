@@ -73,10 +73,41 @@ Routing mirrors Nuvio:
 | Explore | `#/x/<key>/<catalogId>` | **one shuffled row** on top, then a divider, then the catalog **scrolling endlessly** — a **watchlist** catalog is just its header and your titles |
 | Sources | `#/s/<id>/<name>` | providers as a **graph**, grouped by add-on / plugin / repo |
 | Calendar | `#/calendar` | a real **month calendar** of releases (films *and* shows) |
-| Search | `#/search` | searches **titles**, collections and catalogs |
+| Search | `#/search` | searches **titles**, collections and catalogs — in the Live TV profile it searches **channels** |
+| Guide | `#/guide` | the Live TV profile's **TiviMate-shaped grid**: time ruler, channel column, programme blocks |
+| Categories | `#/categories` | the Live TV profile's own categories, each with its channel count |
+| Category | `#/categories/<group>` | one category's channels |
+| Channel | `#/channel/<id>` | one channel: logo, groups, country, now/next, and its stream URL |
 | Settings | `#/settings` | grouped: **What you see** (Content · Layout · Posters · Appearance) · **Where it comes from** (Providers · Add-ons · Plugins) · **Tracking & assistant** (Tracking · AI) · **This app** (Profile · Server) |
 
-**Content** is one switch: SFW / NSFW. **Both pickers are gone.** The language one
+**Live TV & Sports replaces Settings entirely** while that profile is active:
+**Source** (the **Premium & DTH catalogue** / **M3U** URL / **Xtream Codes** login),
+**Countries** (**All countries**, or pick them), **Guide & EPG** (an XMLTV URL, plain
+or gzipped), **Refresh** (follow Content, or 15/30/60/180 minutes), then **Profile &
+playback** and **This device**. The default is not a public free-TV directory — it is
+a catalogue of real DTH, cable and premium operators (`addon/dth.mjs`), shipped with
+the app: pick the providers you subscribe to and Live TV draws **their** lineup and
+**their** guide, because a provider's XMLTV feed declares its own channels as well as
+its schedule. Streams are never shipped — a premium stream belongs to a subscriber's
+box — so your own export (M3U or Xtream) supplies them and the two meet on
+**`tvg-id`**. **Countries** scopes both Live TV cards. Content, Posters, Providers,
+Add-ons, Plugins, Tracking and AI do not apply to a live playlist and are not
+offered there; switching back restores them. The playlist URL and the Xtream
+password are kept server-side — the page is told only that they are set.
+
+**Live TV Home is two cards, not two banners.** The **Guide** and the **Categories**
+cards wear the same box a Movies card does — a 16:9 frame holding the first few rows
+of what is inside, with the name and a line under it — and they sit side by side in
+the home grid, the way Genres and Decades do. **A channel plays in the app**: its page
+carries **Play** as well as *Copy link*, and HLS is decoded by `hls.js` **vendored at
+`ui/vendor/hls.min.js`**, so the Electron window and the APK play with no CDN
+(Safari and Android TV use their own player). Escape or **Close** leaves it.
+
+**Content** is one switch: SFW / NSFW, plus **Refresh catalogs & metadata**
+(15 / 30 / 60 / 180 minutes or *Only when you ask*, and **Refresh now**). The
+banner runs on its own clock — **Spotlight moves every ten seconds** at random and
+freezes under the cursor — and every **card** redraws its artwork **on app start**,
+not on the refresh clock. **Both pickers are gone.** The language one
 read as if it moved the regional cards (it never did — rows are served in English
 and the server's `language` still rides on every catalog URL as `?lang=`), and the
 country one only ever named the regional OTT services. The country is still real
@@ -93,13 +124,13 @@ catalogs for this profile*, off by default. On, it gives one switch for Movies a
 Shows, one per card, and one per catalog row inside each card (indented under it),
 remembered per profile in `localStorage` (`nuvio.visibility`). The editor is split
 into a **Media rows** section and a **Cards** section, and inside *Cards* each card
-is its own bordered block with its catalog rows in it — so "which rows belong to
+is its own panel with its catalog rows in it — so "which rows belong to
 this card?" is answered by the box they sit in, and the block's own switch reports
 how many of its rows are on. The same master switch is drawn in **Settings → AI** as
 *Pick the cards for you*.
 
 **Appearance** is the accent colour (the whole app is tinted from `--accent-rgb` /
-`--accent-deep`, so one pick re-tints buttons, chips, borders and highlights
+`--accent-deep`, so one pick re-tints buttons, chips, highlights
 together — Gold is the default, not the only colour) and **Motion** (*Follow
 system* / *Always animate* / *No animation*, covering the screen transition, hover
 lifts and the row highlight).
@@ -113,22 +144,119 @@ screen; the picker carries no *Manage profiles* button.
 marked *Current profile*) — it lists no other profile and offers no switch. Switching
 happens on the switch-profile screen, which the top-bar icon opens.
 
+**One surface language, on every screen.** Nothing is drawn with a hairline: cards,
+tiles, the banner, panels, fields, buttons and the rail are single flat fills that
+lift or brighten under the cursor, and the accent goes on what you act on — the chosen
+chip, the primary button, a focused field, the letter you picked, the profile you are
+on. The lines that remain mean something: the calendar's grid, the guide's ruler and
+channel column, the section dividers, the plate on the tag arrows, and the ring around
+a chosen colour. **One pill** carries every chip — a card's catalog tags, the search
+panel's filter choices, the model chips — and **one voice** carries every caption: the
+labels that used to be small-caps with letter-spacing (result heads, filter labels,
+card subtitles, the guide corner, the calendar's weekday row) are bold sentence case.
+The tag arrows are the deliberate exception to the flat pass — a stroked chevron on a
+bordered, accent-tinted plate is what makes them read as something to press.
+
 **Top bar:** no app logo or label, **no Movies/Shows tabs** and **no counts** (the
 old `Movies & Shows · 21 collections · 534 catalogs` line is gone). Left: a **profile
 icon**, the **calendar** button, then a **vertical divider**. Middle: **Home**. Right:
 **search** and **Settings**. Every one of those controls is the same drawn 24px
 stroke icon (no emoji glyphs), and both dividers are painted lines, not faint
-near-transparent ones.
+near-transparent ones. Settings is a **real cog** — the old glyph was a centre dot
+with eight even spokes, which reads as a brightness/sun icon, not as settings.
+
+**The page keeps its place.** Every screen remembers where it was scrolled: going
+back returns you to the spot you left, and re-rendering the screen you are already on
+— a pin, a filter, a settings toggle, a row switch — does not move the page at all.
+A brand-new screen starts at the top. The browser's own scroll restore is switched
+off, so the two cannot fight over it.
+
+**A poster plate is never left empty.** A calendar plan stores only the fields the
+app draws, and any picture can fail to load, so a card with no artwork to show draws
+the title's own **initials** instead of a dark rectangle.
 
 **Movies and Shows are buttons under the hero banner.** Movies is selected by
 default; picking Shows swaps both the cards *and* the hero banner to that row. The
 banner shows no counters — only its **Explore** action.
 
-**Watchlist comes first, then a vertical divider**, then **Discover ◆ Top 10** and
-the rest of the cards. The cards are always in the published order, and every card
-appears — there is no picked subset on Home any more.
+The banner reads **left to right: text, then picture**. The titles, their catalog
+chips and **Explore** sit on the **left**, the artwork frame holds the **right-hand
+slot** (it was moved to the left by mistake and is back), and the frame is a
+**button**: the landscape shot is the way into the title on it (falling back to the
+collection before the shot arrives). Under the chips is a second line — **the cards
+beside the one on the banner**, each one's label and one of its own rows — and that
+line **refreshes on the banner's own ten-second clock**, so the left side moves with
+the picture rather than standing still. The frame also wears **no generated vector
+scene at any point**: while the backdrop is on its way you see the app's own flat
+panel.
 
-The **Watchlist** card holds the three states a pinned title moves through:
+A **boot screen** covers the app until the first screen is drawn, then fades out — it is
+a real element, so what appears behind it is a finished page and not an empty shell.
+With *motion* off (or the system reduced-motion preference) it simply goes.
+
+The banner calls itself **Spotlight**. It shows **one landscape picture** — a backdrop,
+not a 2:3 poster, at `w1280` so a full-width banner is not blurry — drawn from the
+row that means "out now": **Now Playing** on movies, **On the Air** on shows. Every
+ten seconds it moves to another title **in that same catalog** (never the one already
+on screen), so the banner refreshes its picture; it does not walk the cards, and its
+name is the name of the title on it. It used to move to a different card every ten seconds,
+and **holds still while the cursor is on it** — reading it is a reason for it not to
+change under you — then picks up again on the way out.
+
+A row of titles scrolls **smoothly**: the wheel only moves a target and a frame loop
+eases the row toward it, instead of snapping the row a wheel-notch at a time.
+
+**A tag line is a two-row window with up/down arrows.** The big cards carry nearly
+two hundred tags, and as one wall of pills they pushed the rows off the screen — so
+the line never grows: the arrows scroll it a row at a time (the wheel works over it
+too) and each one dims at its own end of the list. Nothing is expanded in place.
+Short cards get no control at all. Both arrows are drawn as **buttons** — a bordered,
+accent-tinted plate with a stroked chevron, sized and hovered like every other
+control — so they read as something to press rather than as marks on the background.
+The chevron is built with `document.createElementNS`, in the **SVG namespace**:
+`el("svg", …)` makes an HTML element merely *named* "svg", whose paths are never
+painted, which is why the control used to come out as two empty pills.
+
+**Explore has an alphabet rail** down the right-hand gutter, and it indexes the
+**titles in the row**: every letter from A to Z, and picking one **shows only that
+letter's titles** — the grid is filtered to them, and the catalog is **paged in
+until the letter is filled out**, so it is all of them rather than the one or two
+the first window happened to hold. The chosen letter is filled on the rail, a line
+above the grid names it and carries the way back (**Show all**), and picking the
+same letter again restores the whole row. Letters the loaded pages do not cover are
+dimmed, never dead. The rail is a **column in the grid's own row**
+(`.explore-body`), so it starts with the catalog row rather than the shuffle sample
+above it, and it is `sticky` at `50vh` — its letters sit level with the **middle of
+the screen** beside the poster columns, in the gutter, never an overlay.
+
+**A card's own titles replace its cover — and the cover is never drawn.** Every
+card, the banner and a card page wear `art-blank` from the first paint, so what
+opens is the app's own **flat panel**; the frame becomes the card's own poster wall
+the moment the pictures arrive (`art-filled`), padded and gapped, each picture keeping
+its own shape. The generated vector scene is not on screen at any point — it used to
+be the layer under all of this, which made every card arrive as an illustration of
+itself and then change under you. The cut changes **once per launch** (the banner is
+the one thing that redraws while the app runs: every ten seconds, at random, frozen
+under the cursor).
+
+**A card does not lift.** The grid used to raise every card on hover; a transform
+makes a stacking context, so the raised card painted *over* the floated top bar and
+its rounded corners cut across what sat behind them. The hover response is now a fill
+and an inset ring, the card is `overflow: hidden`, and the poster strip is clipped to
+the frame's radius — nothing a card draws can leave its own box.
+
+**Watchlist comes first, then a vertical divider**, then **Discover ◆ Top 25** and
+the rest of the cards. The cards are always in the published order, and every card
+appears — there is no picked subset on Home any more. The **Watchlist** card's frame
+holds **two** posters: it is three rows of your own pins, and a wider wall of them
+read as a chart rather than as "what you are watching". A card is also only ever
+drawn with the rows the addon's **manifest** publishes, so a retired catalog cannot
+be left behind as a chip that 404s when it is opened.
+
+The **Watchlist** card is the one card that redraws **immediately**: its artwork *is*
+its contents, so a pin or an unpin drops the draw and refetches it then and there,
+while every other card holds its artwork until the next launch. It holds the three
+states a pinned title moves through:
 **Plan to Watch**, **Watching**, **Watched** — and nothing else: the *Add cards in
 watchlist* row is gone from the card, from the title modal and from the addon, so
 no *add cards* catalog is published at all. Open any title and pick a state in its
@@ -143,6 +271,8 @@ catalog name is a chip that opens that catalog inside the card.
 
 **Explore** shows only the card label and the catalog label in its header (with a
 catalog switcher) and a **Shuffle** that redraws its sample rows with fresh random
+draws from the row **and from other origin countries** it holds, so a shuffle is not
+the same American chart every time,
 draws — requested with a cache-busting `_=<n>` parameter and answered
 `cache-control: no-store`, because a cached identical URL is what made Shuffle look
 like a button that did nothing.
@@ -159,6 +289,21 @@ Shuffle button at the top right of the header** which draws a fresh sample. A
 your own pins, so its Explore page is the header and the titles.
 Everything below the divider is the normal, endlessly scrolling catalog.
 
+**Search goes as deep as a row does, and the bar carries no magnifier.** The field
+is the panel: one flat fill, the text edge to edge, and the **Filters** control
+closing it. The field draws no focus ring of its own either — the accent ring belongs
+to the whole bar. A query (or a browse with no text) reads
+**six pages of TMDB per row type** to fill the first window, and **Load more
+results** under the last group reads the next window — there is no ceiling;
+it used to keep only the first page, which is why "disney+" looked like it answered
+with about twenty titles. `◆ Top 10` rows are the deliberate exception.
+
+**Where the next window starts is the server's answer.** A window stops early at a
+short TMDB page, so a search with forty results is finished on page two — and
+"six pages further on" then stepped past the end, which is why **Load more** looked
+dead. The response carries `next`, the page to continue from (null when the row type
+is finished), and the button hides on that.
+
 The depth comes from the server: it reads TMDB 20 titles at a time into a growing,
 10-minute cache per catalog, so each 40-title window continues where the last
 stopped, repeats are free, and a row can serve up to 300 titles. `◆ Top 10` rows
@@ -171,12 +316,16 @@ end.
 previous/next month navigation — not a list of Latest/New Release rows. A day
 lists **films and shows together** (each card is tagged with which it is), clicking
 the selected day again **deselects** it, and the grid carries no caption text.
-Every release has its own **Plan to Watch** pin, and it is not a watchlist row: it
-is plan-only and the *Recently planned* list under the grid is recent-only (last
-30 days), while the Watchlist card scans every state whatever the date. Calendar
-plans live in their own stored row (`calendar-plans`, via `/customrows`) and are
-never published as a catalog, so pinning a release never fills the Watchlist card.
-*Recently planned* is a heading and its cards — no explanatory paragraph.
+Every release has its own **Plan to Watch** pin, and it is a **toggle**: a planned
+release says **planned** and pressing it puts the plan back. It was briefly
+add-only — a plan about a date must not be deleted by a stray click — but with no
+other way to remove one, a plan you had changed your mind about sat there for good.
+The pin is not a watchlist row: it is plan-only, while the Watchlist card scans every
+state whatever the date. Calendar plans live in their own stored row
+(`calendar-plans`, via `/customrows`) and are never published as a catalog, so
+pinning a release never fills the Watchlist card. **The grid carries no *Recently
+planned* shelf**: the plans live on the day they belong to, and there is nothing to
+prune.
 
 A tile is entered by clicking its **artwork** — not the whole tile. Back (Escape /
 ← button) returns home; Escape in Explore goes back to the collection. A
@@ -193,8 +342,13 @@ lists the models the provider actually serves as pickable chips, and a link to g
 a key, plus an
 optional **model** override. Paste a key and the ask box stops being a text box:
 the server calls the provider, turns "a lonely detective in the rain" into a search
-query, and hands it to the title search. With no key it searches the words you
-typed, so it still works. Keys never reach the page (`/settings` and `/ai.json` say
+query, and hands it to the title search. **Pick movies or shows for me** narrows
+that search to one row (the search screen's *Type*), or leaves it on Both. With no key it searches the words you
+typed, so it still works. **Whether a key is set is the server's answer, not the
+page's** — the page reads `/ai.json` at boot, so a key that lives in the environment
+(or was pasted for a provider other than the chosen one) is used, and the Ask box no
+longer falls back to a literal search on a server that had a working key. Keys never
+reach the page (`/settings` and `/ai.json` say
 only whether one is set), and every call is plain `fetch` from Node — no SDK.
 
 The section also requests the next-bigger artwork size for classic posters and
@@ -259,7 +413,10 @@ cross-origin request. The UI reads:
 | `/settings` (GET/POST) | profile, provider/tracking/AI keys, AI options, the **content source**, **language** and **country**, plus the language/country `options` the Content pane is built from |
 | `/watchlist` (GET/POST) | your pins and their states (`Plan to Watch` / `Watching` / `Watched`) |
 | `/ai/ask`, `/ai/verify` | the Ask box and its key check |
-| `/search.json` | title search (what the Ask box feeds) |
+| `/search.json` | title search (what the Ask box feeds), and the panel's own filters while browsing |
+| `/search/filters.json` | the filter panel's vocabulary — one row per card line |
+| `/live/channels.json`, `/live/guide.json`, `/live/status.json` | the Live TV profile's channels, its XMLTV guide, and the source's state |
+| `/live/countries.json` | the public directory's country table (name, ISO code, flag) for the settings picker |
 | `/addon-status.json` | diagnostics: keys present, catalog count, region, language, content source + how many titles it upgraded |
 
 ## Android TV — the Capacitor project is generated and TV-ready

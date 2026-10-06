@@ -8,10 +8,25 @@
  *   depends on hard-coded id tables that can drift.
  */
 
-import { activeLanguage } from "./settings.mjs";
+import { activeLanguage, activeRefreshMinutes } from "./settings.mjs";
 
 const BASE = "https://api.themoviedb.org/3";
-const TTL_MS = Number(process.env.TMDB_CACHE_TTL_MS) || 30 * 60 * 1000;
+
+/**
+ * How long a TMDB response is reused.
+ *
+ * Settings → Refresh decides it, so "update the catalogs every hour" also means
+ * "the addon may see new data every hour". With the refresh set to 0 ("only when
+ * you ask") a response is kept for a day, so nothing changes behind the user's
+ * back. `TMDB_CACHE_TTL_MS` still overrides both — that is what the probes and
+ * the tests use.
+ */
+const ENV_TTL_MS = Number(process.env.TMDB_CACHE_TTL_MS) || 0;
+const ttlMs = () => {
+  if (ENV_TTL_MS > 0) return ENV_TTL_MS;
+  const minutes = activeRefreshMinutes();
+  return minutes > 0 ? minutes * 60_000 : 24 * 60 * 60 * 1000;
+};
 
 export const IMG = "https://image.tmdb.org/t/p";
 
@@ -86,7 +101,7 @@ async function request(path, params = {}) {
     throw new Error(`TMDB ${res.status} for ${path}${body ? ` — ${body.slice(0, 160)}` : ""}`);
   }
   const json = await res.json();
-  cache.set(keyName, { value: json, expires: Date.now() + TTL_MS });
+  cache.set(keyName, { value: json, expires: Date.now() + ttlMs() });
   return json;
 }
 
@@ -100,7 +115,7 @@ export async function genres(media) {
   if (hit && hit.expires > Date.now()) return hit.value;
   const res = await request(`/genre/${tmdbPath(media)}/list`);
   const value = res.genres ?? [];
-  genreCache.set(media, { value, expires: Date.now() + TTL_MS });
+  genreCache.set(media, { value, expires: Date.now() + ttlMs() });
   return value;
 }
 

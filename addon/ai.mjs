@@ -65,10 +65,18 @@ export const AI_PROVIDERS = {
   },
 };
 
-/** The provider the app will use, or "" for plain search. */
+/**
+ * The provider the app will use, or "" for plain search.
+ *
+ * With nothing picked, the first provider that actually **has a key** is used
+ * instead of returning "". A key can come from the environment (or from a key
+ * pasted for a provider other than the chosen one), and returning "" there made
+ * every AI control look broken while the key sat there unused.
+ */
 export const aiProviderName = () => {
   const name = String(getSettings().ai?.provider || "");
-  return AI_PROVIDERS[name] ? name : "";
+  if (AI_PROVIDERS[name]) return name;
+  return Object.keys(AI_PROVIDERS).find((slug) => aiKey(slug)) || "";
 };
 
 /** The key for a provider: the one pasted in Settings, else its environment key. */

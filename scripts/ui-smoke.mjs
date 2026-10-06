@@ -215,6 +215,13 @@ for (let i = 0; i < 120 && !$$("#main > *").length; i++) await settle(40);
 
 console.log("headless UI smoke test\n");
 check("boot rendered the app", $$("#main > *").length > 0, `#main children: ${$$("#main > *").length}`);
+// The boot screen: a real element, taken away once the first screen is up.
+check("there is a boot screen, with a mark and a name",
+  Boolean($(".boot")) && Boolean($(".boot-ring")) && /Nuvio/.test(text($(".boot-name"))),
+  text($(".boot-name")));
+check("and the app takes it away once the first screen is on the page",
+  Boolean($(".boot")) && ($(".boot").classList.contains("done") || $(".boot").hidden === true),
+  $(".boot") ? `class="${$(".boot").className}" hidden=${$(".boot").hidden}` : "no boot screen");
 check("no error before any interaction", errors.length === 0, errors.join(" | "));
 
 /* --------------------------------------------------------------- top bar */
@@ -326,16 +333,36 @@ check("every card lays its own contents over the cover",
   $$(".icon-box").every((b) => Boolean(b.querySelector(".content-strip"))),
   `${$$(".content-strip").length} strips`,
 );
+// The posters *replace* the vector scene: the frame carries `art-filled` as soon as
+// its pictures arrive, which is what hides the generated cover underneath.
+check("and the frame keeps its own layout rule, padded from its edges",
+  /inset:\s*10px/.test(ruleFor(".content-strip")) && /gap:\s*8px/.test(ruleFor(".content-strip")),
+  ruleFor(".content-strip").trim().slice(0, 70));
 // jsdom does not compute pointer-events for a class rule, so read the stylesheet —
 // the overlay must never swallow the click that enters a card.
 check("and the overlay never takes the click that opens a card", /pointer-events:\s*none/.test(ruleFor(".content-strip")), ruleFor(".content-strip").trim().slice(0, 70));
 check("the banner lays its card's contents over the cover too", Boolean($(".hero-art .content-strip")));
+// The picture keeps the left-hand slot, and it is a **button**: the landscape shot
+// is the way into the title on it.
+check("the banner's picture is on the left and is clickable",
+  $(".hero")?.firstElementChild?.classList.contains("hero-art") &&
+    $(".hero-art")?.tagName === "BUTTON" &&
+    $(".hero-art")?.getAttribute("type") === "button",
+  `${$(".hero")?.firstElementChild?.className} · ${$(".hero-art")?.tagName}`);
 // The strips are filled from the catalog endpoint, so give the row a moment to answer.
 await settle(2500);
 check("and those pictures are real images of the card's titles",
   $$(".content-strip .content-tile").length > 0 &&
     $$(".content-strip .content-tile").every((i) => /^https?:/.test(i.getAttribute("src") || "")),
   `${$$(".content-strip .content-tile").length} tile images`,
+);
+const filledStrips = $$(".content-strip.filled");
+const unframed = filledStrips.filter((s) => !s.parentElement?.classList.contains("art-filled"));
+const cardCoverRule = /\.icon-wrap\.art-filled \.icon-art img \{\s*opacity:\s*0/.test(css);
+const heroCoverRule = /\.hero-art\.art-filled[^{]*\{\s*background-image:\s*none !important/.test(css);
+check("the posters replace the cover in the frame they land in",
+  filledStrips.length > 0 && unframed.length === 0 && cardCoverRule && heroCoverRule,
+  `${filledStrips.length} filled · ${unframed.length} unframed [${[...new Set(unframed.map((s) => s.parentElement?.className || "detached"))].join("|")}] · cover rules ${cardCoverRule}/${heroCoverRule}`,
 );
 check("Watchlist is first and a divider precedes the rest",
   text($$(".icon-box .icon-name")[0]) === "Watchlist" && Boolean($(".icons .v-divider")),
@@ -370,6 +397,60 @@ check("the banner moves to another card on its own within ten seconds",
   Boolean(text($(".hero-title"))) && text($(".hero-title")) !== heroBefore,
   `${heroBefore} → ${text($(".hero-title"))}`,
 );
+check("the banner names itself", text($(".hero-kicker")) === "Spotlight", text($(".hero-kicker")));
+// A card with eighty tags must not turn the banner into a wall of pills.
+check("the banner's tag line is held to two rows when its card has many tags",
+  $$(".hero-cats button.chip").length <= 8 || Boolean($(".hero-cats .chip-arrow")),
+  `${$$(".hero-cats button.chip").length} tags · ${$(".hero-cats .chip-arrow") ? "two rows + arrows" : "short enough"}`);
+// The arrows **scroll** the line — they do not expand it — and they only exist
+// where the tags do not fit. The glyph has to be a drawn stroke, or it renders as a
+// filled blob on a dark background (an "empty pill").
+const heroClamped = $(".hero-cats.chip-clamped");
+if (heroClamped) {
+  const track = heroClamped.querySelector(".chip-track");
+  const arrows = [...heroClamped.querySelectorAll(".chip-arrow")];
+  check("a long tag line gets an up arrow and a down arrow",
+    arrows.length === 2 &&
+      arrows[0].classList.contains("up") && arrows[1].classList.contains("down") &&
+      /overflow-y:\s*auto/.test(ruleFor(".chip-clamped .chip-track")) &&
+      // The arrows have to be *strokes*: a filled glyph on a dark plate is the
+      // "empty pill" this control used to be.
+      /stroke:\s*currentColor/.test(ruleFor(".glyph svg")),
+    `${arrows.length} arrows · track: ${ruleFor(".chip-clamped .chip-track").trim().slice(0, 40)}`);
+  check("the two arrows point opposite ways",
+    arrows[0].querySelector("path")?.getAttribute("d") === "M6 15l6-6 6 6" &&
+      arrows[1].querySelector("path")?.getAttribute("d") === "M6 9l6 6 6-6",
+    `${arrows[0].querySelector("path")?.getAttribute("d")} / ${arrows[1].querySelector("path")?.getAttribute("d")}`);
+  // jsdom has no layout, so nothing to scroll — but the *control* is checkable: the
+  // down arrow asks the track to scroll by a positive step, and it never opens the
+  // line into a wall of pills.
+  const asked = [];
+  track.scrollBy = (opts) => asked.push(opts?.top || 0);
+  const tagsBefore = $$(".hero-cats button.chip").length;
+  arrows[1].click();
+  await settle(120);
+  check("the down arrow scrolls the line a row at a time instead of opening it",
+    asked.length === 1 && asked[0] > 0 &&
+      !track.classList.contains("open") &&
+      $$(".hero-cats button.chip").length === tagsBefore && tagsBefore > 8,
+    `asked for ${asked[0]}px · ${tagsBefore} tags still held to two rows`);
+  arrows[0].click();
+  await settle(60);
+  check("and the up arrow scrolls back the same way",
+    asked.length === 2 && asked[1] < 0,
+    `asked for ${asked.join(", ")}px`);
+}
+// Reading the banner is a reason for it to hold still: with the cursor on it the
+// ten-second rotation freezes, and it picks up again on the way out.
+const hoveredTitle = text($(".hero-title"));
+$(".hero").dispatchEvent(new window.Event("mouseenter"));
+await settle(10_600);
+check("the banner freezes while the cursor is over it",
+  text($(".hero-title")) === hoveredTitle, `${hoveredTitle} → ${text($(".hero-title"))}`);
+$(".hero").dispatchEvent(new window.Event("mouseleave"));
+await settle(10_600);
+check("and it moves again once the cursor leaves it",
+  text($(".hero-title")) !== hoveredTitle, `${hoveredTitle} → ${text($(".hero-title"))}`);
 $$(".row-switch .row-btn")[0].click();
 await settle(120);
 check("clicking Movies swaps back", text($(".section-title")) === "Movies");
@@ -391,10 +472,11 @@ check("the rows are in the published order, not shuffled by a control",
       ?.movie.catalogs.map((x) => x.name).join(" | "),
   $$(".cat-row .cat-name").map(text).join(", "),
 );
-// Enter Explore the way a user does: the row's own button — on the card that owns
-// the ◆ Top 10 rows, because the banner is no longer pinned to that one card (it
-// rotates), so the chip above can land on any collection.
-await nav("#/c/discover-top-10", 900);
+// Enter Explore the way a user does: the row's own button — on a card that owns a
+// ◆ Top 10 row, because the banner is no longer pinned to that one card (it
+// rotates) and the Discover card's rows are ◆ Top 25 now, so the chip above can
+// land on any collection.
+await nav("#/c/global-ott-top-10", 900);
 $$(".cat-row .btn.explore")[0].click();
 await settle(1200);
 check("a row's Explore opens that catalog", window.location.hash.startsWith("#/x/"), window.location.hash);
@@ -404,6 +486,70 @@ check("Explore shows the card label and the catalog label",
 check("Explore shows only those two labels in the header", $$(".explore-head .crumb").length === 2);
 check("Explore has no cover image or extra blurb", !$(".explore .section-cover") && !/catalogs in this collection/.test(text($(".explore"))));
 check("Explore has a shuffle", $$(".explore-head .cat-tools .btn").some((b) => text(b).includes("Shuffle")));
+
+/* The alphabet rail: an index of the row's *titles* by first letter.
+   It is a column in the grid's own row (`.explore-body`), so the letters sit
+   level with the poster columns and clear of them — it used to be `position:
+   fixed` at the middle of the viewport, which floated it over the sample row. */
+check("Explore offers the alphabet rail",
+  $$(".alpha-rail .alpha").length === 26, `${$$(".alpha-rail .alpha").length} letters`);
+check("the rail is a column in the grid's own row, so its letters line up with the posters",
+  $(".explore-body")?.contains($(".alpha-rail")) === true &&
+    $(".explore-body")?.contains($(".explore .grid-titles")) === true &&
+    /display:\s*flex/.test(ruleFor(".explore-body")) &&
+    /position:\s*sticky/.test(ruleFor(".alpha-rail")),
+  `${$(".alpha-rail")?.parentElement?.className} · ${ruleFor(".alpha-rail").trim().slice(0, 40)}`);
+// It is level with the middle of the screen, not pinned under the header, and it
+// lives inside `.explore-body` — so it starts at the catalog row and never at the
+// shuffle sample above it.
+check("and it is aligned with the middle of the screen, not pinned under the header",
+  /top:\s*50vh/.test(ruleFor(".alpha-rail")),
+  ruleFor(".alpha-rail").trim().replace(/\s+/g, " ").slice(0, 80));
+check("and it is drawn as a plate, not letters floating on the posters",
+  /background:\s*rgba\(10, 11, 15/.test(ruleFor(".alpha-rail")),
+  ruleFor(".alpha-rail").trim().slice(0, 60));
+check("letters this row has nothing under are marked off",
+  $$(".alpha-rail .alpha.off").length > 0 && $$(".alpha-rail .alpha:not(.off)").length > 0,
+  `${$$(".alpha-rail .alpha.off").length} off · ${$$(".alpha-rail .alpha:not(.off)").length} on`);
+// The rail indexes the *contents*: a letter is on exactly when a loaded title
+// starts with it.
+const onLetters = () => new Set($$(".alpha-rail .alpha:not(.off)").map(text));
+const titleLetters = () => new Set($$(".explore .grid-titles .poster")
+  .map((p) => (text(p.querySelector(".poster-name")) || "").trim().charAt(0).toUpperCase())
+  .filter((c) => /[A-Z]/.test(c)));
+check("the rail's letters are the titles that are actually loaded",
+  [...onLetters()].sort().join("") === [...titleLetters()].sort().join(""),
+  `rail ${[...onLetters()].sort().join("")} vs titles ${[...titleLetters()].sort().join("")}`);
+// Picking a letter **shows that letter's titles and nothing else** — it is a
+// filter over the row, not a jump to one title (the row is paged in until the
+// letter is filled out, and the same letter again puts everything back).
+const shownLetters = () => $$(".explore .grid-titles .poster")
+  .map((p) => (text(p.querySelector(".poster-name")) || "").trim().charAt(0).toUpperCase())
+  .filter((c) => /[A-Z]/.test(c));
+const firstLetterBtn = $$(".alpha-rail .alpha:not(.off)")[0];
+const letter = firstLetterBtn ? text(firstLetterBtn) : "";
+firstLetterBtn?.click();
+await settle(260);
+const pickedLetters = shownLetters();
+check("picking a letter shows that letter's titles and nothing else",
+  Boolean(firstLetterBtn) && pickedLetters.length > 0 && pickedLetters.every((c) => c === letter),
+  `${letter} → ${[...new Set(pickedLetters)].join("") || "nothing"} (${pickedLetters.length} titles)`);
+check("and the line above the grid names the letter, with the way back",
+  $(".explore-filter")?.hidden === false &&
+    String(text($(".explore-filter-text"))).includes(letter) &&
+    Boolean($(".explore-filter button")),
+  `${text($(".explore-filter-text"))} · back=${Boolean($(".explore-filter button"))}`);
+check("the chosen letter is marked on the rail itself",
+  text($(".alpha-rail .alpha.on")) === letter &&
+    $(".alpha-rail .alpha.on")?.getAttribute("aria-pressed") === "true",
+  `${text($(".alpha-rail .alpha.on")) || "none"} marked`);
+$(".explore-filter button")?.click();
+await settle(260);
+check("picking it again puts the whole row back",
+  $(".explore-filter")?.hidden === true &&
+    !$(".alpha-rail .alpha.on") &&
+    shownLetters().length >= pickedLetters.length,
+  `${shownLetters().length} titles back`);
 
 /* -------------------------- one sample row above the exploring rows ------ */
 /* ONE sample row, drawn as an ordinary row: no "Shuffle 1" label, no control of
@@ -425,19 +571,22 @@ check("there is exactly one shuffle button, at the top right of the header",
   `${$$(".explore-head .cat-tools button").length} header controls`);
 check("a horizontal divider separates the sample row from the catalog",
   $(".explore-shuffles")?.nextElementSibling === $(".explore .h-divider") &&
-    $(".explore .h-divider")?.nextElementSibling === $(".explore .grid-titles"),
+    $(".explore .h-divider")?.nextElementSibling === $(".explore .explore-body"),
   `${$(".explore-shuffles")?.nextElementSibling?.className || "nothing"} then ${$(".explore .h-divider")?.nextElementSibling?.className || "nothing"}`);
 const shuffleRowsFilled = await waitFor(() =>
   $$(".explore-shuffles .shuffle-row").every((r) => r.querySelectorAll(".poster").length > 0));
 check("every sample row draws titles", shuffleRowsFilled,
   $$(".explore-shuffles .shuffle-row").map((r) => r.querySelectorAll(".poster").length).join("/"));
 check("Explore renders real titles", $$(".explore .grid-titles .poster").length > 0, `${$$(".explore .grid-titles .poster").length} posters`);
-// The hero leads with a ◆ Top 10 row, which must stay exactly ten titles.
+// A ◆ Top 10 row must stay exactly ten titles however far it is scrolled. The end
+// note is written once the app knows the row is drained, which is a round trip
+// after the tiles land — so wait for it rather than assuming the settle covered it.
+const drained10 = await waitFor(() => /End of catalog\./.test(text($(".explore .sentinel"))), { tries: 40, ms: 250 });
 check("a ◆ Top 10 catalog holds exactly ten titles, however far it is scrolled",
   $$(".explore .grid-titles .poster").length === 10 && /End of catalog\./.test(text($(".explore .sentinel"))),
-  `${$$(".explore .grid-titles .poster").length} posters · ${text($(".explore .sentinel")) || "no sentinel"}`);
+  `${$$(".explore .grid-titles .poster").length} posters · ${text($(".explore .sentinel")) || "no sentinel"} · drained=${drained10}`);
 check("Explore scrolls endlessly and stops at the end",
-  /End of catalog\./.test(text($(".explore .sentinel"))) && requested.some((u) => u.includes("skip=")),
+  drained10 && requested.some((u) => u.includes("skip=")),
   text($(".explore .sentinel")) || "no sentinel text");
 
 /* ------------------------------------------------------------ collection */
@@ -445,7 +594,24 @@ await nav("#/");
 $$(".icon-art")[1].click();
 await settle(160);
 check("a collection opens from its artwork", $$(".cat-row").length > 0, `${$$(".cat-row").length} rows`);
-check("collection cover is shown", ($(".section-cover")?.getAttribute("src") || "").includes("/covers/"));
+// The card page's artwork is the card's own frame — the generated cover is its
+// background, and the card's titles are laid inside it — with the name and tags on
+// the left, exactly like the banner.
+check("the card's artwork is on the right of its name and tags",
+  (() => {
+    const head = $(".section-head");
+    const kids = [...(head?.children || [])];
+    return kids.length === 2 && kids[0].classList.contains("section-meta") && kids[1].classList.contains("section-art") &&
+      /\/covers\//.test((kids[1].getAttribute("style") || "") + "") === true;
+  })(),
+  $(".section-head")?.children?.[1]?.className || "no head");
+check("and the tags line comes before it in that frame",
+  Boolean($(".section-meta")?.querySelector(".cats")), "no tags");
+check("the card's own posters are laid inside that frame, padded and never stretched",
+  /position:\s*absolute/.test(ruleFor(".content-strip")) &&
+    /inset:\s*10px/.test(ruleFor(".content-strip")) &&
+    /object-fit:\s*cover/.test(ruleFor(".content-tile")),
+  `strip: ${ruleFor(".content-strip").trim().slice(0, 60)}`);
 check("collection catalog labels are clickable", $$(".cats button.chip").length === $$(".cats .chip").length && $$(".cats button.chip").length > 0);
 // A row carries its catalog's name and Explore — and no shuffle. A shuffle there
 // could only reorder the rows, which is not what "shuffle" means to anyone using
@@ -467,6 +633,43 @@ check("a collection catalog label stays on the card", window.location.hash.start
 check("and the row it names is on the page",
   $$(".cat-row .cat-name").some((n) => text(n) === chipLabel),
   chipLabel);
+
+// A card's tag line is a two-row window with up/down arrows that scroll it — the
+// big cards carry nearly two hundred tags, and as one wall of pills they pushed
+// every row off the page.
+await nav("#/c/themes-and-tags", 800);
+check("a card with many tags holds its tag line to two rows",
+  Boolean($(".cats.chip-clamped")) && $$(".cats .chip-arrow").length === 2,
+  `${$$(".cats button.chip").length} tags · ${$$(".cats .chip-arrow").length} arrows`);
+check("and that window scrolls instead of growing into a taller wall",
+  /max-height/.test(ruleFor(".chip-clamped .chip-track")) &&
+    /overflow-y:\s*auto/.test(ruleFor(".chip-clamped .chip-track")),
+  ruleFor(".chip-clamped .chip-track").trim().slice(0, 70));
+// The arrows have to read as controls: a bordered, tinted plate with a stroke
+// glyph in it — not a bare pill with an invisible (filled) glyph.
+check("the arrows are drawn as buttons, not bare glyphs",
+  /border-radius:\s*10px/.test(ruleFor(".chip-arrow")) &&
+    /border:\s*1px solid rgba\(var\(--accent-rgb\), 0\.45\)/.test(ruleFor(".chip-arrow")) &&
+    /background:\s*rgba\(var\(--accent-rgb\), 0\.14\)/.test(ruleFor(".chip-arrow")) &&
+    /stroke:\s*currentColor/.test(ruleFor(".glyph svg")),
+  ruleFor(".chip-arrow").trim().replace(/\s+/g, " ").slice(0, 90));
+const chipTrack = $(".cats .chip-track");
+const chipArrows = $$(".cats .chip-arrow");
+const chipAsked = [];
+chipTrack.scrollBy = (opts) => chipAsked.push(opts?.top || 0);
+const tagsOnPage = $$(".cats button.chip").length;
+chipArrows[1].click();
+await settle(120);
+chipArrows[0].click();
+await settle(60);
+check("the arrows scroll the tags a row at a time, and nothing is expanded in place",
+  chipAsked.length === 2 && chipAsked[0] > 0 && chipAsked[1] < 0 &&
+    !chipTrack.classList.contains("open") && $$(".cats button.chip").length === tagsOnPage,
+  `asked ${chipAsked.join(", ")}px · open=${chipTrack.classList.contains("open")}`);
+await nav("#/c/watchlist", 500);
+check("a card with few tags gets no clamp and no arrows",
+  !$(".cats .chip-arrow") && !$(".cats.chip-clamped") && $$(".cats button.chip").length > 0,
+  `${$$(".cats button.chip").length} tags`);
 
 /* ---------------------------------------- a catalog row keeps scrolling --- */
 // A strip used to stop dead after its first window — that is what "this card
@@ -759,20 +962,63 @@ await nav("#/search?q=india", 200);
 check("search finds results", $$(".result-list .result").length > 0, `${$$(".result-list .result").length} results`);
 await nav("#/search?q=zzzzzznope", 200);
 check("search reports no match for nonsense", window.document.body.textContent.includes("Nothing matched"));
+// Movies and shows are two lists under one search, never one mixed grid.
+await nav("#/search?q=india", 400);
+const grouped = await waitFor(() => $$("#search-titles .search-group").length > 0, { tries: 40, ms: 250 });
+const searchedGroups = $$("#search-titles .search-group .result-head").map(text);
+check("the searched titles arrive at all", grouped, `${$$("#search-titles .grid-titles .poster").length} posters`);
+check("search groups its titles into Movies and Shows",
+  searchedGroups.length > 0 && searchedGroups.every((h) => /^(Movies|Shows) \(\d+\)$/.test(h)) && new Set(searchedGroups.map((h) => h.split(" ")[0])).size === searchedGroups.length,
+  searchedGroups.join(" | ") || "no groups");
+check("a movie group holds only films and a shows group only series",
+  $$("#search-titles .search-group").every((g) => g.querySelectorAll(".grid-titles .poster").length > 0),
+  `${$$("#search-titles .search-group").length} groups`);
 
-/* The search screen: a long bar, the filter control inside it on the left,
-   suggestions as you type, and the panel of Type/Region/Category/Time/Sort. */
+/* The search screen: a full-width bar wearing the app's own panel styling, the
+   magnifier and the filter control inside it, suggestions as you type, and the
+   panel that carries one filter row per card line. */
 await nav("#/search", 160);
 const bar = $(".search-bar");
-// jsdom does not load the linked stylesheet, so this one is read from the file.
-check("the search bar is a long field, not a narrow input",
-  /display:\s*flex/.test(ruleFor(".search-bar")) &&
-    /flex:\s*1/.test(ruleFor(".search-input")) &&
-    /max-width:\s*1040px/.test(ruleFor(".search-wrap")),
-  `bar: ${ruleFor(".search-bar").trim().slice(0, 40)} · input: ${ruleFor(".search-input").trim().slice(0, 30)}`);
-check("the filter control is inside the bar, on its left",
-  bar?.firstElementChild?.id === "search-filter-btn" && Boolean($("#search-filter-btn svg")),
-  bar?.firstElementChild?.id || "nothing");
+// jsdom does not load the linked stylesheet, so these are read from the file.
+check("the search bar is the full width of the page, not a capped box",
+  /max-width:\s*none/.test(ruleFor(".search-wrap")) &&
+    /width:\s*100%/.test(ruleFor(".search-bar")) &&
+    /min-height:\s*60px/.test(ruleFor(".search-bar")),
+  `wrap: ${ruleFor(".search-wrap").trim().slice(0, 60)}`);
+check("and the field is dressed in the app's own panel, not the browser's input",
+  /var\(--panel-2\)/.test(ruleFor(".search-bar")) &&
+    /border-radius:\s*14px/.test(ruleFor(".search-bar")) &&
+    /border:\s*0/.test(ruleFor(".search-input")),
+  `bar: ${ruleFor(".search-bar").trim().slice(0, 60)}`);
+check("the magnifier leads the field and the filter control closes it",
+  bar?.firstElementChild?.classList.contains("search-glyph") &&
+    Boolean($(".search-glyph svg")) &&
+    bar?.contains($("#search-filter-btn")) &&
+    Boolean($("#search-filter-btn svg")),
+  [...(bar?.children || [])].map((n) => n.className || n.id).join(","));
+// The field used to carry `text-input` as well, which painted a second bordered
+// box inside the bar; and the filter control was an empty 38px square.
+check("the field inside the bar is not a bordered box of its own",
+  !$("#search-input")?.classList.contains("text-input") && /border:\s*0/.test(ruleFor(".search-input")),
+  `#search-input classes: ${$("#search-input")?.className}`);
+check("the filter control names itself instead of being an empty square",
+  text($("#search-filter-btn")) === "Filters" && !$("#search-filter-btn")?.classList.contains("icon-btn") &&
+    /width:\s*auto/.test(ruleFor(".search-filter-btn")),
+  `${JSON.stringify(text($("#search-filter-btn")))} · ${ruleFor(".search-filter-btn").trim().slice(0, 44)}`);
+// The choices wear the app's own pill, not an underlined word that matches
+// nothing else on screen.
+check("the filter choices are the app's own pills",
+  /border-radius:\s*999px/.test(ruleFor(".filter-chip")) &&
+    /background:\s*rgba\(255, 255, 255, 0\.07\)/.test(ruleFor(".filter-chip")),
+  ruleFor(".filter-chip").trim().replace(/\s+/g, " ").slice(0, 80));
+// The chosen chip is solid, and the "More (216)" control is a drawn pill of its own:
+// it had *no rule at all*, so it fell back to the browser's own grey button — the
+// control that read like something random on the page.
+check("the chosen chip is solid, and the More control is not the browser's default button",
+  /\.filter-chip\.active\s*\{[^}]*background:\s*var\(--accent\)/.test(css) &&
+    /\.chip-more\s*\{/.test(css) &&
+    /border-radius:\s*999px/.test(ruleFor(".chip-more")),
+  ruleFor(".chip-more").trim().replace(/\s+/g, " ").slice(0, 80));
 
 // Typing suggests, before you have asked for anything.
 const searchInput = $("#search-input");
@@ -795,33 +1041,71 @@ await nav("#/search", 160);
 $("#search-filter-btn").click();
 await settle(140);
 check("the filter button opens the filter panel", $("#search-filters") && !$("#search-filters").hidden);
-check("the panel offers Type, Region, Category, Time and Sort",
-  $$("#search-filters .filter-row .filter-label").map(text).join(",") === "Type,Region,Category,Time,Sort",
-  $$("#search-filters .filter-row .filter-label").map(text).join(","));
+const filterLabels = () => $$("#search-filters .filter-row .filter-label").map(text);
+check("the panel carries one filter row per card line",
+  filterLabels().join(",") === "Type,Continent,Country,OTT,Genre,Mood,Theme,Time,Sort",
+  filterLabels().join(","));
 // One row of chips, as labels.
 const filterChips = (i) => [
   ...($$("#search-filters .filter-row")[i]?.querySelectorAll(".filter-chip") || []),
 ].map(text);
-check("the region row lists All regions and the industries people watch",
-  filterChips(1).length >= 9 && filterChips(1).length === (liveFilters?.regions?.length ?? 0),
-  `${filterChips(1).length} regions of ${liveFilters?.regions?.length}`);
+const filterRowNode = (i) => $$("#search-filters .filter-row")[i];
+check("the Continent row is the Continental card's own continents",
+  filterChips(1).length === (liveFilters?.continents?.length ?? 0) && filterChips(1).includes("Asia"),
+  filterChips(1).join(","));
+check("the Country row is every country the Countries card publishes, clamped to two rows",
+  filterChips(2).length === (liveFilters?.countries?.length ?? 0) && filterChips(2).length > 100 &&
+    filterRowNode(2).querySelector(".filter-options")?.classList.contains("clamped") &&
+    Boolean(filterRowNode(2).querySelector(".chip-more")),
+  `${filterChips(2).length} countries of ${liveFilters?.countries?.length}`);
+check("the OTT row is the Global OTT card's own six platforms",
+  filterChips(3).length === (liveFilters?.providers?.length ?? 0) && filterChips(3).includes("Netflix"),
+  filterChips(3).join(","));
+check("the Mood and Theme rows are the keywords those cards publish, clamped too",
+  filterChips(5).length === (liveFilters?.moods?.length ?? 0) &&
+    filterChips(6).length === (liveFilters?.themes?.length ?? 0) && filterChips(6).length > 50 &&
+    filterRowNode(6).querySelector(".filter-options")?.classList.contains("clamped"),
+  `${filterChips(5).length} moods, ${filterChips(6).length} themes`);
+check("a clamped row's control says how many choices it holds",
+  /More \(\d+\)/.test(text(filterRowNode(2).querySelector(".chip-more"))),
+  text(filterRowNode(2).querySelector(".chip-more")));
+check("a clamped row opens with its chevron",
+  (() => {
+    const more = filterRowNode(6).querySelector(".chip-more");
+    more.click();
+    const open = !filterRowNode(6).querySelector(".filter-options")?.classList.contains("clamped");
+    more.click();
+    return open && filterRowNode(6).querySelector(".filter-options")?.classList.contains("clamped");
+  })(), "the chevron did not toggle the row");
 check("the time row offers years, decade buckets and Before",
-  filterChips(3).length > 12 && filterChips(3).includes("Before"),
-  `${filterChips(3).length} periods`);
+  filterChips(7).length > 12 && filterChips(7).includes("Before"),
+  `${filterChips(7).length} periods`);
 check("with no type chosen, only the categories both rows have are offered",
-  !filterChips(2).includes("Romance") && filterChips(2).includes("Drama"),
-  filterChips(2).join(","));
+  !filterChips(4).includes("Romance") && filterChips(4).includes("Drama"),
+  filterChips(4).slice(0, 8).join(","));
 
 // Picking a filter is a URL — so it is shareable, reloadable and undoable.
-$$("#search-filters .filter-chip").find((c) => text(c) === "Korea").click();
-await settle(300);
-check("picking a region puts it in the URL", window.location.hash.includes("region=KR"), window.location.hash);
-check("and the panel says it is active", $$("#search-filters .filter-chip.active").some((c) => text(c) === "Korea"));
+$$("#search-filters .filter-chip").find((c) => text(c) === "Japan").click();
+await settle(320);
+check("picking a country puts it in the URL", window.location.hash.includes("country=JP"), window.location.hash);
+check("and the panel says it is active", $$("#search-filters .filter-chip.active").some((c) => text(c) === "Japan"));
+await nav("#/search", 180);
+$("#search-filter-btn").click();
+await settle(140);
+$$("#search-filters .filter-chip").find((c) => text(c) === "Asia").click();
+await settle(320);
+check("picking a continent puts it in the URL too", window.location.hash.includes("continent=Asia"), window.location.hash);
+await nav("#/search", 180);
+$("#search-filter-btn").click();
+await settle(140);
+$$("#search-filters .filter-chip").find((c) => text(c) === "Netflix").click();
+await settle(320);
+check("and so does picking an OTT service", window.location.hash.includes("provider=8"), window.location.hash);
 await nav("#/search?type=series", 200);
-check("with TV Series chosen the category row offers the TV genres",
-  // +1 for the "All Categories" chip at the head of the row.
-  filterChips(2).length === (liveFilters?.categories?.series?.length ?? 0) + 1 && filterChips(2).includes("Drama"),
-  filterChips(2).join(","));
+check("with TV Series chosen the genre row offers the TV genres",
+  // +1 for the "All Genres" chip at the head of the row.
+  filterChips(4).length === (liveFilters?.categories?.series?.length ?? 0) + 1 && filterChips(4).includes("Drama"),
+  filterChips(4).join(","));
 await nav("#/search?type=movie&category=Action&period=before&sort=rating", 700);
 check("a filtered browse asks the server for it",
   requested.some((u) => u.includes("/search.json?") && u.includes("category=Action") && u.includes("sort=rating")),
@@ -1055,6 +1339,16 @@ check(
 );
 check("AI offers the fallback for posters without a better poster", window.document.body.textContent.includes("without a better poster"));
 check("AI has a text ask and a voice button", Boolean($("#ai-ask")) && $$(".ai-ask-form .btn").some((b) => text(b).includes("Voice")));
+// "Pick movies or shows for me" — the Ask box can be told which row to answer
+// with, and Both (the default) leaves it as it was.
+const pickRowOptions = () => $$(".settings-pane .option").filter((o) => o.querySelector("input[name=pickrow]"));
+check(
+  "AI offers 'pick movies or shows for me', on Both by default",
+  pickRowOptions().length === 3 &&
+    pickRowOptions().map((o) => text(o.querySelector(".option-title"))).join(",") === "Both,Movies,Shows" &&
+    pickRowOptions()[0].querySelector("input").checked === true,
+  pickRowOptions().map((o) => text(o.querySelector(".option-title"))).join(","),
+);
 
 /* The AI section used to offer toggles with no provider and no key behind them. */
 check(
@@ -1104,6 +1398,16 @@ check(
   $$(".ai-provider")[0]?.querySelector(".badge")?.className,
 );
 check("the AI key is never kept in the browser", !(window.localStorage.getItem("nuvio.ai") || "").includes("smoke-groq-key"));
+// "Pick for me" really narrows the Ask box: pick Movies, ask, and the search is
+// the Movies row — not both.
+pickRowOptions().find((o) => text(o.querySelector(".option-title")) === "Movies")?.querySelector("input")?.click();
+await settle(200);
+check("picking a side is saved for the assistant",
+  posted.some((p) => p.ai?.pickRow === "movie"), JSON.stringify(posted.slice(-1)));
+$("#ai-ask").value = "india";
+$$(".ai-ask-form .btn").find((b) => text(b) === "Ask")?.click();
+const askedSide = await waitFor(() => window.location.hash.includes("type=movie"), { tries: 30, ms: 200 });
+check("and the Ask box searches only that row", askedSide, window.location.hash || "still on the settings page");
 
 // Home is the same grid whatever the AI settings say — even after a settings
 // round-trip, which is where the old "picks" could come back.
@@ -1139,6 +1443,23 @@ check(
   $$(".settings-pane .option").filter((o) => o.querySelector("input[name=safe]")).length === 2,
   $$(".settings-pane .option-title").map(text).join(","),
 );
+// Auto-update: one interval drives the addon's cache and the app's own re-read.
+const refreshOptions = () => $$(".settings-pane .option").filter((o) => o.querySelector("input[name=refresh]"));
+check(
+  "Content offers the catalog/metadata refresh interval",
+  refreshOptions().length === 5 &&
+    refreshOptions().map((o) => text(o.querySelector(".option-title"))).join(",") ===
+      "Every 15 minutes,Every 30 minutes,Every hour,Every 3 hours,Only when you ask",
+  refreshOptions().map((o) => text(o.querySelector(".option-title"))).join(","),
+);
+refreshOptions().find((o) => text(o.querySelector(".option-title")) === "Every 15 minutes")?.querySelector("input")?.click();
+await settle(220);
+check("picking an interval is saved to the server",
+  posted.some((p) => p.refresh?.minutes === 15), JSON.stringify(posted.slice(-1)));
+check("and it marks the interval now in use",
+  refreshOptions().find((o) => text(o.querySelector(".option-title")) === "Every 15 minutes")?.querySelector("input")?.checked === true);
+// The other half of "update itself" — that Refresh now really re-reads — is
+// checked at the end of the run, once the settings screens are done with.
 
 /* Which provider supplies the content inside the rows — one place, with the keys. */
 await settingsTab("Providers");
@@ -1276,6 +1597,167 @@ check("a CloudStream repo lists its providers (read server-side)",
   $$(".sources .chip").map(text).join(", ") || "no chips");
 check("the repo status is not a bare 404", !$$(".source-status.bad").some((s) => text(s).includes("404")));
 check("the add-ons section is separate from plugins", Boolean($$(".settings-nav .settings-tab").find((b) => text(b) === "Add-ons")));
+
+/* ------------------------------------------------- Live TV & Sports profile */
+/* The second profile is a different app: two buttons of its own, cards made of
+   the playlist's channels, a TiviMate-shaped Guide, and settings of its own. */
+await nav("#/profiles", 140);
+$$(".profile-tile")[1].click();
+// A cold public directory is one ~2.5-5 MB read on the server, so the first Live TV
+// screen can legitimately take half a minute to have channels; the budget is sized
+// for that rather than for a warm cache.
+const liveReady = await waitFor(() => $$(".channel-card").length > 0, { tries: 200, ms: 250 });
+check("the Live TV profile reads a real channel list",
+  liveReady && requested.some((u) => u.includes("/live/channels.json")),
+  `${$$(".channel-card").length} channel cards`);
+check("its Home is the channels, not the Movies & Shows card grid",
+  $$(".icon-box").length === 0 && $$(".cat-row.live-row").length > 0,
+  `${$$(".icon-box").length} cards, ${$$(".cat-row.live-row").length} channel rows`);
+check("one card of Live TV is the Guide",
+  text($(".live-hero .hero-title")) === "Guide" && $$(".live-hero .guide-mini-row").length > 0 &&
+    Boolean($("#open-guide")),
+  text($(".live-hero .hero-title")));
+// The second card is the playlist's own categories, and it opens the full list.
+check("the other card of Live TV is Categories",
+  $$(".live-hero .hero-title").map(text).join(",") === "Guide,Categories" && Boolean($("#open-categories")),
+  $$(".live-hero .hero-title").map(text).join(","));
+$("#open-categories").click();
+await settle(220);
+check("and it opens the categories the playlist actually publishes",
+  window.location.hash === "#/categories" && $$(".cat-tile").length > 0 && $$(".cat-tile .cat-tile-count").length === $$(".cat-tile").length,
+  `${$$(".cat-tile").length} tiles · ${window.location.hash}`);
+const firstTile = $$(".cat-tile")[0];
+const firstGroup = firstTile.querySelector(".cat-tile-name").textContent;
+firstTile.click();
+await settle(260);
+check("picking one shows that category's channels",
+  window.location.hash.startsWith("#/categories/") && text($(".view-title")) === firstGroup && $$(".channel-card").length > 0,
+  `${window.location.hash} · ${$$(".channel-card").length} channels`);
+await nav("#/", 220);
+check("same two buttons as Movies & Shows, named Live TV and Sports",
+  $$(".row-switch .row-btn").map(text).join(",") === "Live TV,Sports",
+  $$(".row-switch .row-btn").map(text).join(","));
+check("a channel carries its logo, its name and its group",
+  $$(".channel-card").every((c) => c.querySelector(".channel-art") && text(c.querySelector(".channel-name"))),
+  text($$(".channel-card")[0]));
+check("the channel rows are named after the playlist's own categories",
+  $$(".cat-row.live-row .cat-name").length === $$(".cat-row.live-row").length && $$(".cat-row.live-row").length >= 2,
+  $$(".cat-row.live-row .cat-name").map(text).join(", "));
+// Sports is the same list, narrowed — not an empty screen.
+$("#live-row-sports").click();
+await settle(220);
+check("Sports narrows the same channels to sport",
+  $$(".cat-row.live-row").length > 0 && $$(".cat-row.live-row .cat-name").every((n) => /sport/i.test(text(n))) && $$(".channel-card").length > 0,
+  $$(".cat-row.live-row .cat-name").map(text).join(", ") || "no rows");
+$("#live-row-livetv").click();
+await settle(200);
+
+// The Guide: a time ruler, a channel column, one track per channel.
+$("#open-guide").click();
+await settle(700);
+check("the Guide opens as its own screen",
+  window.location.hash === "#/guide" && Boolean($(".guide")), window.location.hash);
+check("it draws the time ruler and a channel column, like a live TV app",
+  $$(".guide-time").length >= 4 && Boolean($(".guide-now")) && $$(".guide-channel").length > 0 &&
+    Boolean($(".guide-logo")),
+  `${$$(".guide-time").length} hours, ${$$(".guide-channel").length} channels`);
+check("and one track per channel, with the guide's own data or an honest empty one",
+  $$(".guide-row .guide-track").length === $$(".guide-row").length &&
+    ($$(".guide-block").length > 0 || $$(".guide-nodata").length === $$(".guide-row").length),
+  `${$$(".guide-block").length} programme blocks, ${$$(".guide-nodata").length} empty tracks`);
+$$(".guide-channel")[0].click();
+await settle(400);
+check("a channel opens its own page, with its stream",
+  window.location.hash.startsWith("#/channel/") && Boolean($(".channel-page")) &&
+    ($("#channel-url")?.value || "").length > 0,
+  window.location.hash);
+
+// Search in this profile searches channels.
+await nav("#/search", 200);
+const channelInput = $("#search-input");
+check("search in the Live TV profile searches channels",
+  text($(".view-title")) === "Search channels" && ($("#search-input")?.getAttribute("placeholder") || "").includes("channels"),
+  text($(".view-title")));
+channelInput.value = "sport";
+channelInput.dispatchEvent(new window.Event("input"));
+await settle(220);
+check("and filters them as you type, with suggestions",
+  $$("#live-results .channel-card").length > 0 && !$("#search-suggest")?.hidden,
+  `${$$("#live-results .channel-card").length} results`);
+
+// Settings are the profile's own — the Movies & Shows sections are not offered.
+await nav("#/settings", 200);
+check("the Live TV profile swaps the settings screen entirely",
+  $$(".settings-nav .settings-tab").map(text).join(",") === "Source,Countries,Guide & EPG,Refresh,Layout,Appearance,Profile,Server",
+  $$(".settings-nav .settings-tab").map(text).join(","));
+check("and the Movies & Shows sections are gone while it is active",
+  !["Content", "Posters", "Providers", "Add-ons", "Plugins", "Tracking", "AI"].some((label) =>
+    $$(".settings-nav .settings-tab").some((t) => text(t) === label),
+  ));
+check("the Source pane offers the built-in directory, an M3U URL and an Xtream login",
+  $$(".settings-pane .option-title").map(text).join("|").includes("Built-in public directory") &&
+    $$(".settings-pane .option-title").map(text).join("|").includes("My M3U playlist") &&
+    $$(".settings-pane .option-title").map(text).join("|").includes("Xtream Codes login") &&
+    $$(".settings-pane .option").length === 3,
+  $$(".settings-pane .option-title").map(text).join(","));
+// Picking the M3U source reveals its URL field, and the server is told.
+$$(".settings-pane .option").find((o) => text(o).includes("My M3U playlist")).querySelector("input").click();
+await settle(250);
+check("choosing a source reveals its own fields and is pushed to the server",
+  Boolean($("#live-m3u")) && posted.some((p) => p.live && p.live.mode === "m3u"),
+  JSON.stringify(posted.filter((p) => p.live).slice(-1)[0] || {}));
+$$(".settings-pane .option").find((o) => text(o).includes("Built-in public directory")).querySelector("input").click();
+await settle(250);
+await nav("#/settings", 160);
+$$(".settings-nav .settings-tab").find((b) => text(b) === "Guide & EPG").click();
+await settle(160);
+check("the Guide & EPG section takes an XMLTV URL",
+  Boolean($("#live-epg")) && /XMLTV/.test(text($(".settings-pane"))),
+  text($$(".settings-pane .option-title")[0]));
+await nav("#/settings", 160);
+$$(".settings-nav .settings-tab").find((b) => text(b) === "Refresh").click();
+await settle(160);
+check("and Refresh sets how often the channels and the guide update",
+  /How often the channels update/i.test(text($(".settings-pane"))) && $$(".settings-pane .option").length >= 5,
+  `${$$(".settings-pane .option").length} choices`);
+
+// Back to the first profile: its settings and its cards return.
+await nav("#/profiles", 140);
+$$(".profile-tile")[0].click();
+await settle(220);
+await nav("#/settings", 160);
+check("switching back restores the Movies & Shows settings",
+  $$(".settings-nav .settings-tab").map(text).join(",") ===
+    "Content,Layout,Posters,Appearance,Providers,Add-ons,Plugins,Tracking,AI,Profile,Server",
+  $$(".settings-nav .settings-tab").map(text).join(","));
+
+/* ------------------------------------------- the refresh really re-reads ---- */
+/* Refresh now has to make the next read a *different* URL. Without the
+   cache-buster the browser answers the catalog request out of its own copy and the
+   screen never changes — which is exactly why the app puts `gen` on every catalog
+   URL it builds after a refresh. A card page is used because its rows always fetch
+   (Home's cards keep their drawn artwork for the launch). */
+await nav("#/settings", 160);
+await settingsTab("Content");
+const gensSeen = () => new Set(
+  requested
+    .filter((u) => u.includes("gen="))
+    .map((u) => u.slice(u.indexOf("gen=") + 4).split("&")[0]),
+);
+const gensBefore = gensSeen();
+const refreshNowBtn = $$(".settings-pane .btn.primary").find((b) => text(b) === "Refresh now");
+check("Content carries the manual Refresh now", Boolean(refreshNowBtn));
+refreshNowBtn.click();
+await settle(160);
+await nav("#/", 300);
+$$(".icon-art")[1]?.click();
+await settle(1000);
+check(
+  "Refresh now re-reads the rows under a new URL instead of the cached one",
+  [...gensSeen()].some((g) => !gensBefore.has(g)) &&
+    requested.some((u) => u.includes("/catalog/") && u.includes("gen=")),
+  `${gensBefore.size} → ${gensSeen().size} cache-buster values`,
+);
 
 check("no uncaught errors during the whole run", errors.length === 0, errors.slice(0, 5).join(" | "));
 

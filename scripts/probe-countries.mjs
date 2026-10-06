@@ -7,11 +7,18 @@
  * `tmdb-verified.json`** and merges the results in, so the fact table can grow
  * without paying for a full re-probe.
  *
- * For each new country it records:
+ * For each country it records:
  *   - how many titles TMDB has with that origin country, per media type
  *   - the region's own OTT services that actually resolve AND return titles
  *
- *   node scripts/probe-countries.mjs
+ *   node scripts/probe-countries.mjs                       # new countries only
+ *   node scripts/probe-countries.mjs --refresh             # re-probe them all
+ *   PROBE_ONLY=US,IN,GB node scripts/probe-countries.mjs --refresh
+ *
+ * `--refresh` matters when the *candidates* grow rather than the country list: the
+ * incremental pass skips a region it has already seen, so a country that gained
+ * three more services in `regional-candidates.mjs` would keep its old short row.
+ * `PROBE_ONLY` narrows a refresh to a few codes so it fits in one command.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -31,13 +38,26 @@ if (!hasKey()) {
 
 const verified = JSON.parse(fs.readFileSync(FILE, "utf8"));
 const known = new Set(Object.keys(verified.countries ?? {}));
-const pending = COUNTRIES.filter(([name]) => !known.has(name));
+const REFRESH = process.argv.includes("--refresh") || process.env.PROBE_REFRESH === "1";
+const ONLY = new Set(
+  String(process.env.PROBE_ONLY || "")
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean),
+);
+const wanted = ONLY.size ? COUNTRIES.filter(([, code]) => ONLY.has(code)) : COUNTRIES;
+const pending = REFRESH
+  // A refresh is about the *candidates* growing, so a region with no candidates
+  // has nothing to re-learn — its counts are already right. Skipping those keeps
+  // a full refresh over 250 countries down to the ones that can actually change.
+  ? wanted.filter(([name, code]) => !known.has(name) || (REGIONAL_CANDIDATES[code] ?? []).length > 0)
+  : wanted.filter(([name]) => !known.has(name));
 
 if (!pending.length) {
   console.log("nothing to do — every country in collections.mjs is already verified.");
   process.exit(0);
 }
-console.log(`probing ${pending.length} new countries: ${pending.map(([n]) => n).join(", ")}`);
+console.log(`probing ${pending.length} ${REFRESH ? "" : "new "}countries: ${pending.map(([n]) => n).join(", ")}`);
 
 const norm = (s) =>
   String(s)
@@ -97,7 +117,7 @@ function findBrand(list, accepted) {
   return null;
 }
 
-const results = await pool(pending, 4, async ([name, code]) => {
+const results = await pool(pending, 6, async ([name, code]) => {
   const candidates = REGIONAL_CANDIDATES[code] ?? [];
   const [movieList, tvList, movieCount, tvCount] = await Promise.all([
     regionProviders(code, "movie"),

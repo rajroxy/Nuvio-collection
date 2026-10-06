@@ -147,6 +147,24 @@ async function specsFor(entry, media, opts = {}) {
         }, entry.take),
       ];
 
+    // A platform's originals: the titles its own studio made. TMDB has no network
+    // search endpoint, so a company id is the handle that works for both row
+    // types — `probe-originals.mjs` stores one per type where the platform uses
+    // two studios (Disney's films come from Walt Disney Pictures, its shows from
+    // Walt Disney Television).
+    case "original": {
+      const studio = entry.studio || {};
+      const pick = media === "movie" ? studio.company || studio.tv : studio.tv || studio.company;
+      if (!pick) return [];
+      return [
+        page({
+          with_companies: pick.id,
+          sort_by: "popularity.desc",
+          "vote_count.gte": 10,
+        }, entry.take),
+      ];
+    }
+
     // The watchlist is not a TMDB query: the handler serves it from the pins the
     // user stored, one row per state. It is still a catalog, so it publishes,
     // scrolls and shuffles like every other row.

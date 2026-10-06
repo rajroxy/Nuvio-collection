@@ -1,11 +1,13 @@
 :root {
   color-scheme: dark;
-  --ink: #08090c;
-  --panel: #0b0c10;
-  --panel-2: #15171e;
-  --text: #e8eaf2;
-  --muted: rgba(231, 235, 243, 0.55);
-  --faint: rgba(231, 235, 243, 0.28);
+  /* A near-neutral black rather than a blue-black: the surfaces are one flat
+     colour each, so the posters and the covers carry the colour in the app. */
+  --ink: #0b0b0b;
+  --panel: #181818;
+  --panel-2: #232323;
+  --text: #f4f4f4;
+  --muted: rgba(255, 255, 255, 0.6);
+  --faint: rgba(255, 255, 255, 0.34);
   /* The accent is one colour with three parts: the flat colour, the RGB triple
      every translucent tint is built from, and the deeper shade the gradients fall
      to. Settings → Appearance rewrites all three, so the whole app re-tints. */
@@ -214,7 +216,11 @@ body {
   stroke-linejoin: round;
 }
 .icon-btn:hover { border-color: rgba(var(--accent-rgb), 0.55); }
-.glyph { font-size: 14px; line-height: 1; }
+.glyph { font-size: 14px; line-height: 1; display: inline-flex; align-items: center; }
+/* Drawn glyphs are *strokes*, not filled shapes. Without this the chevrons came out
+   as a dark filled blob on a dark background — which is why the tag control looked
+   like an empty pill. */
+.glyph svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* -------------------------------------------------------------------- main */
 
@@ -245,9 +251,12 @@ body {
 /* Briefly marks the row a catalog chip jumped to. */
 .cat-row.row-flash > .cat-head .cat-name { color: var(--accent); }
 .cat-row.row-flash { animation: row-flash 1.2s ease-out; }
+/* What the alphabet rail jumps to, so the eye finds it — the same flash, on a
+   poster rather than a row label. */
+.poster.row-flash { animation: row-flash 1.2s ease-out; }
 @keyframes row-flash {
-  0% { background: rgba(var(--accent-rgb), 0.16); }
-  100% { background: transparent; }
+  0% { background: rgba(var(--accent-rgb), 0.16); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.5); }
+  100% { background: transparent; box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0); }
 }
 
 .icons.rows .icon-box { flex: none; width: 300px; }
@@ -281,24 +290,34 @@ body {
 }
 .icon-art img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 
-/* The card's own pictures, laid over its cover. The wrapper is only as tall as the
-   artwork, so the strip lines up with it, and it never takes the click that enters
-   the card. */
+/* The card's own posters, *inside* the artwork.
+
+   In place of the generated vector scene the artwork is a padded inner card: the
+   posters are inset from its edges, separated by a gap, and **each one keeps its
+   own shape** — `object-fit: cover` fills the frame without ever stretching a
+   picture out of proportion. The cover stays underneath as the fallback and is
+   never shown once the posters have arrived. */
 .icon-wrap { position: relative; }
 .content-strip {
   position: absolute;
-  inset: 0;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  align-content: end;
+  inset: 10px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
   pointer-events: none;
-  background: linear-gradient(to top, rgba(4, 5, 8, 0.62), rgba(4, 5, 8, 0) 62%);
   animation: content-in 0.5s ease both;
 }
 /* Nothing loaded (yet) → nothing drawn, so the cover reads on its own. */
 .content-strip:empty { display: none; }
-.content-tile { width: 100%; height: 46%; object-fit: cover; }
+.content-tile {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
 @keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
 
 .icon-meta { display: block; padding: 12px 14px 14px; }
@@ -307,9 +326,25 @@ body {
 
 /* -------------------------------------------------------------- collection */
 
-.section-head { display: flex; align-items: center; gap: 22px; margin-bottom: 26px; }
-.section-cover { width: 220px; border-radius: var(--radius); border: 1px solid rgba(255, 255, 255, 0.08); }
+/* A card page reads the way the banner does: the name and its tags on the left,
+   the artwork — the card's own posters, padded inside the frame — on the right. */
+.section-head { display: flex; align-items: center; gap: 26px; margin-bottom: 26px; }
+.section-meta { flex: 1; min-width: 0; }
+.section-art {
+  position: relative;
+  flex: none;
+  width: min(380px, 42vw);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: var(--panel-2) center/cover no-repeat;
+}
 .section-head h2 { margin: 0 0 8px; font-size: 30px; font-weight: 800; letter-spacing: -0.025em; }
+@media (max-width: 760px) {
+  .section-head { flex-direction: column-reverse; align-items: flex-start; }
+  .section-art { width: 100%; }
+}
 
 .chip { font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.13); color: #e8dfc8; border: 0; font-family: inherit; }
 button.chip { cursor: pointer; }
@@ -391,9 +426,21 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
   overflow: hidden;
 }
 
-.hero-art { position: relative; overflow: hidden; aspect-ratio: 16 / 9; border-radius: var(--radius); background: var(--panel-2) center/cover no-repeat; }
-.hero-art .content-tile { height: 42%; }
+/* The titles and their tags read on the left; the artwork card sits on the right,
+   the way the cover is composed. (The two children are ordered that way in
+   `heroBlock`, and this only sizes them.) */
+.hero { grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.05fr); }
+.hero-art {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: var(--panel-2) center/cover no-repeat;
+}
 .hero-body { min-width: 0; }
+/* Narrow window: the banner stacks, and the artwork still comes second. */
+@media (max-width: 860px) { .hero { grid-template-columns: 1fr; } }
 
 .hero-kicker {
   margin: 0 0 8px;
@@ -424,21 +471,77 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 
 /* The bar is long, and the filter control sits inside it on the left — the funnel
    is part of the field, not a button floating next to it. */
-.search-wrap { position: relative; margin: 10px 0 18px; max-width: 1040px; }
+/* The bar spans the page and wears the app's own panel styling — same panel
+   colour, same border weight and radius family as a card, with the accent as the
+   focus ring. It used to be a narrow box with its own border colour. */
+/* One long field, full width, wearing the app's own panel — flat and dark rather
+   than a stack of gradients, so the magnifier, the type and the filter control
+   read as a single control. */
+.search-wrap { position: relative; margin: 16px 0 24px; max-width: none; }
 .search-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px 6px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
+  gap: 14px;
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 10px 8px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
   background: var(--panel-2);
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
-.search-bar:focus-within { border-color: rgba(var(--accent-rgb), 0.55); }
-.search-input { flex: 1; width: auto; margin: 0; border: 0; background: transparent; padding: 10px 6px; font-size: 15px; }
+.search-bar:hover { background: var(--panel); border-color: rgba(255, 255, 255, 0.14); }
+.search-bar:focus-within {
+  background: var(--panel);
+  border-color: rgba(var(--accent-rgb), 0.75);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
+}
+/* The magnifier: same 24px stroke glyph the rest of the controls draw. */
+.search-glyph { flex: none; display: flex; color: var(--faint); }
+.search-glyph svg { display: block; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.search-bar:focus-within .search-glyph { color: var(--accent); }
+/* The field inside the bar is part of it: no border, no fill, no browser chrome —
+   `.text-input` used to win here and drew a second box inside the panel. */
+.search-bar .search-input, .search-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 13px 0;
+  font: inherit;
+  font-size: 16px;
+  color: var(--text);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search-input::-webkit-search-cancel-button { display: none; }
+.search-input::placeholder { color: var(--faint); }
 .search-input:focus { outline: none; }
-.search-filter-btn { flex: none; }
-.search-filter-btn.on { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.5); }
+/* A named control, not an empty square: the funnel plus the word, in the app's own
+   button shape. */
+.search-filter-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.search-filter-btn svg { width: 17px; height: 17px; }
+.search-filter-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.search-filter-btn.on { background: var(--accent); border-color: var(--accent); color: #0b0c10; }
 
 /* Suggestions under the bar, as you type. */
 .search-suggest {
@@ -467,22 +570,72 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .search-filters {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 0 0 22px;
-  padding: 14px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 10px;
+  margin: 0 0 24px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: var(--radius);
   background: var(--panel);
 }
 .search-filters[hidden] { display: none; }
 .filter-row { display: flex; align-items: flex-start; gap: 14px; }
 .filter-label { flex: none; width: 92px; padding-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
-.filter-options { display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.filter-chip { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; padding: 3px 2px; cursor: pointer; }
-.filter-chip:hover { color: var(--text); }
-.filter-chip.active { color: var(--accent); font-weight: 700; }
-.filter-chip.active::after { content: ""; display: block; height: 1px; margin-top: 3px; background: var(--accent); }
+.filter-body { flex: 1; min-width: 0; }
+.filter-options { display: flex; flex-wrap: wrap; gap: 6px; }
+/* A long line (every country, every theme) shows two rows and a chevron; the fade
+   says there is more, and the chevron opens the rest. */
+.filter-options.clamped {
+  max-height: 60px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent);
+  mask-image: linear-gradient(180deg, #000 55%, transparent);
+}
+/* The "show the rest" control is a quiet pill under its chips — it had no rule at
+   all, so it fell back to the browser's own grey button. */
+.chip-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 13px 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.chip-more:hover { color: #fff; border-color: rgba(var(--accent-rgb), 0.55); background: rgba(var(--accent-rgb), 0.12); }
+.chip-more .glyph svg { width: 13px; height: 13px; transition: transform 0.18s ease; }
+.chip-more.up .glyph svg { transform: rotate(180deg); }
+.filter-row .chip-more { margin-top: 2px; }
+/* The choices are the app's own chips — the same pill the tag lines and the card
+   labels use — instead of underlined words that match nothing else on screen. */
+/* Quiet by default, solid when chosen: the same shape and weight as the app's
+   chips, minus the outline — a row of bordered pills is what made the panel look
+   like a form instead of a browser. */
+.filter-chip {
+  border: 0;
+  background: rgba(255, 255, 255, 0.07);
+  color: #d9dce4;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 8px 15px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.filter-chip:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+.filter-chip.active { background: var(--accent); color: #0b0c10; }
+.filter-chip.active:hover { background: var(--accent); color: #0b0c10; }
 .result-head { margin: 22px 0 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+/* Search results are two lists — Movies, then Shows — so they need a gap. */
+.search-group + .search-group { margin-top: 10px; }
 .result-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .result {
   display: flex; flex-direction: column; gap: 3px; text-align: left;
@@ -750,8 +903,15 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 
 /* -------------------------------------------------------------- focus ring */
 
+/* The ring is for **keyboard** focus only — `:focus-visible`, never `:focus`.
+
+   `:focus` matches on a mouse click too, so every button in the app answered a
+   click with a 3px accent ring around it: that was the "selection highlight" that
+   appeared on the thing you had just pressed, and on the search field the moment
+   you clicked into it. `:focus-visible` is the browser's own answer to "was this
+   reached by keyboard?", which is exactly the ring's purpose. */
 button:focus-visible,
-.focusable:focus {
+.focusable:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
   border-radius: var(--radius);
@@ -838,6 +998,89 @@ button:focus-visible,
   margin: 4px 0 22px;
   background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.08), rgba(var(--accent-rgb), 0.65) 12%, rgba(var(--accent-rgb), 0.65) 88%, rgba(var(--accent-rgb), 0.08));
 }
+
+/* ------------------------------------------------------ Live TV & Sports */
+
+.hero-sub { margin: 0 0 16px; font-size: 13px; color: var(--muted); letter-spacing: 0.02em; }
+.cat-count { margin-left: auto; font-size: 12px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* The Guide card's own preview: a few rows of the grid, holding still. */
+.guide-mini { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+.guide-mini-row { display: flex; align-items: center; gap: 10px; }
+.guide-mini-name { flex: none; width: 34%; font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guide-mini-block {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.14);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.guide-mini-block.bare { background: rgba(255, 255, 255, 0.05); color: var(--faint); }
+
+/* Channel tiles, in rows of their own. */
+.channel-strip { display: flex; gap: 12px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: thin; }
+.channel-strip::-webkit-scrollbar { height: 8px; }
+.channel-card {
+  flex: none;
+  width: 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.channel-card:hover, .channel-card:focus-visible { transform: translateY(-3px); border-color: rgba(var(--accent-rgb), 0.5); }
+.channel-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 62px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.channel-art img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.channel-fallback { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; background: rgba(var(--accent-rgb), 0.16); font-weight: 800; }
+.channel-fallback.big { width: 96px; height: 96px; font-size: 40px; }
+.channel-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-sub { font-size: 10.5px; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-channels { flex-wrap: wrap; overflow: visible; }
+
+/* The Guide: TiviMate's shape — time across the top, channels down the left. */
+.guide { display: flex; flex-direction: column; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+.guide-head { display: flex; align-items: stretch; border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: var(--panel-2); }
+.guide-corner { flex: none; width: 220px; padding: 10px 14px; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.guide-times { position: relative; flex: 1; display: flex; }
+.guide-time { flex: 1; padding: 10px 12px; font-size: 12px; font-weight: 700; color: var(--muted); border-left: 1px solid rgba(255, 255, 255, 0.06); }
+.guide-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+.guide-body { display: flex; flex-direction: column; max-height: 62vh; overflow-y: auto; }
+.guide-row { display: flex; align-items: stretch; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.guide-row:last-child { border-bottom: 0; }
+.guide-channel { flex: none; width: 220px; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 0; border-right: 1px solid rgba(255, 255, 255, 0.06); background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.guide-channel:hover { background: rgba(var(--accent-rgb), 0.08); }
+.guide-num { flex: none; width: 22px; font-size: 11px; color: var(--faint); }
+.guide-logo { flex: none; width: 28px; height: 28px; object-fit: contain; }
+.guide-logo.fallback { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(var(--accent-rgb), 0.16); font-weight: 800; }
+.guide-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guide-track { position: relative; flex: 1; min-height: 46px; }
+.guide-track.bare { background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 16.6%); }
+.guide-block { position: absolute; top: 4px; bottom: 4px; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 4px 8px; border-radius: 8px; background: rgba(var(--accent-rgb), 0.13); overflow: hidden; }
+.guide-block-title { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guide-block-time { font-size: 10.5px; color: var(--muted); }
+.guide-nodata { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 12px; font-size: 11.5px; color: var(--faint); }
+.channel-page .channel-art-large { display: flex; align-items: center; justify-content: center; padding: 18px; background: var(--panel-2); }
+.channel-page .channel-art-large img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* ----------------------------------------------------------------- calendar */
 
@@ -926,3 +1169,593 @@ button:focus-visible,
 .strip-end { flex: none; align-self: center; padding: 0 10px; }
 
 .search-titles { margin-bottom: 4px; }
+
+/* ------------------------------------------------------------- chip clamp */
+
+/* A card's tag line is two rows high. The big cards carry eighty tags, and as one
+   uninterrupted wall of pills they pushed every row off the screen. The control
+   under the track reveals the rest; a short list never gets one. */
+.chip-block { display: block; margin: 0 0 18px; }
+.cats.chip-block { margin-bottom: 0; }
+.chip-block .chip-track { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Two rows of tags, and no more: the line scrolls inside its own window, with the
+   arrows stepping it a row at a time (and the wheel working over it as well). */
+.chip-clamped .chip-track {
+  max-height: 66px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.chip-clamped .chip-track::-webkit-scrollbar { width: 0; height: 0; }
+.chip-clamped .chip-track:focus-visible { outline: 2px solid rgba(var(--accent-rgb), 0.5); outline-offset: 4px; border-radius: 10px; }
+.chip-scroll { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; }
+.chip-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.chip-arrow:hover:not(:disabled) { background: rgba(var(--accent-rgb), 0.26); color: #fff; transform: translateY(-1px); }
+.chip-arrow:focus-visible { outline: 2px solid rgba(var(--accent-rgb), 0.6); outline-offset: 2px; }
+/* An arrow at its own end of the list has nowhere to go, and says so. */
+.chip-arrow.at-end, .chip-arrow:disabled { opacity: 0.32; cursor: default; }
+.chip-arrow .glyph svg { width: 15px; height: 15px; }
+
+/* --------------------------------------------------------- alphabet rail */
+
+/* Explore's rail indexes the row's own titles by first letter — a letter jumps to
+   the first loaded title that starts with it.
+
+   The rail is a column **in the grid's own row** (`.explore-body`), not an overlay:
+   its letters sit in the right gutter, level with the poster columns and clear of
+   them, and it is `sticky` so it travels down under the header as the row grows.
+   It used to be `position: fixed` at the middle of the viewport, which floated it
+   over the sample row at the top of the page instead of beside the posters. */
+.explore-body { display: flex; align-items: stretch; gap: 14px; }
+.explore-grid { flex: 1 1 auto; min-width: 0; }
+.alpha-rail {
+  position: sticky;
+  /* Level with the middle of the screen, not pinned under the header, and it
+     travels from the catalog row down — `.explore-body` wraps the grid itself,
+     so the sample shuffle row above it is never part of the rail. */
+  top: 50vh;
+  transform: translateY(-50%);
+  align-self: flex-start;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: calc(100vh - 104px);
+  overflow-y: auto;
+  padding: 8px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  background: rgba(10, 11, 15, 0.92);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.alpha-rail::-webkit-scrollbar { width: 0; height: 0; }
+/* One row per letter, same height for every one of them, so the column reads as a
+   list and not as letters floating at different heights. */
+.alpha {
+  display: block;
+  width: 20px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  cursor: pointer;
+}
+.alpha:hover:not(:disabled) { background: rgba(var(--accent-rgb), 0.2); color: #fff; }
+.alpha:focus-visible { outline: 2px solid rgba(var(--accent-rgb), 0.6); outline-offset: 1px; }
+.alpha.off { opacity: 0.3; }
+/* A letter that is not loaded yet is dimmed, never dead: picking it pages the row
+   in until that letter's titles arrive. */
+.alpha.off:hover { background: rgba(var(--accent-rgb), 0.14); }
+/* A short window gets a shorter column rather than a cut-off one: 26 letters at
+   18px plus the plate is ~507px, which fits anywhere above a small laptop. */
+@media (max-height: 640px) {
+  .alpha { height: 12px; line-height: 12px; font-size: 9px; }
+}
+
+
+/* ------------------------------------------------------ the main view --- */
+
+/* Explore's own rail is a flex column in `.explore-body`, so it already holds the
+   right gutter the letters need — no page padding is reserved for it. */
+
+/* ------------------------------------------------ what the frame is made of */
+
+/* Once the posters arrive, the frame *is* the posters: the generated cover (an
+   `<img>` on a card, a background image on the banner and a card page) is hidden,
+   and what is left is the padded, gapped wall of the card's own titles. */
+.icon-wrap.art-filled .icon-art img { opacity: 0; }
+.hero-art.art-filled, .section-art.art-filled { background-image: none !important; }
+.icon-wrap.art-filled, .hero-art.art-filled, .section-art.art-filled { background-color: var(--panel-2); }
+
+/* ------------------------------------------------------------ boot screen */
+
+/* Covers the app until the first screen is drawn. `motion-off` (and the system
+   reduced-motion preference) already stop the spin and cut the fade. */
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: radial-gradient(120% 120% at 50% 20%, rgba(var(--accent-rgb), 0.12), transparent 60%), var(--bg, #05060a);
+  transition: opacity 0.55s ease, visibility 0.55s ease;
+}
+.boot.done { opacity: 0; visibility: hidden; pointer-events: none; }
+.boot[hidden] { display: none; }
+.boot-mark { position: relative; width: 74px; height: 74px; display: grid; place-items: center; }
+.boot-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--accent-rgb), 0.18);
+  border-top-color: var(--accent);
+  animation: boot-spin 1.05s linear infinite;
+}
+.boot-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); animation: boot-pulse 1.4s ease-in-out infinite; }
+.boot-name { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: 0.06em; color: #f2ece0; }
+.boot-note { margin: 0; font-size: 12px; color: var(--muted); letter-spacing: 0.08em; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+@keyframes boot-pulse { 0%, 100% { transform: scale(0.72); opacity: 0.65; } 50% { transform: scale(1); opacity: 1; } }
+
+/* ------------------------------------------- the whole-app surface, one look */
+
+/* One pass over every screen — **no layout change**. Surfaces lose their hairline
+   outlines and become a single flat colour each, cards lift instead of glowing, the
+   top bar floats over the page instead of sitting in a bordered strip, and the
+   accent is spent on the things you act on (the chosen chip, the primary button, a
+   focused field, the chosen letter) rather than on a border drawn around every box.
+
+   It is written here, at the end, so it settles every screen at once — Home, a
+   card, Explore, Search, Calendar, Sources, Settings and the Live TV profile —
+   without touching a single layout rule. */
+
+body { background: var(--ink); }
+
+.topbar {
+  background: linear-gradient(180deg, rgba(11, 11, 11, 0.95), rgba(11, 11, 11, 0.6) 72%, transparent);
+  border-bottom: 0;
+  padding: 18px 44px 22px;
+}
+
+.main { padding: 30px 44px 110px; }
+
+.icon-box { border: 0; background: var(--panel); }
+.icon-box:hover { transform: translateY(-5px); border-color: transparent; background: var(--panel-2); }
+
+.poster { border: 0; background: var(--panel); }
+.poster:hover { transform: translateY(-5px); background: var(--panel-2); }
+.poster img { border-radius: 8px; }
+
+.hero { border: 0; }
+.hero-art { border: 0; }
+
+.row-switch { border: 0; background: rgba(255, 255, 255, 0.06); }
+
+.result,
+.provider,
+.source-providers,
+.ai-ask,
+.search-filters,
+.guide,
+.calendar,
+.channel-card {
+  border-color: transparent;
+}
+
+.view-title { font-size: 34px; letter-spacing: -0.02em; }
+.section-title { letter-spacing: -0.01em; }
+.btn.primary { background: var(--accent); border-color: transparent; color: #0b0b0b; }
+.btn.primary:hover { filter: brightness(1.1); }
+
+/* The chosen letter in the rail is filled, so the filter is visible on the rail
+   itself and not only in the line above the grid. */
+.alpha.on { background: var(--accent); color: #0b0b0b; }
+
+/* Explore's chosen letter: what is being shown, and the way back. */
+.explore-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+.explore-filter[hidden] { display: none; }
+.explore-filter-text {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+#search-more { margin: 24px 0 0; }
+
+/* A planned release's pin stays on screen and inert — the calendar adds plans, it
+   does not quietly take them back. */
+.cal-pin:disabled { opacity: 1; cursor: default; }
+
+/* The banner's one picture: a landscape shot filling the padded frame, cropped to
+   the frame rather than stretched into it. */
+.hero-art .content-strip .content-tile { height: 100%; object-fit: cover; }
+
+/* ------------------------------------------- components, one shared language */
+
+/* **The outline pass.** The app drew a 1px hairline around nearly every surface —
+   top-bar buttons, profile tiles, cards, the banner, the search field, the filter
+   panel, the rail, buttons, inputs, the modal. Half of them were `0.08` white and
+   half `0.12`, so nothing agreed with anything. They are gone: flat fills and
+   spacing carry the structure now, and the only lines left are the ones that mean
+   something (the calendar's grid, the accent ring on a chosen colour, dividers). */
+.icon-btn,
+.profile-tile,
+.current-profile,
+.icon-box,
+.poster,
+.section-art,
+.hero,
+.hero-art,
+.btn,
+.search-bar,
+.search-filter-btn,
+.search-suggest,
+.search-filters,
+.chip-more,
+.result,
+.model-chip,
+.vis-card,
+.source,
+.provider,
+.source-providers,
+.ai-ask,
+.option,
+.modal-card,
+.modal-close,
+.cat-menu,
+.row-switch,
+.channel-card,
+.channel-art,
+.chip-arrow,
+.alpha-rail,
+.graph,
+.guide,
+.guide-head {
+  border: 0;
+}
+
+/* A top-bar button answers the cursor with a fill, since it has no outline left. */
+.icon-btn:hover, .icon-btn:focus-visible { background: rgba(255, 255, 255, 0.1); }
+
+/* Inputs are filled fields, not outlined boxes. */
+.text-input {
+  border: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.text-input:focus { background: rgba(255, 255, 255, 0.13); }
+
+/* Every plate the same shape. */
+.icon-box, .profile-tile, .poster, .result, .provider, .vis-card,
+.source, .option, .ai-ask, .current-profile, .modal-card, .channel-card {
+  border-radius: 12px;
+}
+
+/* **One pill for every chip in the app** — a card's catalog tags, the filter
+   choices, the model chips. They used to be three different treatments (accent
+   tint, panel fill, bordered), which is what made the tag lines look unlike the
+   search panel. */
+.chip,
+.filter-chip,
+.model-chip {
+  border: 0;
+  /* The same fill the filter chips already used, so the one pill has one value and
+     nothing has to be restated (or drift) between rules. */
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font-weight: 600;
+}
+.chip:hover, .model-chip:hover { background: rgba(255, 255, 255, 0.17); }
+.chip.active, .filter-chip.active { background: var(--accent); color: #0b0b0b; }
+
+/* **One voice for every label.** Captions were small-caps with letter-spacing in
+   nineteen places — the search result heads, the filter labels, the card
+   subtitles, the guide corner, the calendar's weekday row — so the whole app
+   whispered in the same tracked uppercase. They are sentence case and bold now,
+   which is what makes the components look like one product. */
+.hero-kicker,
+.icon-sub,
+.profile-tile-sub,
+.current-profile-note,
+.btn.explore,
+.suggest-kind,
+.filter-label,
+.result-head,
+.source-type,
+.cat-count,
+.channel-sub,
+.guide-corner,
+.cal-dow,
+.cal-count,
+.badge,
+.explore-filter-text,
+.settings-group,
+.setting h3,
+.watch-tag {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.result-head { margin: 26px 0 12px; font-size: 15px; font-weight: 800; color: var(--text); }
+.filter-label { width: 86px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.hero-kicker { font-size: 12px; font-weight: 700; }
+.icon-sub, .profile-tile-sub, .current-profile-note { font-size: 12px; font-weight: 600; }
+.cal-dow, .guide-corner { font-size: 12px; font-weight: 600; }
+.suggest-kind { width: 74px; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.cal-count { font-size: 10.5px; font-weight: 700; }
+.settings-group { font-size: 13px; font-weight: 700; color: var(--muted); }
+.setting h3 { font-size: 14.5px; font-weight: 700; }
+.watch-tag { font-size: 11px; font-weight: 700; }
+.explore-filter-text { font-size: 13px; font-weight: 700; color: var(--text); }
+
+/* The rail's letters are the one place a single capital *should* stand alone; the
+   plate itself keeps the fill its own rule already sets. */
+.alpha { font-size: 10.5px; font-weight: 700; }
+
+/* ----------------------------------------- the states the outline pass went too far on */
+
+/* Removing hairlines by the boxful is what the app wanted, but four of the lines
+   above were not decoration — they were **state**: the ring around the profile you
+   are on, the plate on the tag arrows, the rule under the guide's time row, and the
+   box around the day you picked. Deleting them left surfaces that could no longer
+   say anything, which is its own kind of "does not match". Each one comes back as a
+   **fill or a ring** instead of a hairline, so the app keeps one voice: the accent
+   is spent on what you act on. */
+
+/* The tag arrows keep their accent plate on purpose — a stroked chevron on a flat
+   tinted plate is what makes them read as something to press. */
+.chip-arrow { border: 1px solid rgba(var(--accent-rgb), 0.45); }
+
+/* The guide's header needs its rule: every row under it keeps one, and without it
+   the time ruler floats away from the grid it labels. */
+.guide-head { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+
+/* Top-bar controls rest as bare glyphs and fill under the cursor. */
+.icon-btn { background: transparent; }
+
+/* The profile you are on, and the one you are pointing at. */
+.profile-tile:hover, .profile-tile:focus-visible { background: var(--panel-2); }
+.profile-tile.active { background: rgba(var(--accent-rgb), 0.12); box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.8); }
+
+/* A chosen row, a hovered result, a recommended model, a pin: a fill, not a border. */
+.option:has(input:checked) { background: rgba(var(--accent-rgb), 0.14); }
+.result:hover { background: var(--panel-2); }
+.model-chip.suggested { background: rgba(var(--accent-rgb), 0.18); }
+.btn.pin { background: rgba(255, 255, 255, 0.1); }
+
+/* The month grid: flat blocks on the page instead of twenty-eight hairlines, with
+   the accent marking today and the day you picked. */
+.cal-cell { border: 0; background: var(--panel-2); }
+.cal-cell:hover { background: rgba(var(--accent-rgb), 0.16); }
+.cal-cell.today { box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.7); }
+.cal-cell.selected { background: rgba(var(--accent-rgb), 0.2); box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* An empty state is a panel, not a dotted box. */
+.empty-panel { border: 0; background: var(--panel); }
+
+/* One radius for the two big frames, so the banner agrees with the cards under it. */
+.hero { border-radius: 16px; }
+.hero-art, .section-art { border-radius: 12px; }
+
+/* The title modal's meta line was the last tracked label in the app, and the boot
+   caption is the only other one left: captions are sentence case everywhere now. */
+.modal-meta { letter-spacing: 0; color: var(--muted); }
+.boot-note { letter-spacing: 0; }
+
+/* A search field is read before it is typed in, so its hint is legible — the same
+   grey as every other caption rather than the faintest step on the ramp. */
+.search-input { font-size: 15px; }
+.search-input::placeholder { color: var(--muted); }
+
+/* ------------------------------- the banner, the live cards, and the empty plate */
+
+/* The banner's frame is a **button** now: the landscape shot is the way into the
+   title on it. A button needs the frame reset before it can wear it — without this
+   it keeps the browser's own padding, font and press styling. */
+button.hero-art {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.hero-art .content-tile { transition: transform 0.4s ease; }
+.hero-art:hover .content-tile,
+.hero-art:focus-visible .content-tile { transform: scale(1.04); }
+
+/* A title with no picture to draw is its own initials, not an empty dark plate —
+   which is what a calendar plan with a missing or broken poster used to leave. */
+.poster-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+  color: var(--faint);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+/* The Categories screen: one tile per category, its name over its channel count. */
+.cat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+.cat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.cat-tile:hover, .cat-tile:focus-visible { transform: translateY(-3px); background: var(--panel-2); }
+.cat-tile-name { font-size: 15px; font-weight: 700; }
+.cat-tile-count { font-size: 12px; color: var(--muted); }
+
+/* The country picker is a long list in a window, so the settings pane stays a pane. */
+.country-picker { max-height: 268px; overflow-y: auto; padding-right: 4px; }
+
+/* ------------------------------------ the scenes are gone, and so is the lift */
+
+/* **No generated vector scene, at any moment.** A card, the banner and a card page
+   used to open on the collection's generated cover — the star-and-constellation
+   scene — and swap to the titles when they answered. That made every card arrive as
+   an illustration of itself and then change under you, and on a slow row the cover
+   was the only thing you ever saw. `art-blank` is on those frames from the first
+   paint: the frame is the app's own flat panel, and it becomes the card's titles the
+   moment they land. `art-filled` still means "the pictures are here"; this is what
+   the frame is before that. */
+.icon-wrap.art-blank .icon-art img { opacity: 0; }
+.hero-art.art-blank,
+.section-art.art-blank { background-image: none !important; }
+.icon-wrap.art-blank,
+.hero-art.art-blank,
+.section-art.art-blank { background-color: var(--panel-2); }
+
+/* **A card does not lift, and nothing spills out of its corners.** The grid lifted
+   every card `translateY(-5px)` on hover; a transform makes a stacking context, so
+   the lifted card painted *over* the floated top bar and its rounded top corners cut
+   across whatever sat behind them — the reported "both upper corners and upper lines
+   go over". The response is a fill and an inset ring now, which changes no geometry
+   and can never leave the card's own box. The strip is clipped to the frame's radius
+   for the same reason: the photographs are inside the card, never across its edge. */
+.icon-box { overflow: hidden; }
+.icon-box:hover,
+.icon-box:focus-within {
+  transform: none;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.45);
+}
+.icon-wrap { overflow: hidden; border-radius: var(--radius) var(--radius) 0 0; }
+.content-strip { overflow: hidden; border-radius: 12px; }
+.content-tile { min-height: 0; }
+
+/* The floated top bar always sits above the page it floats over. */
+.topbar { z-index: 40; }
+
+/* --------------------------- the banner's left-hand column, and its cards */
+
+/* The cards beside the one on the banner: a label and one of that card's own rows,
+   one chip each. The line refreshes on the banner's clock (see `drawHeroTile`), so
+   it is the same two-row window the rest of the app's tag lines use. */
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+.chip-card {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+}
+.chip-card-name { font-weight: 700; }
+.chip-card-tag { color: var(--muted); font-size: 11.5px; }
+.chip-card:hover .chip-card-tag, .chip-card:focus-visible .chip-card-tag { color: var(--accent); }
+
+/* The two Live TV cards wear the same box a Movies card does — two cards side by
+   side, not two full-width banners. */
+.live-cards { margin-bottom: 26px; }
+.live-card .icon-wrap { aspect-ratio: 16 / 9; background: var(--panel-2); }
+.live-card .icon-art {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  cursor: pointer;
+}
+.live-card .guide-mini { justify-content: center; }
+
+/* ------------------------------------------------------------------- player */
+
+/* The stream plays **inside** the app: a full-bleed overlay over whatever screen
+   opened it, with the title of the channel and one way out. */
+.player {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 26px 30px;
+  background: rgba(4, 5, 8, 0.94);
+  backdrop-filter: blur(10px);
+}
+.player-head { display: flex; align-items: center; gap: 16px; }
+.player-title { flex: 1; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.player-video {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  background: #000;
+}
+.player-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.player-error { margin: 0; color: #ff9d9d; font-size: 13px; }
+
+/* The settings screen reads as a stack of groups, the way a streaming app's does. */
+.settings-group { margin: 18px 0 6px; }
+.settings-group:first-child { margin-top: 0; }

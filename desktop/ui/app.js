@@ -27,6 +27,7 @@ const KEY = {
   row: "nuvio.row",
   layout: "nuvio.layout",
   safe: "nuvio.safe",
+  refresh: "nuvio.refresh",
   sources: "nuvio.sources",
   profile: "nuvio.profile",
   providers: "nuvio.providers",
@@ -41,9 +42,11 @@ const KEY = {
   motion: "nuvio.motion",
   pickCards: "nuvio.pickCards",
   visibility: "nuvio.visibility",
+  liveRow: "nuvio.liveRow",
+  liveSource: "nuvio.liveSource",
 };
 
-const PINNED = /◆ Top 10|Airing Today|Airing This Week|On the Air|Now Playing|^Latest|^New Release|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
+const PINNED = /◆ Top 10|◆ Top 25|Airing Today|Airing This Week|On the Air|Now Playing|^Latest|^New Release|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
 
 // The watchlist rows are states, in the order a title moves through them.
 const WATCH_STATES = [
@@ -52,8 +55,17 @@ const WATCH_STATES = [
   ["watched", "Watched"],
 ];
 
-// The profiles you can switch between. `Live TV & Sports` is the second one.
-const PROFILES = ["Movies & Shows", "Live TV & Sports"];
+// The profiles you can switch between. `Live TV & Sports` is the second one, and
+// it is a different app: its own two buttons, its own cards, its own settings.
+const LIVE_PROFILE = "Live TV & Sports";
+const PROFILES = ["Movies & Shows", LIVE_PROFILE];
+
+// How much of a playlist Live TV & Sports draws: rows for a playlist's biggest
+// categories, a cap on the channels inside one row, and the guide's own window.
+const LIVE_MAX_ROWS = 10;
+const LIVE_ROW_CHANNELS = 80;
+const LIVE_GUIDE_CHANNELS = 40;
+const LIVE_GUIDE_HOURS = 6;
 
 const LAYOUTS = [
   ["grid", "Icon grid", "Collections as a grid of tiles — best for a TV remote."],
@@ -164,12 +176,15 @@ const typeLabel = (t) => SOURCE_TYPES.find(([v]) => v === t)?.[1] ?? t;
  */
 const SETTINGS_GROUPS = [
   {
-    group: "What you see",
+    // Profile first, the way a streaming app opens Settings: who you are, how the
+    // app looks, and what it shows — all four are "how this profile behaves".
+    group: "Profile & playback",
     sections: [
-      ["content", "Content"],
-      ["layout", "Layout"],
-      ["posters", "Posters"],
+      ["profile", "Profile"],
       ["appearance", "Appearance"],
+      ["layout", "Layout"],
+      ["content", "Content"],
+      ["posters", "Posters"],
     ],
   },
   {
@@ -188,17 +203,50 @@ const SETTINGS_GROUPS = [
     ],
   },
   {
-    group: "This app",
-    sections: [
-      ["profile", "Profile"],
-      ["server", "Server"],
-    ],
+    group: "This device",
+    sections: [["server", "Server"]],
   },
 ];
 
 // The flat list, in the order the groups define — this is what "which tab is
 // active" and "what does an unknown section fall back to" are answered from.
 const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((g) => g.sections);
+
+/**
+ * The Live TV & Sports profile's own settings — the whole screen, not an extra
+ * tab: where the channels come from, where the guide comes from, how often both
+ * update. The Movies & Shows sections (Content, Posters, Providers, Tracking, AI,
+ * Add-ons, Plugins) do not apply to a live playlist, so they are not offered
+ * while that profile is active.
+ */
+const LIVE_SETTINGS_GROUPS = [
+  {
+    // The profile's own four first — source, countries, guide, refresh — because
+    // they are the only reason this screen is different from the other profile's.
+    group: "Live TV & Sports",
+    sections: [
+      ["livesource", "Source"],
+      ["livecountries", "Countries"],
+      ["liveguide", "Guide & EPG"],
+      ["liverefresh", "Refresh"],
+    ],
+  },
+  {
+    group: "Profile & playback",
+    sections: [
+      ["profile", "Profile"],
+      ["livelayout", "Layout"],
+      ["appearance", "Appearance"],
+    ],
+  },
+  {
+    group: "This device",
+    sections: [["server", "Server"]],
+  },
+];
+const LIVE_SETTINGS_SECTIONS = LIVE_SETTINGS_GROUPS.flatMap((g) => g.sections);
+const settingsGroups = () => (liveProfile() ? LIVE_SETTINGS_GROUPS : SETTINGS_GROUPS);
+const settingsSections = () => (liveProfile() ? LIVE_SETTINGS_SECTIONS : SETTINGS_SECTIONS);
 
 const readJSON = (key, fallback) => {
   try {
@@ -212,11 +260,24 @@ const writeJSON = (key, value) => localStorage.setItem(key, JSON.stringify(value
 
 const state = {
   tab: "home",
+  // The catalog ids the addon's manifest publishes. `null` until it answers, and
+  // `rowOf` filters nothing while it is null.
+  publishedCatalogs: null,
   row: localStorage.getItem(KEY.row) || "movie", // movie | series
   layout: localStorage.getItem(KEY.layout) || "grid",
   safe: readJSON(KEY.safe, true),
+  // How often the screen re-reads itself, in minutes (0 = only when you ask). The
+  // addon's own cache follows the same setting server-side.
+  refresh: readJSON(KEY.refresh, 60),
+  // Bumped by a refresh so a re-read is a new URL for the browser cache too.
+  gen: 0,
   profile: localStorage.getItem(KEY.profile) || PROFILES[0],
   profiles: PROFILES,
+  // Live TV & Sports: which of its two rows is showing, and the channels, groups
+  // and guide the server has answered with.
+  liveRow: localStorage.getItem(KEY.liveRow) || "livetv",
+  liveSource: readJSON(KEY.liveSource, { mode: "dth", m3u: "", host: "", username: "", password: "", epg: "", providers: [], refreshMinutes: 0 }),
+  live: { loading: false, loaded: false, all: [], total: 0, groups: [], rows: [], updated: 0, error: "", guide: null, guideLoading: false, guideError: "" },
   providers: readJSON(KEY.providers, { tmdb: { enabled: true }, tvdb: { enabled: false }, mdblist: { enabled: false } }),
   tracking: readJSON(KEY.tracking, {
     trakt: { enabled: false },
@@ -234,6 +295,8 @@ const state = {
     hasKey: {},
     enhanceArtwork: true,
     enhanceMissing: true,
+    // "Pick for me" — which row the Ask box searches. "" = both.
+    pickRow: "",
   }),
   // id → watch state, mirrored from the server so the modal can show the state
   // a title is already pinned in.
@@ -311,7 +374,23 @@ const setRow = (row) => {
   localStorage.setItem(KEY.row, row);
 };
 const cardByKey = (key) => state.collections.find((c) => c.key === key);
-const rowOf = (c) => c[rowKey()] || { cover: "", catalogs: [] };
+/**
+ * A card's catalogs **as the addon publishes them**.
+ *
+ * A card's own list used to be drawn whatever it said, so a stale card list (or an
+ * addon that no longer serves a row) left a chip and a row behind for a catalog id
+ * that answers 404 — "Anime" and "Asian Drama" were the visible pair. Every read of
+ * a card goes through here, so the fix is one place: until the manifest answers,
+ * nothing is filtered, and after it does a row the addon does not publish simply
+ * is not drawn.
+ */
+const rowOf = (c) => {
+  const r = c[rowKey()] || { cover: "", catalogs: [] };
+  const live = state.publishedCatalogs;
+  if (!live || !live.size || !r.catalogs.length) return r;
+  const catalogs = r.catalogs.filter((cat) => live.has(cat.id));
+  return catalogs.length === r.catalogs.length ? r : { ...r, catalogs };
+};
 
 const get = async (path) => {
   const res = await fetch(API + path);
@@ -360,6 +439,10 @@ function mergeServerSettings(res) {
     state.safe = res.safe;
     writeJSON(KEY.safe, state.safe);
   }
+  if (res.refresh && typeof res.refresh.minutes === "number") {
+    state.refresh = res.refresh.minutes;
+    writeJSON(KEY.refresh, state.refresh);
+  }
   if (typeof res.language === "string" && res.language) {
     state.language = res.language;
     localStorage.setItem(KEY.language, state.language);
@@ -384,6 +467,9 @@ function catalogQuery() {
   const params = new URLSearchParams();
   if (!state.safe) params.set("adult", "1");
   if (state.language) params.set("lang", state.language);
+  // Only present after a refresh: it makes the re-read a different URL, so the
+  // browser cannot answer it out of its own copy of the row.
+  if (state.gen) params.set("gen", String(state.gen));
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -406,6 +492,9 @@ async function setWatchState(item, next) {
   } catch {
     /* offline — the list simply does not change */
   }
+  // The watchlist card *is* its contents, so a pin or an unpin redraws it now —
+  // unlike every other card, which holds its artwork until the next launch.
+  forgetCardArt(watchlistCard());
   modal.open(item);
   render();
 }
@@ -428,6 +517,19 @@ function backdropOf(m) {
   const url = m.background || "";
   if (!state.ai?.enabled || !state.ai?.enhanceArtwork) return url;
   return url.replace("/w780/", "/w1280/");
+}
+
+/**
+ * The banner's picture: a **landscape** backdrop, at the largest size TMDB serves.
+ *
+ * The banner's frame is 16:9. A 2:3 poster in it is either cropped into a letterbox
+ * or blown up until it is blurry, so the banner never uses a poster: it uses the
+ * backdrop (shot wide) and asks for `w1280` even when the row was served `w500`,
+ * which is what keeps it sharp across a full-width banner.
+ */
+function heroImage(m) {
+  const wide = m?.background || m?.poster || "";
+  return wide ? wide.replace(/\/w\d+\//, "/w1280/") : "";
 }
 
 function el(tag, props = {}, ...children) {
@@ -505,9 +607,21 @@ function posterCard(m, opts = {}) {
     // titles that share a name.
     "button",
     { class: "poster focusable", type: "button", "data-id": m.id || "", onclick: () => modal.open(m) },
+    // A card always shows something. A plan made from the calendar stores only the
+    // fields the app draws, and any picture can fail to load — either way the plate
+    // used to be left empty, which is the dark rectangle "glitching" on a pin. The
+    // title's own initials stand in for it instead.
     poster
-      ? el("img", { src: poster, alt: m.name, loading: "lazy", onerror: () => { /* keep the box */ } })
-      : el("div", { class: "placeholder" }),
+      ? el("img", {
+          src: poster,
+          alt: m.name,
+          loading: "lazy",
+          onerror: (event) => {
+            const img = event.currentTarget;
+            if (img && img.parentElement) img.replaceWith(posterFallback(m.name));
+          },
+        })
+      : posterFallback(m.name),
     el(
       "div",
       { class: "poster-cap" },
@@ -530,6 +644,18 @@ function posterCard(m, opts = {}) {
  * still on screen — which is exactly what "removing it from the watchlist does
  * not remove it" was.
  */
+/** The first letters of a title, drawn when there is no poster to draw. */
+const initialsOf = (name) =>
+  String(name || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("") ||
+  "?";
+
+const posterFallback = (name) => el("div", { class: "poster-fallback", text: initialsOf(name).toUpperCase() });
+
 async function fetchCatalog(catalog, skip = 0) {
   const suffix = skip ? `/skip=${skip}` : "";
   const stateful = catalog.kind === "watchlist" || catalog.kind === "custom";
@@ -619,6 +745,99 @@ function lazyStrip(catalog) {
  * catalog's row into view. It used to drop straight into Explore, which skipped
  * the other rows of the collection you were looking at.
  */
+/**
+ * A drawn icon, in the **SVG namespace**.
+ *
+ * `el("svg", …)` cannot draw one: `document.createElement` makes an HTML element
+ * merely *named* "svg", and its `<path>` children are never rendered. That is why
+ * the tag-line arrows came out as empty pills — a filled plate with an invisible
+ * mark — and the search funnel and the shuffle mark were missing too. Everything
+ * built here is a real SVG node, so every stroked glyph (`.glyph svg`,
+ * `.search-glyph svg`) paints.
+ */
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgNode(tag, attrs = {}, ...children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  for (const child of children.flat(Infinity)) if (child) node.append(child);
+  return node;
+}
+
+/** A drawn chevron, for the show-more control. */
+const chevronDown = () =>
+  el(
+    "span",
+    { class: "glyph", "aria-hidden": "true" },
+    svgNode("svg", { viewBox: "0 0 24 24" }, svgNode("path", { d: "M6 9l6 6 6-6" })),
+  );
+const chevronUp = () =>
+  el(
+    "span",
+    { class: "glyph", "aria-hidden": "true" },
+    svgNode("svg", { viewBox: "0 0 24 24" }, svgNode("path", { d: "M6 15l6-6 6 6" })),
+  );
+
+/** One row of the tag track, measured, so a step is a row and not a guess. */
+const trackRow = (track) => {
+  const first = track.firstElementChild;
+  const height = first?.getBoundingClientRect?.().height || first?.offsetHeight || 26;
+  return height + 8;
+};
+
+/**
+ * A line of chips, held to two rows with **up/down arrows that scroll it**.
+ *
+ * A card page and the banner carry one chip per catalog, and the big cards hold
+ * nearly two hundred tags — a wall of pills that pushes the rows off the screen. So
+ * the line is a two-row window: the arrows step it a row at a time (and the wheel
+ * over it scrolls it too), each arrow going dim at its own end of the list. A short
+ * list gets no control at all. Nothing is expanded in place — the line stays two
+ * rows tall however many tags there are.
+ */
+const CHIP_CLAMP_AT = 8;
+
+function chipLine(children, { className = "cats" } = {}) {
+  if (children.length <= CHIP_CLAMP_AT) return el("div", { class: className }, ...children);
+  const track = el("div", { class: "chip-track", tabindex: "0" }, ...children);
+  const up = el(
+    "button",
+    { class: "chip-arrow up focusable", type: "button", title: "Scroll the tags up", "aria-label": "Scroll the tags up", onclick: () => step(-1) },
+    chevronUp(),
+  );
+  const down = el(
+    "button",
+    { class: "chip-arrow down focusable", type: "button", title: "Scroll the tags down", "aria-label": "Scroll the tags down", onclick: () => step(1) },
+    chevronDown(),
+  );
+
+  function step(direction) {
+    track.scrollBy({ top: direction * trackRow(track), behavior: reducedMotion() ? "auto" : "smooth" });
+  }
+
+  // Each arrow dims at its own end, so the line says where it is without a label.
+  // "At the end" is only claimed when the track can actually be measured: a DOM
+  // with no layout (jsdom, a WebView before first paint) reports every height as
+  // zero, and the control must stay usable there rather than look finished.
+  const sync = () => {
+    const measurable = track.scrollHeight > track.clientHeight + 2;
+    const hidden = track.scrollHeight - track.clientHeight - track.scrollTop;
+    down.disabled = measurable && hidden <= 2;
+    up.disabled = measurable && track.scrollTop <= 2;
+    down.classList.toggle("at-end", down.disabled);
+    up.classList.toggle("at-end", up.disabled);
+  };
+  track.addEventListener("scroll", sync, { passive: true });
+  // Measured once the line is in the document, not before.
+  requestAnimationFrame(sync);
+
+  return el(
+    "div",
+    { class: `${className} chip-block chip-clamped`, title: `${children.length} tags — use the arrows to scroll them` },
+    track,
+    el("div", { class: "chip-scroll" }, up, down),
+  );
+}
+
 function catalogChip(card, cat) {
   return el("button", {
     class: "chip focusable",
@@ -669,6 +888,10 @@ function parseHash() {
     const [id, name] = hash.slice(2).split("/");
     return { view: "sources", id: decodeURIComponent(id || ""), name: decodeURIComponent(name || "") };
   }
+  if (hash.startsWith("channel/")) return { view: "channel", id: decodeURIComponent(hash.slice(8)) };
+  if (hash === "guide") return { view: "guide" };
+  if (hash.startsWith("categories/")) return { view: "category", group: decodeURIComponent(hash.slice(11)) };
+  if (hash === "categories") return { view: "categories" };
   if (hash === "profiles") return { view: "profiles" };
   if (hash === "calendar") return { view: "calendar" };
   if (hash === "search") return { view: "search" };
@@ -734,13 +957,13 @@ const shuffleIcon = () =>
   el(
     "span",
     { class: "glyph", "aria-hidden": "true" },
-    el(
+    svgNode(
       "svg",
       { viewBox: "0 0 24 24" },
-      el("path", { d: "M4 7h3.2l9.6 10H20" }),
-      el("path", { d: "M17 14l3 3-3 3" }),
-      el("path", { d: "M4 17h3.2l9.6-10H20" }),
-      el("path", { d: "M17 4l3 3-3 3" }),
+      svgNode("path", { d: "M4 7h3.2l9.6 10H20" }),
+      svgNode("path", { d: "M17 14l3 3-3 3" }),
+      svgNode("path", { d: "M4 17h3.2l9.6-10H20" }),
+      svgNode("path", { d: "M17 4l3 3-3 3" }),
     ),
   );
 
@@ -753,6 +976,12 @@ function chooseProfile(name) {
   state.profile = name;
   localStorage.setItem(KEY.profile, name);
   pushSettings({ profile: name });
+  // Each profile's settings are its own: entering Live TV & Sports lands on its
+  // Source section, and entering Movies & Shows lands on Content — so the two
+  // never share a section that does not exist for them.
+  const first = name === LIVE_PROFILE ? "livesource" : SETTINGS_SECTIONS[0][0];
+  state.settingsSection = first;
+  localStorage.setItem(KEY.section, first);
   location.hash = "#/";
   render();
 }
@@ -815,7 +1044,14 @@ const LAUNCH_SEED = Math.floor(Math.random() * 1e9);
 /** One draw per card per launch: a redraw reuses it instead of asking again. */
 const contentDrawn = new Map();
 
-/** Lay `count` pictures into a strip, from this launch's slice of the card. */
+/**
+ * Lay `count` pictures into the frame, from this launch's slice of the card.
+ *
+ * The frame *becomes* the posters: the generated cover is hidden the moment they
+ * arrive (`art-filled` on the frame), so what you see in the banner's inner card
+ * and in every card's inner card is the titles themselves, padded and gapped, each
+ * keeping its own shape — not a vector scene with a strip over it.
+ */
 function drawTiles(strip, art, count) {
   const start = art.length > count ? LAUNCH_SEED % (art.length - count + 1) : 0;
   strip.replaceChildren(
@@ -823,43 +1059,96 @@ function drawTiles(strip, art, count) {
       el("img", { class: "content-tile", src: m.poster || m.background, alt: "", loading: "lazy" }),
     ),
   );
+  strip.classList.add("filled");
+  // `closest` and not `parentElement`: the frame is whichever artwork container
+  // the strip ended up in, and it is the frame that hides the generated cover.
+  const frame = strip.closest(".icon-wrap, .hero-art, .section-art");
+  if (frame) frame.classList.add("art-filled");
 }
+
+/**
+ * Forget a card's drawn pictures, so the next render asks for them again.
+ *
+ * The watchlist card is the one card whose contents change while the app runs: pin
+ * or unpin a title and its wall of posters is stale the moment you do. Its draw is
+ * dropped rather than replayed from the per-launch cache, which is what makes it
+ * change *immediately* instead of on the next launch like every other card.
+ */
+function forgetCardArt(card) {
+  if (!card) return;
+  for (const key of [...contentDrawn.keys()]) {
+    if (key.startsWith(`${card.key}:`)) contentDrawn.delete(key);
+  }
+}
+
+/** The card whose rows are your own pins. */
+const watchlistCard = () =>
+  state.collections.find((c) => rowOf(c).catalogs.some((cat) => cat.kind === "watchlist"));
+
+/** Frames waiting for their pictures — filled a few at a time, not all at once. */
+const contentJobs = [];
+let contentBusy = 0;
+const CONTENT_CONCURRENCY = 3;
 
 function contentStrip(card, row, count) {
   const strip = el("div", { class: "content-strip", "aria-hidden": "true" });
-  const key = `${card.key}:${row}`;
-  const drawn = contentDrawn.get(key);
-  if (drawn) {
-    drawTiles(strip, drawn, count);
-    return strip;
+  // The pictures are asked for **after** the screen is in the document — see
+  // `hydrateContent`. A strip built during render has no frame to fill yet, and a
+  // lazy observer over a detached node is how a card kept its cover for good.
+  strip._job = { card, row, count, key: `${card.key}:${row}` };
+  return strip;
+}
+
+/**
+ * Fill every frame on the screen.
+ *
+ * Runs once a screen has been drawn, so the frames exist and the pictures have
+ * somewhere to land, and it draws from the per-launch cache first — so a redraw
+ * (the banner's ten-second move, or coming back to Home) reuses one draw instead
+ * of asking again. Three are in flight at a time, so opening Home is not twenty
+ * catalog calls at once.
+ */
+function hydrateContent() {
+  for (const strip of document.querySelectorAll(".content-strip")) {
+    const job = strip._job;
+    if (!job || strip.classList.contains("filled")) continue;
+    strip._job = null;
+    const cached = contentDrawn.get(job.key);
+    if (cached) {
+      drawTiles(strip, cached, job.count);
+      continue;
+    }
+    const cat = orderedCatalogs(job.card).filter(catalogVisible)[0];
+    if (!cat) continue;
+    contentJobs.push({ strip, job, cat });
   }
-  const cat = orderedCatalogs(card).filter(catalogVisible)[0];
-  if (!cat) return strip;
-  const fill = () =>
-    get(`/catalog/${row}/${encodeURIComponent(cat.id)}.json${catalogQuery()}`)
+  pumpContent();
+}
+
+function pumpContent() {
+  while (contentBusy < CONTENT_CONCURRENCY && contentJobs.length) {
+    const { strip, job, cat } = contentJobs.shift();
+    contentBusy++;
+    // A watchlist (or calendar) row is *your* state, not a cached list: it is read
+    // with a cache-buster and answered `no-store`, so a card drawn before a pin can
+    // never be replayed over it.
+    const stateful = cat.kind === "watchlist" || cat.kind === "custom";
+    const bust = stateful ? `&_=${Date.now()}${Math.random().toString(36).slice(2, 7)}` : "";
+    get(`/catalog/${job.row}/${encodeURIComponent(cat.id)}.json${catalogQuery()}${bust}`)
       .then(({ metas = [] }) => {
         const art = metas.filter((m) => m.poster || m.background);
         if (!art.length) return;
-        contentDrawn.set(key, art);
-        drawTiles(strip, art, count);
+        contentDrawn.set(job.key, art);
+        if (strip.isConnected) drawTiles(strip, art, job.count);
       })
       .catch(() => {
         /* the cover is the fallback */
+      })
+      .finally(() => {
+        contentBusy--;
+        pumpContent();
       });
-  // Only a card that is actually on screen asks for its pictures, so the twenty
-  // cards below the fold do not each make a catalog call the moment Home opens.
-  if (typeof window.IntersectionObserver === "function") {
-    const seen = new window.IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
-        seen.disconnect();
-        fill();
-      }
-    });
-    seen.observe(strip);
-  } else {
-    fill();
   }
-  return strip;
 }
 
 /* ------------------------------------------------------------- hero rotation */
@@ -868,6 +1157,8 @@ function contentStrip(card, row, count) {
 const HERO_ROTATE_MS = 10_000;
 let heroTimer = null;
 let heroKey = null;
+// True while the cursor is over the banner — the rotation holds still then.
+let heroHover = false;
 
 /** The cards the banner may show: visible, and actually holding rows. */
 const heroCandidates = () => state.collections.filter((c) => cardVisible(c) && rowOf(c).catalogs.length);
@@ -882,24 +1173,146 @@ function heroCard() {
   return cards.find((c) => c.key === heroKey);
 }
 
+/* ------------------------------------------- the banner's one picture */
+
+/** The catalog the banner is drawn from: Now Playing on movies, On the Air on shows. */
+const HERO_CATALOG = { movie: "Now Playing", series: "On the Air" };
+
+/** Every title the banner may show, from that one catalog, this launch. */
+let heroList = [];
+/** Which catalog `heroList` came from — the banner never moves off it. */
+let heroCatKey = null;
+/** The title on screen right now. */
+let heroAt = 0;
+/** The card the banner is on, so the left-hand labels can be redrawn with it. */
+let heroFeatured = null;
+
 /**
- * Move the banner to a different card every ten seconds, at random.
+ * The row the banner draws from — **Now Playing** for films, **On the Air** for shows.
  *
- * The banner used to sit on one fixed collection. It now walks the set — a new card,
- * so new artwork and new catalog labels, every ten seconds, never the one already on
- * screen. Only Home has a banner, so the ticker runs there and stops on any other
- * screen.
+ * The banner is a billboard for what is out now, so it is not a random card's first
+ * row: it is the row that means "this just came out", whichever card happens to own
+ * it, and the banner's own labels are that card's.
+ */
+function heroSource() {
+  const want = (HERO_CATALOG[apiType()] || "").toLowerCase();
+  if (!want) return null;
+  for (const card of state.collections) {
+    if (!cardVisible(card)) continue;
+    const cat = orderedCatalogs(card).filter(catalogVisible).find((c) => String(c.name || "").toLowerCase() === want);
+    if (cat) return { card, cat };
+  }
+  return null;
+}
+
+/**
+ * Read the banner's catalog once, then show one title out of it.
+ *
+ * Cached per launch like every other card's artwork, so the ten-second move is a
+ * redraw of one picture and never a new request.
+ */
+async function loadHeroArt(src, node) {
+  const row = apiType();
+  if (src) {
+    const key = `hero:${row}:${src.cat.id}`;
+    if (heroCatKey !== key) {
+      heroCatKey = key;
+      heroAt = 0;
+      heroList = contentDrawn.get(key) || [];
+      if (!heroList.length) {
+        try {
+          const { metas = [] } = await get(`/catalog/${row}/${encodeURIComponent(src.cat.id)}.json${catalogQuery()}`);
+          heroList = metas.filter((m) => m.poster || m.background);
+          if (heroList.length) {
+            contentDrawn.set(key, heroList);
+            // A different title each launch, like the cards.
+            heroAt = LAUNCH_SEED % heroList.length;
+          }
+        } catch {
+          heroList = [];
+        }
+      }
+    }
+  }
+  drawHeroTile(node);
+}
+
+/** Put the current title's landscape picture in the banner's frame. */
+function drawHeroTile(node) {
+  // A freshly built banner is not in the document yet, so the caller's node wins
+  // when it passes one; the ten-second redraw passes none and uses the page.
+  const scope = node || document;
+  // The **left-hand labels refresh with the picture**. What sits there is not only
+  // the card the banner is on: it is the cards *beside* it — each one's label and
+  // one of its own rows — and the window moves every time the banner moves, so the
+  // column is not the same six words for the whole session.
+  const tags = scope.querySelector(".hero-tags") || document.querySelector(".hero-tags");
+  if (tags && heroFeatured) tags.replaceChildren(...heroOtherChips(heroFeatured, heroAt));
+  const shot = scope.querySelector(".hero-art .content-strip") || document.querySelector(".hero-art .content-strip");
+  if (!shot || !heroList.length) return;
+  const m = heroList[heroAt % heroList.length];
+  shot.replaceChildren(el("img", { class: "content-tile", src: heroImage(m), alt: "", loading: "eager" }));
+  // The same marker a card's strip carries: `filled` means "these are the pictures",
+  // and the frame under it is what hides the generated cover.
+  shot.classList.add("filled");
+  const frame = shot.closest(".hero-art");
+  if (frame) frame.classList.add("art-filled");
+  // The name on the banner is the name of the picture on it.
+  const title = scope.querySelector(".hero-title") || document.querySelector(".hero-title");
+  if (title && m.name) title.textContent = m.name;
+}
+
+/**
+ * The cards beside the one on the banner, as chips: a card's label, then the first
+ * row inside it.
+ *
+ * This is the banner's left-hand column. It moves with the banner's own clock (the
+ * window starts at the title that is on screen), so the labels and their tags
+ * refresh every ten seconds along with the picture, and each chip is a way into
+ * that row — the same reading as a collection's own tag line.
+ */
+function heroOtherChips(featured, at) {
+  const others = state.collections.filter(
+    (c) => cardVisible(c) && c.key !== featured.key && rowOf(c).catalogs.length,
+  );
+  if (!others.length) return [];
+  const out = [];
+  for (let i = 0; i < Math.min(others.length, 6); i += 1) {
+    const card = others[(at + i) % others.length];
+    const cat = orderedCatalogs(card).filter(catalogVisible)[0];
+    out.push(
+      el(
+        "button",
+        {
+          class: "chip chip-card focusable",
+          type: "button",
+          "data-card": card.key,
+          title: cat ? `Open ${cat.name} in ${card.title}` : `Open ${card.title}`,
+          onclick: () => (cat ? openRow(card.key, cat.id) : go(`#/c/${encodeURIComponent(card.key)}`)),
+        },
+        el("span", { class: "chip-card-name", text: card.title }),
+        cat ? el("span", { class: "chip-card-tag", text: cat.name }) : null,
+      ),
+    );
+  }
+  return out;
+}
+
+/**
+ * Move the banner to another title in the **same** catalog, every ten seconds.
+ *
+ * The banner used to walk the cards, so its labels and its picture both changed;
+ * what it refreshes is one picture from Now Playing (or On the Air), so it keeps its
+ * card and its labels and redraws the shot — never the title already on screen.
  */
 function startHeroRotation() {
   stopHeroRotation();
   heroTimer = setInterval(() => {
-    const cards = heroCandidates();
-    const current = heroCard();
-    if (cards.length < 2 || !current) return;
-    const others = cards.filter((c) => c.key !== current.key);
-    heroKey = others[Math.floor(Math.random() * others.length)].key;
-    const banner = document.querySelector(".hero");
-    if (banner) banner.replaceWith(heroBlock());
+    // The banner is being read — hold it still until the cursor leaves it.
+    if (heroHover) return;
+    if (heroList.length < 2) return;
+    heroAt = (heroAt + 1 + Math.floor(Math.random() * (heroList.length - 1))) % heroList.length;
+    drawHeroTile();
   }, HERO_ROTATE_MS);
 }
 
@@ -908,24 +1321,96 @@ function stopHeroRotation() {
   heroTimer = null;
 }
 
+/* -------------------------------------------------------- catalog refresh */
+
+/**
+ * How often the screen re-reads its catalogs and metadata.
+ *
+ * One setting drives both halves of "update itself": the addon's TMDB cache
+ * lifetime is the same interval server-side, and the app re-reads the screen on
+ * that clock. A refresh only runs while the app is on screen and on a browsing
+ * view, and never over an open title — it cannot interrupt what you are doing.
+ */
+const REFRESH_CHOICES = [
+  [15, "Every 15 minutes"],
+  [30, "Every 30 minutes"],
+  [60, "Every hour"],
+  [180, "Every 3 hours"],
+  [0, "Only when you ask"],
+];
+
+let refreshTimer = null;
+
+/**
+ * Re-read the screen now.
+ *
+ * `gen` rides on every catalog request, so a refresh is a different URL for the
+ * browser cache as well as for the addon — without it the rows would be answered
+ * from the copy the page already has and nothing would look refreshed.
+ */
+function refreshNow() {
+  state.gen = Date.now();
+  // A refresh re-reads whatever the current screen is made of — including the
+  // channel list and the guide, which are catalogs too.
+  if (liveProfile()) {
+    state.live = { ...state.live, loaded: false, guide: null };
+    loadLive({ force: true });
+    return;
+  }
+  render();
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  const minutes = Number(state.refresh);
+  if (!minutes || minutes <= 0) return;
+  refreshTimer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    if (document.querySelector("#modal:not([hidden])")) return;
+    if (!["home", "card", "explore"].includes(parseHash().view)) return;
+    refreshNow();
+  }, minutes * 60_000);
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
 /** The hero banner — which card it shows changes at random every ten seconds. */
 function heroBlock() {
-  const featured = heroCard();
+  const src = heroSource();
+  const featured = src?.card || heroCard();
   if (!featured) return null;
   const row = rowOf(featured);
-  return el(
+  // Which card the banner is on, so `drawHeroTile` can refresh the left-hand labels
+  // with the picture instead of leaving them at whatever the first draw said.
+  heroFeatured = featured;
+  // The titles, their tags and the cards beside this one read on the **left**; the
+  // artwork sits on the **right**, the way the cover is composed. (The two children
+  // are in that order here, and the stylesheet only sizes them.) The frame is a
+  // **button**: the landscape shot is the way into the title on it — the banner is a
+  // thing you open, not a poster on the wall — and it falls back to the collection
+  // when the picture has not arrived yet.
+  //
+  // The frame wears `art-blank` from the start: the *generated vector scene* is the
+  // fallback for a card with nothing to draw, and the banner always has a title to
+  // draw, so what you see while the backdrop is on its way is the app's own flat
+  // panel — never the star-and-constellation cover underneath it.
+  const node = el(
     "section",
     { class: "hero" },
-    el("div", { class: "hero-art", style: `background-image:url("${row.cover}")` }, contentStrip(featured, apiType(), 5)),
     el(
       "div",
       { class: "hero-body" },
-      el("p", { class: "hero-kicker", text: "Featured collection" }),
+      el("p", { class: "hero-kicker", text: "Spotlight" }),
       el("h2", { class: "hero-title", text: featured.title }),
-      // Every catalog label is a link into that catalog.
-      el("div", { class: "hero-cats" },
-        ...row.catalogs.map((cat) => catalogChip(featured, cat)),
-      ),
+      // Every catalog label is a link into that catalog — clamped to two rows,
+      // because a big card carries eighty of them.
+      chipLine(row.catalogs.map((cat) => catalogChip(featured, cat)), { className: "hero-cats" }),
+      // The cards *beside* the one on the banner, each with one of its own rows.
+      // This is the line that refreshes with the picture.
+      el("div", { class: "hero-tags" }, ...heroOtherChips(featured, heroAt)),
       // Just the action — no "N catalogs · movies" counters on the banner.
       el(
         "div",
@@ -938,20 +1423,47 @@ function heroBlock() {
         }),
       ),
     ),
+    el(
+      "button",
+      {
+        class: "hero-art focusable art-blank",
+        type: "button",
+        title: "Open the title on the banner",
+        "aria-label": "Open the title on the banner",
+        onclick: () => {
+          const onShot = heroList[heroAt % (heroList.length || 1)];
+          if (onShot) modal.open(onShot);
+          else go(`#/c/${encodeURIComponent(featured.key)}`);
+        },
+      },
+      el("div", { class: "content-strip", "aria-hidden": "true" }),
+    ),
   );
+  // Reading the banner is a reason for it to hold still: while the cursor is over
+  // it the ten-second rotation freezes, and it picks up again on the way out.
+  node.addEventListener("mouseenter", () => { heroHover = true; });
+  node.addEventListener("mouseleave", () => { heroHover = false; });
+  queueMicrotask(() => loadHeroArt(src, node));
+  return node;
 }
 
 function iconBox(c, row) {
-  const r = c[row] || { cover: "", catalogs: [] };
+  const r = rowOf(c);
   const count = r.catalogs.length;
+  // The watchlist is three rows of *your own* pins, so its frame holds two posters:
+  // a wider wall of them read as a chart rather than as "what you are watching".
+  const tiles = r.catalogs.some((cat) => cat.kind === "watchlist") ? 2 : 4;
   return el(
     "div",
     { class: "icon-box" },
     // The artwork is the button; the card's own pictures are laid over it and never
     // take a click, so entering a card still happens on its artwork alone.
+    //
+    // `art-blank`: the generated vector scene is not drawn on load. The card is the
+    // app's flat panel until its own posters answer, and then it is the posters.
     el(
       "div",
-      { class: "icon-wrap" },
+      { class: "icon-wrap art-blank" },
       el(
         "button",
         {
@@ -966,7 +1478,7 @@ function iconBox(c, row) {
         },
         el("img", { src: r.cover, alt: c.title, loading: "lazy" }),
       ),
-      contentStrip(c, row, 4),
+      contentStrip(c, row, tiles),
     ),
     el(
       "span",
@@ -1082,19 +1594,26 @@ function renderCard(key) {
   // card reads exactly as Home does (and the chip line cannot link to it).
   const catalogs = orderedCatalogs(c).filter(catalogVisible);
 
+  // Name and tags first, the artwork card second — the same reading order as the
+  // banner — and the card's own posters sit *inside* that frame, padded, instead of
+  // the generated vector scene.
   const wrapper = el(
     "section",
     { class: "section" },
     el(
       "header",
       { class: "section-head" },
-      el("img", { class: "section-cover", src: row.cover, alt: c.title }),
       el(
         "div",
         { class: "section-meta" },
         el("h2", { text: c.title }),
         // The catalog labels are links into each catalog.
-        el("div", { class: "cats" }, ...row.catalogs.filter(catalogVisible).map((cat) => catalogChip(c, cat))),
+        chipLine(row.catalogs.filter(catalogVisible).map((cat) => catalogChip(c, cat))),
+      ),
+      el(
+        "div",
+        { class: "section-art art-blank", style: `background-image:url("${row.cover}")` },
+        contentStrip(c, apiType(), 5),
       ),
     ),
   );
@@ -1154,6 +1673,8 @@ function renderExplore(key, id) {
   const grid = el("div", { class: "grid-titles" });
   const sentinel = el("div", { class: "sentinel" });
   const catMenu = el("div", { class: "cat-menu", hidden: true });
+  // The chosen letter's own line: what is being shown, and the way back.
+  const filterBar = el("div", { class: "explore-filter", hidden: true });
 
   const openMenu = () => {
     catMenu.replaceChildren(
@@ -1223,6 +1744,15 @@ function renderExplore(key, id) {
   let pages = 0;
   const MAX_PAGES = 40;
 
+  /** Every title the row has handed over, in order, and whether it was already
+   *  counted. The rail indexes this list; the grid draws the part of it the chosen
+   *  letter covers. */
+  const loaded = [];
+  const seenIds = new Set();
+  let letterFilter = null;
+  const letterOf = (name) => String(name || "").trim().charAt(0).toUpperCase();
+  const passes = (m) => !letterFilter || letterOf(m.name) === letterFilter;
+
   const loadMore = async () => {
     if (busy || done) return;
     // Stop when the cap is reached instead of re-observing forever: a catalog that
@@ -1239,13 +1769,28 @@ function renderExplore(key, id) {
     busy = true;
     try {
       const { metas } = await fetchCatalog(cat, skip);
-      for (const m of metas) grid.append(posterCard(m));
+      for (const m of metas) {
+        const id = `${m.type || apiType()}:${m.id}`;
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        loaded.push(m);
+        // A letter is being shown: only its titles reach the grid, and the rest
+        // stay in `loaded` for when the letter is cleared.
+        if (passes(m)) grid.append(posterCard(m));
+      }
       skip += metas.length;
       pages++;
+      // The rail is an index of what is actually loaded, so it grows with the row.
+      refreshRail();
       if (!metas.length) {
         done = true;
         observer.disconnect();
-        sentinel.replaceChildren(el("p", { class: "view-hint inline", text: "End of catalog." }));
+        sentinel.replaceChildren(
+          el("p", {
+            class: "view-hint inline",
+            text: letterFilter ? `No more titles starting with ${letterFilter} in this catalog.` : "End of catalog.",
+          }),
+        );
       }
     } catch (err) {
       done = true;
@@ -1273,7 +1818,116 @@ function renderExplore(key, id) {
   const shuffles = stateful ? null : el("div", { class: "explore-shuffles" }, ...samples.map((row) => row.node));
   const rule = stateful ? null : el("div", { class: "h-divider", "aria-hidden": "true" });
 
-  const body = el("section", { class: "section explore" }, head, catMenu, shuffles, rule, grid, sentinel);
+  /* The alphabet rail — the **titles in this row**, by first letter.
+   *
+   * It is an index of the contents, not of the card's tags: a letter with titles
+   * under it jumps straight to the first one (and greys out when the titles loaded
+   * so far have nothing under it). The row loads page after page, so the rail is
+   * refreshed as each page lands — a letter cannot be "empty" for a title that has
+   * not arrived yet, it is simply not offered until it has.
+   *
+   * It is laid out *in the grid's own row* (`.explore-body`): a column in the right
+   * gutter whose letters sit level with the poster columns, and `sticky` so it
+   * rides down under the header as the row grows. It used to be `position: fixed`
+   * at the middle of the viewport, which dropped it over the sample row at the top
+   * of the page instead of beside the posters. */
+  const alphaRail = el("nav", { class: "alpha-rail", "aria-label": "Titles by first letter" });
+  const railIndex = new Map();
+  const refreshRail = () => {
+    railIndex.clear();
+    for (const m of loaded) {
+      const letter = letterOf(m.name);
+      if (letter && !railIndex.has(letter)) railIndex.set(letter, m);
+    }
+    alphaRail.replaceChildren(
+      ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((letter) => {
+        const has = railIndex.has(letter);
+        const chosen = letterFilter === letter;
+        const what = chosen
+          ? `Showing only the titles starting with ${letter} — pick it again for all of them`
+          : has
+            ? `Show only the titles starting with ${letter}`
+            : `Load and show the titles starting with ${letter}`;
+        return el(
+          "button",
+          {
+            class: `alpha focusable${has ? "" : " off"}${chosen ? " on" : ""}`,
+            type: "button",
+            text: letter,
+            title: what,
+            "aria-label": what,
+            "aria-pressed": String(chosen),
+            onclick: () => pickLetter(letter),
+          },
+        );
+      }),
+    );
+  };
+
+  /** Draw the grid from whatever the chosen letter covers. */
+  const paintGrid = () => grid.replaceChildren(...loaded.filter(passes).map((m) => posterCard(m)));
+
+  const updateFilterBar = () => {
+    filterBar.hidden = !letterFilter;
+    if (!letterFilter) return;
+    filterBar.replaceChildren(
+      el("span", { class: "explore-filter-text", text: `Titles starting with ${letterFilter}` }),
+      el("button", {
+        class: "btn subtle focusable",
+        type: "button",
+        text: "Show all",
+        onclick: () => pickLetter(letterFilter),
+      }),
+    );
+  };
+
+  /**
+   * Pick a letter: Explore shows that letter's titles and nothing else.
+   *
+   * The grid is filtered to them, and the row is paged in as far as it takes to
+   * fill the letter out — a letter the first page never mentioned still has its
+   * titles, they are simply further down the catalog. Picking the same letter
+   * again puts everything back.
+   */
+  const pickLetter = async (letter) => {
+    letterFilter = letterFilter === letter ? null : letter;
+    paintGrid();
+    updateFilterBar();
+    refreshRail();
+    if (!letterFilter) return;
+    const first = grid.firstElementChild;
+    if (first && typeof first.scrollIntoView === "function") {
+      first.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" });
+    }
+    // Page the row in until the letter is properly filled out — "all of that
+    // letter's titles", not the one or two the first window happened to hold —
+    // stopping at a bounded number of windows so a tree full of `Z`s cannot walk
+    // the whole catalog.
+    for (let i = 0; i < 8; i += 1) {
+      if (done) break;
+      if (grid.children.length >= 20) break;
+      const before = pages;
+      await loadMore();
+      if (pages === before) break;
+      refreshRail();
+    }
+  };
+  refreshRail();
+
+  const body = el(
+    "section",
+    { class: "section explore" },
+    head,
+    catMenu,
+    shuffles,
+    rule,
+    el(
+      "div",
+      { class: "explore-body" },
+      el("div", { class: "explore-grid" }, filterBar, grid, sentinel),
+      alphaRail,
+    ),
+  );
   // Kick off the first page once the section is in the document.
   queueMicrotask(() => {
     loadMore().then(() => {
@@ -1317,17 +1971,18 @@ function searchResults(query) {
   return nodes;
 }
 
+
 // A drawn funnel, like the rest of the controls.
 const filterIcon = () =>
   el(
     "span",
     { class: "glyph", "aria-hidden": "true" },
-    el(
+    svgNode(
       "svg",
       { viewBox: "0 0 24 24" },
-      el("path", { d: "M3 5h18" }),
-      el("path", { d: "M6 12h12" }),
-      el("path", { d: "M10 19h4" }),
+      svgNode("path", { d: "M3 5h18" }),
+      svgNode("path", { d: "M6 12h12" }),
+      svgNode("path", { d: "M10 19h4" }),
     ),
   );
 
@@ -1341,31 +1996,71 @@ function searchParams() {
 /** Used only if the server predates the vocabulary route, so the panel still works. */
 const SEARCH_FALLBACK = {
   types: [["", "All"], ["series", "TV Series"], ["movie", "Movie"]],
-  regions: [["all", "All regions"], ["US", "America"], ["KR", "Korea"], ["GB", "U.K"], ["JP", "Japan"], ["TH", "Thailand"], ["CN", "China"], ["IN", "India"], ["AU", "Australia"], ["EU", "Europe"], ["other", "Other"]],
+  continents: [["all", "All continents"]],
+  countries: [["all", "All countries"]],
+  providers: [["all", "All services"]],
+  moods: [["all", "All moods"]],
+  themes: [["all", "All themes"]],
   categories: { movie: [], series: [] },
   periods: [["all", "All Time Periods"], ["before", "Before"]],
   sorts: [["popularity", "Popularity"], ["recent", "Recent"], ["rating", "High Rating"]],
 };
 
 /** One labelled row of filter chips. */
-function filterRow(label, choices, active, onPick) {
+/**
+ * One filter line: a label and its choices.
+ *
+ * A line with more choices than two rows can hold (Country has every country with
+ * titles, Theme has every theme row) is clamped to two rows with the same chevron
+ * the card tags use — unless the choice you already made is buried under the fold,
+ * in which case the line opens so you can see it. Short lines get no control at all.
+ */
+const FILTER_CLAMP_AT = 12;
+
+function filterRow(label, choices, active, onPick, { clamp = false } = {}) {
+  const chips = choices.map(([value, text]) =>
+    el("button", {
+      class: `filter-chip focusable${value === active ? " active" : ""}`,
+      type: "button",
+      text,
+      "aria-pressed": String(value === active),
+      onclick: () => onPick(value),
+    }),
+  );
+  const long = clamp && choices.length > FILTER_CLAMP_AT;
+  // The chosen chip has to stay readable, so a line holding it is never collapsed.
+  const activeIndex = choices.findIndex(([value]) => value === active);
+  const collapsed = long && (activeIndex < FILTER_CLAMP_AT || activeIndex === -1);
+  const options = el("div", { class: `filter-options${collapsed ? " clamped" : ""}` }, ...chips);
+  let toggle = null;
+  if (long) {
+    const setOpen = (open) => {
+      options.classList.toggle("clamped", !open);
+      toggle.classList.toggle("up", open);
+      toggle.setAttribute("aria-expanded", String(open));
+      const text = open ? "Less" : `More (${choices.length})`;
+      toggle.title = open ? "Show fewer choices" : `Show all ${choices.length} choices`;
+      toggle.querySelector(".chip-more-text").textContent = text;
+    };
+    toggle = el(
+      "button",
+      {
+        class: `chip-more focusable${collapsed ? "" : " up"}`,
+        type: "button",
+        "aria-expanded": String(!collapsed),
+        title: `Show all ${choices.length} choices`,
+        "aria-label": `Show all ${choices.length} choices`,
+        onclick: () => setOpen(options.classList.contains("clamped")),
+      },
+      chevronDown(),
+      el("span", { class: "chip-more-text", text: collapsed ? `More (${choices.length})` : "Less" }),
+    );
+  }
   return el(
     "div",
     { class: "filter-row" },
     el("span", { class: "filter-label", text: label }),
-    el(
-      "div",
-      { class: "filter-options" },
-      ...choices.map(([value, text]) =>
-        el("button", {
-          class: `filter-chip focusable${value === active ? " active" : ""}`,
-          type: "button",
-          text,
-          "aria-pressed": String(value === active),
-          onclick: () => onPick(value),
-        }),
-      ),
-    ),
+    el("div", { class: "filter-body" }, options, toggle),
   );
 }
 
@@ -1380,17 +2075,27 @@ function filterRow(label, choices, active, onPick) {
 function renderSearch() {
   const params = searchParams();
   const query = params.get("q") || "";
+  // One filter per card line, in the order the cards come in: where it is from
+  // (Continent, Country), who has it (OTT), what it is (Genre), how it feels
+  // (Mood, Theme), when it is (Time), and how it is ordered (Sort).
   const filters = {
     type: params.get("type") || "",
-    region: params.get("region") || "all",
+    continent: params.get("continent") || "all",
+    country: params.get("country") || "all",
+    provider: params.get("provider") || "all",
     category: params.get("category") || "all",
+    mood: params.get("mood") || "all",
+    theme: params.get("theme") || "all",
     period: params.get("period") || "all",
     sort: params.get("sort") || "popularity",
   };
+  const FILTER_KEYS = ["continent", "country", "provider", "category", "mood", "theme", "period"];
   const vocab = state.searchVocab || SEARCH_FALLBACK;
 
+  // No `text-input` here: that class paints a bordered box, and inside the bar's own
+  // panel it drew a second border around the placeholder.
   const input = el("input", {
-    class: "text-input focusable search-input",
+    class: "search-input focusable",
     type: "search",
     placeholder: "Search titles, collections and catalogs…",
     value: query,
@@ -1442,37 +2147,109 @@ function renderSearch() {
     const p = new URLSearchParams();
     if (query.trim()) p.set("q", query.trim());
     if (filters.type) p.set("type", filters.type);
-    if (filters.region !== "all") p.set("region", filters.region);
-    if (filters.category !== "all") p.set("category", filters.category);
-    if (filters.period !== "all") p.set("period", filters.period);
+    for (const key of FILTER_KEYS) if (filters[key] !== "all") p.set(key, filters[key]);
     if (filters.sort !== "popularity") p.set("sort", filters.sort);
     if (!state.safe) p.set("adult", "1");
     return p.toString();
   };
 
-  const loadTitles = async (text) => {
+  /* Results keep going instead of stopping at a number.
+
+     A result window is a few TMDB pages of each row type, the same depth a catalog
+     row is read at; **Load more results** asks the server for the next window and
+     appends it. There is no ceiling — the button stays until the server says there
+     is nothing left to ask for.
+
+     Which page the next window starts at is the **server's** answer, not the app's
+     arithmetic: the server stops reading a row type early when TMDB returns a short
+     page, so "six pages further on" could step straight past the end and make the
+     button look dead. `next` is the page to continue from, and it is null at the
+     end. */
+  let searchStart = 0;
+  let searchBusy = false;
+  const searchSeen = new Set();
+  const groups = { movie: null, show: null };
+
+  // Movies and shows are two lists, not one mixed grid: the row type is the first
+  // thing you want to know about a result, and a name that exists as a film *and*
+  // a series is two different answers.
+  const groupNode = (key) => {
+    if (groups[key]) return groups[key];
+    const node = el(
+      "section",
+      { class: "search-group" },
+      el("h3", { class: "result-head", text: key === "movie" ? "Movies" : "Shows" }),
+      el("div", { class: "grid-titles" }),
+    );
+    groups[key] = node;
+    return node;
+  };
+
+  const appendMetas = (metas) => {
+    for (const m of metas) {
+      const key = m.type === "movie" ? "movie" : "show";
+      const id = `${key}:${m.id}`;
+      if (searchSeen.has(id)) continue;
+      searchSeen.add(id);
+      const node = groupNode(key);
+      node.querySelector(".grid-titles").append(posterCard(m));
+      const label = key === "movie" ? "Movies" : "Shows";
+      node.querySelector(".result-head").textContent = `${label} (${node.querySelectorAll(".poster").length})`;
+      // Always in front of the button, even when this group is new.
+      if (!node.isConnected) titles.insertBefore(node, moreBtn.isConnected ? moreBtn : null);
+    }
+  };
+
+  const moreBtn = el("button", {
+    class: "btn subtle focusable",
+    type: "button",
+    id: "search-more",
+    text: "Load more results",
+    hidden: true,
+    onclick: () => loadTitles(query, true),
+  });
+
+  const loadTitles = async (text, more = false) => {
     const trimmed = (text || "").trim();
-    const qs = resultQuery();
-    if (!qs) {
+    if (!more) {
+      searchStart = 0;
+      searchSeen.clear();
+      groups.movie = null;
+      groups.show = null;
       titles.replaceChildren();
+    }
+    if (!resultQuery()) {
       drawSuggestions(trimmed);
+      moreBtn.hidden = true;
       return;
     }
-    titles.replaceChildren(el("p", { class: "view-hint", text: "Searching titles…" }));
+    if (searchBusy) return;
+    searchBusy = true;
+    if (!more) titles.replaceChildren(el("p", { class: "view-hint", text: "Searching titles…" }));
     try {
-      const { metas } = await get(`/search.json?${qs}`);
-      titles.replaceChildren();
-      drawSuggestions(trimmed, metas);
-      if (!metas.length) {
-        titles.append(
-          el("p", { class: "view-hint", text: "Nothing matched. Try fewer filters, or a different region." }),
-        );
-        return;
+      const p = new URLSearchParams(resultQuery());
+      if (searchStart > 0) p.set("start", String(searchStart));
+      const { metas = [], next = null } = await get(`/search.json?${p.toString()}`);
+      if (!more) {
+        titles.replaceChildren();
+        drawSuggestions(trimmed, metas);
+        if (!metas.length) {
+          titles.append(el("p", { class: "view-hint", text: "Nothing matched. Try fewer filters, or a different region." }));
+          moreBtn.hidden = true;
+          return;
+        }
       }
-      titles.append(el("h3", { class: "result-head", text: `Titles (${metas.length})` }));
-      titles.append(el("div", { class: "grid-titles" }, ...metas.map((m) => posterCard(m))));
+      appendMetas(metas);
+      // `next` is the server's own cursor: the page to continue from, or null once
+      // it has read past the end of every row type.
+      searchStart = typeof next === "number" && next > 0 ? next : 0;
+      moreBtn.hidden = !metas.length || typeof next !== "number";
+      if (!moreBtn.isConnected) titles.append(moreBtn);
     } catch {
-      titles.replaceChildren();
+      if (!more) titles.replaceChildren();
+      moreBtn.hidden = true;
+    } finally {
+      searchBusy = false;
     }
   };
 
@@ -1502,8 +2279,8 @@ function renderSearch() {
   // server — this is a new URL, so it is also a new request and a new history entry.
   const pick = (name, value) => {
     const p = new URLSearchParams(resultQuery());
-    const next = name === "type" ? { ...filters, type: value } : { ...filters, [name]: value };
-    for (const key of ["region", "category", "period", "sort"]) {
+    const next = { ...filters, [name]: value };
+    for (const key of [...FILTER_KEYS, "sort"]) {
       if (next[key] && next[key] !== "all" && !(key === "sort" && next[key] === "popularity")) p.set(key, next[key]);
       else p.delete(key);
     }
@@ -1526,15 +2303,20 @@ function renderSearch() {
     "section",
     { class: "search-filters", id: "search-filters", hidden: !filtersActive(filters) },
     filterRow("Type", vocab.types, filters.type, (v) => pick("type", v)),
-    filterRow("Region", vocab.regions, filters.region, (v) => pick("region", v)),
+    filterRow("Continent", vocab.continents, filters.continent, (v) => pick("continent", v)),
+    filterRow("Country", vocab.countries, filters.country, (v) => pick("country", v), { clamp: true }),
+    filterRow("OTT", vocab.providers, filters.provider, (v) => pick("provider", v)),
     categoryList.length
       ? filterRow(
-          "Category",
-          [["all", "All Categories"], ...categoryList.map((c) => [c, c])],
+          "Genre",
+          [["all", "All Genres"], ...categoryList.map((c) => [c, c])],
           filters.category,
           (v) => pick("category", v),
+          { clamp: true },
         )
       : null,
+    filterRow("Mood", vocab.moods, filters.mood, (v) => pick("mood", v), { clamp: true }),
+    filterRow("Theme", vocab.themes, filters.theme, (v) => pick("theme", v), { clamp: true }),
     filterRow("Time", vocab.periods, filters.period, (v) => pick("period", v)),
     filterRow("Sort", vocab.sorts, filters.sort, (v) => pick("sort", v)),
   );
@@ -1542,7 +2324,7 @@ function renderSearch() {
   const filterBtn = el(
     "button",
     {
-      class: `icon-btn focusable search-filter-btn${filtersActive(filters) ? " on" : ""}`,
+      class: `search-filter-btn focusable${filtersActive(filters) ? " on" : ""}`,
       type: "button",
       id: "search-filter-btn",
       title: "Filters",
@@ -1554,17 +2336,24 @@ function renderSearch() {
       },
     },
     filterIcon(),
+    el("span", { text: "Filters" }),
   );
 
   if (resultQuery()) queueMicrotask(() => loadTitles(query));
 
   return [
     el("h1", { class: "view-title", text: "Search" }),
-    el("div", { class: "search-wrap" }, el("div", { class: "search-bar" }, filterBtn, input, suggestions)),
-    filters.region !== "all" && query.trim()
+    el(
+      "div",
+      { class: "search-wrap" },
+      // The field is the app's own panel: the magnifier leads it, the text fills it
+      // edge to edge, and the filter control closes it — one control, full width.
+      el("div", { class: "search-bar" }, input, filterBtn, suggestions),
+    ),
+    (filters.continent !== "all" || filters.country !== "all" || filters.provider !== "all" || filters.mood !== "all" || filters.theme !== "all") && query.trim()
       ? el("p", {
           class: "view-hint",
-          text: "TMDB search results carry no origin country, so the region filter applies when browsing — clear the text box to browse by region.",
+          text: "TMDB search results carry no origin country, provider or keywords, so Continent, Country, OTT, Mood and Theme apply while browsing — clear the text box to browse by them.",
         })
       : null,
     panel,
@@ -1574,7 +2363,9 @@ function renderSearch() {
 }
 
 const filtersActive = (f) =>
-  Boolean(f.type) || f.region !== "all" || f.category !== "all" || f.period !== "all" || f.sort !== "popularity";
+  Boolean(f.type) ||
+  ["continent", "country", "provider", "category", "mood", "theme", "period"].some((k) => f[k] !== "all") ||
+  f.sort !== "popularity";
 
 /* ----------------------------------------------------------------- calendar */
 
@@ -1625,20 +2416,41 @@ async function calendarPlan(item) {
   render();
 }
 
+/**
+ * Take a plan back off the calendar.
+ *
+ * The pin used to be add-only — a plan was a fact about a date and a stray click
+ * must not delete it — but add-only with no other way to remove one meant a plan
+ * you no longer wanted sat there for good. It is a toggle again, and this is the
+ * half that removes.
+ */
+async function calendarUnplan(item) {
+  try {
+    const res = await post("/customrows", { row: CAL_ROW, item: pinOf(item), remove: true });
+    if (res && Array.isArray(res.items)) applyCustomRows(res);
+  } catch {
+    /* offline — the plan simply does not change */
+  }
+  render();
+}
+
 function calendarCard(m) {
   const planned = isCalendarPin(m);
   return el(
     "div",
     { class: "cal-item" },
     posterCard(m, { kind: true }),
+    // A calendar pin is a plan about a **date**, and it is a toggle: planning says
+    // so, and pressing it again takes the plan back. It was briefly add-only, which
+    // left a plan you had changed your mind about with no way off the calendar.
     el("button", {
       class: `btn pin cal-pin focusable${planned ? " active" : ""}`,
       type: "button",
       "data-cal-pin": keyOfItem(m),
       "aria-pressed": String(planned),
-      title: planned ? "Planned from the calendar — click to remove" : "Plan to watch (calendar pin)",
-      text: planned ? "Plan to Watch · pinned" : "Plan to Watch",
-      onclick: () => calendarPlan(m),
+      title: planned ? "Planned from the calendar — click to remove the plan" : "Plan to watch (calendar pin)",
+      text: planned ? "Plan to Watch · planned" : "Plan to Watch",
+      onclick: () => (planned ? calendarUnplan(m) : calendarPlan(m)),
     }),
   );
 }
@@ -1648,7 +2460,6 @@ function renderCalendar() {
   const [year, mon] = month.split("-").map(Number);
   const grid = el("div", { class: "cal-grid" });
   const detail = el("div", { class: "cal-detail" });
-  const recent = el("section", { class: "cal-recent" });
 
   // The month grid is drawn immediately; the titles arrive from the server.
   const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
@@ -1700,20 +2511,8 @@ function renderCalendar() {
     );
   }
 
-  /** The calendar's own recent pins — kept apart from the watchlist card. */
-  function drawRecent() {
-    const items = calendarPins();
-    recent.replaceChildren(
-      el("h3", { class: "section-title", text: "Recently planned" }),
-      items.length
-        ? el("div", { class: "grid-titles" }, ...items.map((m) => posterCard(m, { watch: true })))
-        : el("p", { class: "empty", text: "Nothing planned from the calendar yet — pin a release above." }),
-    );
-  }
-
   drawGrid();
   drawDetail();
-  drawRecent();
 
   // A day holds films *and* series, so both rows are read for the month.
   Promise.all(
@@ -1753,7 +2552,6 @@ function renderCalendar() {
     ),
     grid,
     detail,
-    recent,
   ];
 }
 
@@ -2049,20 +2847,32 @@ function startVoice(input) {
  * into a search query; without one — or if the provider is unreachable — the
  * typed words are searched as-is, so the box still works with no AI configured.
  */
-async function aiIntent(text) {
+async function aiIntent(text, picked) {
   const q = String(text || "").trim();
   if (!q) return;
+  // "Pick for me" narrows the search to one row: the assistant is asked for a
+  // film, and the answer must not come back as a series (or the reverse).
+  const side = picked ?? (state.ai?.pickRow === "movie" || state.ai?.pickRow === "series" ? state.ai.pickRow : "");
+  const to = (query) => {
+    const p = new URLSearchParams({ q: query });
+    if (side) p.set("type", side);
+    go(`#/search?${p.toString()}`);
+  };
+  // Whether a key is set is the **server's** answer, not this page's: a key can
+  // live in the environment, and the page only ever sees "set / not set" from
+  // `/ai.json`. Gating on the local copy is what made Ask silently fall back to a
+  // literal search on a server that had a working key.
   const provider = state.ai?.provider || "";
-  const ready = Boolean(state.ai?.enabled && provider && state.ai?.hasKey?.[provider]);
+  const ready = Boolean(state.ai?.enabled !== false && provider);
   if (ready) {
     try {
       const res = await post("/ai/ask", { prompt: q });
-      if (res?.ok && res.query) return go(`#/search?q=${encodeURIComponent(res.query)}`);
+      if (res?.ok && res.query) return to(res.query);
     } catch {
       /* fall through to the literal text */
     }
   }
-  go(`#/search?q=${encodeURIComponent(q)}`);
+  to(q);
 }
 
 /* ---- settings panes ------------------------------------------------------- */
@@ -2491,6 +3301,17 @@ function paneAi() {
         ),
       ),
       aiAskRow(),
+      // "Pick for me": the Ask box answers with one row type instead of both.
+      el("p", { class: "option-title", text: "Pick movies or shows for me" }),
+      el("p", { class: "option-desc", text: "Which row the Ask box searches. Both is the default, and a picked side rides along as the search's Type filter." }),
+      ...[ ["", "Both"], ["movie", "Movies"], ["series", "Shows"] ].map(([value, label]) =>
+        radioRow((state.ai.pickRow || "") === value, "pickrow", label, "", () => {
+          state.ai.pickRow = value;
+          writeJSON(KEY.ai, state.ai);
+          pushSettings({ ai: { pickRow: value } });
+          render();
+        }),
+      ),
     ] : null,
   ];
 }
@@ -2525,6 +3346,19 @@ function paneContent() {
     radioRow(!state.safe, "safe", "NSFW", "Include adult titles where TMDB supports it.", () => {
       state.safe = false; writeJSON(KEY.safe, false); pushSettings({ safe: false }); render();
     }),
+    el("p", { class: "option-title", text: "Refresh catalogs & metadata" }),
+    el("p", { class: "option-desc", text: "How often the addon re-reads TMDB and the screen re-reads itself. The addon's cache follows the same interval, so a row can actually come back different." }),
+    ...REFRESH_CHOICES.map(([minutes, label]) =>
+      radioRow(Number(state.refresh) === minutes, "refresh", label, minutes === 0 ? "Nothing is re-read until you press Refresh now." : `Catalogs and metadata are re-read every ${minutes} minutes.`, () => {
+        state.refresh = minutes;
+        writeJSON(KEY.refresh, minutes);
+        pushSettings({ refresh: { minutes } });
+        render();
+      }),
+    ),
+    el("div", { class: "provider" },
+      el("button", { class: "btn primary focusable", type: "button", text: "Refresh now", onclick: () => refreshNow() }),
+    ),
   ];
 }
 
@@ -2686,6 +3520,13 @@ function renderSettings() {
   const plugins = state.sources.filter((s) => PLUGIN_TYPES.some(([t]) => t === s.type));
 
   const panes = {
+    livesource: paneLiveSource,
+    // `livelayout` is the Live TV profile's Layout: without its own entry it fell
+    // through to the Profile pane, so the tab said "Layout" and showed the profile.
+    livelayout: paneLayout,
+    livecountries: paneLiveCountries,
+    liveguide: paneLiveGuide,
+    liverefresh: paneLiveRefresh,
     profile: paneProfile,
     posters: panePosters,
     providers: paneProviders,
@@ -2699,11 +3540,13 @@ function renderSettings() {
     server: paneServer,
   };
 
-  // A stored section that no longer exists ("profile") falls back to the first one.
-  const active = SETTINGS_SECTIONS.find(([id]) => id === section) || SETTINGS_SECTIONS[0];
+  // A stored section that does not exist for this profile (the Live TV profile has
+  // its own set) falls back to that profile's first section.
+  const sections = settingsSections();
+  const active = sections.find(([id]) => id === section) || sections[0];
 
   const nav = el("nav", { class: "settings-nav", "aria-label": "Settings sections" },
-    ...SETTINGS_GROUPS.flatMap((group) => [
+    ...settingsGroups().flatMap((group) => [
       el("span", { class: "settings-group", text: group.group }),
       ...group.sections.map(([id, label]) =>
         el("button", {
@@ -2759,9 +3602,41 @@ function renderTabs() {
   );
 }
 
+/**
+ * Take the boot screen away once the first screen is on the page.
+ *
+ * The fade is CSS; this only flips the class after that first paint, so what
+ * appears behind the splash is a finished screen rather than an empty shell. The
+ * node is hidden once the fade is over so it cannot swallow a click.
+ */
+function endBoot() {
+  const bootScreen = document.getElementById("boot");
+  if (!bootScreen || bootScreen.classList.contains("done")) return;
+  bootScreen.classList.add("done");
+  setTimeout(() => { bootScreen.hidden = true; }, 700);
+}
+
+/** Which screen a route points at, for remembering where it was scrolled. */
+const routeOf = (r) => [r.view, r.key || "", r.id || "", r.name || "", r.group || ""].join("|");
+
+/** Where each screen was last left, so going back does not land at the top. */
+const scrollMemory = new Map();
+let lastRoute = "";
+
 function render() {
-  const { view, key, id, name } = parseHash();
+  const parsed = parseHash();
+  const { view, key, id, name, group } = parsed;
   const browsing = ["home", "card", "explore"].includes(view);
+
+  // A screen you are **returning to** is put back where you left it, and a screen
+  // you are **already on** does not move at all — a pin, a filter or a settings
+  // toggle re-renders the same route and must not throw the page back to the top,
+  // which is what a bare `scrollTo(0)` here used to do on every click.
+  const route = routeOf(parsed);
+  const wasAt = window.scrollY;
+  if (lastRoute && lastRoute !== route) scrollMemory.set(lastRoute, wasAt);
+  const restore = route === lastRoute ? wasAt : scrollMemory.get(route) ?? 0;
+  lastRoute = route;
 
   document.getElementById("tabs").hidden = !browsing;
   document.getElementById("back").hidden = view === "home" || view === "profiles";
@@ -2772,29 +3647,40 @@ function render() {
   renderProfile();
 
   let nodes;
-  if (view === "profiles") nodes = renderProfiles();
+  if (view === "guide") nodes = renderGuide();
+  else if (view === "categories") nodes = renderLiveCategories();
+  else if (view === "category") nodes = renderLiveCategory(group);
+  else if (view === "channel") nodes = renderChannel(id);
+  else if (view === "profiles") nodes = renderProfiles();
   else if (view === "card") nodes = renderCard(key);
   else if (view === "explore") nodes = renderExplore(key, id);
   else if (view === "sources") nodes = renderSources(id, name);
   else if (view === "settings") nodes = renderSettings();
-  else if (view === "search") nodes = renderSearch();
+  else if (view === "search") nodes = liveProfile() ? renderLiveSearch() : renderSearch();
   else if (view === "calendar") nodes = renderCalendar();
-  else nodes = renderHome();
+  // The second profile has its own Home — the channels, not the cards.
+  else nodes = liveProfile() ? renderLiveHome() : renderHome();
 
   const main = document.getElementById("main");
   main.replaceChildren(...nodes);
+  // Now that the frames are in the document, lay the cards' own pictures into
+  // them — in place of the generated vector scene.
+  hydrateContent();
   // One class, animation defined in the stylesheet: the new screen arrives
   // instead of appearing, and "no animation" removes it entirely.
   main.classList.remove("view-in");
   void main.offsetWidth;
   main.classList.add("view-in");
   renderTabs();
-  window.scrollTo({ top: 0 });
+  window.scrollTo({ top: restore });
 
   // Only Home has a banner: the ten-second rotation runs there, and any other screen
   // stops it rather than leaving a timer redrawing a banner that is not on screen.
-  if (view === "home") startHeroRotation();
+  // The Live TV profile has no banner to rotate — its first card is the Guide.
+  if (view === "home" && !liveProfile()) startHeroRotation();
   else stopHeroRotation();
+  // The catalog refresh runs on every browsing view, not just Home.
+  startAutoRefresh();
 }
 
 /* ------------------------------------------------------------ keyboard nav */
@@ -2812,6 +3698,47 @@ function render() {
  */
 const ROW_SELECTOR = ".strip, .icons.rows";
 
+/** Is the app asked not to animate? "Always" overrides the system preference. */
+const reducedMotion = () => {
+  const root = document.documentElement;
+  if (root.classList.contains("motion-full")) return false;
+  if (root.classList.contains("motion-off")) return true;
+  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches === true;
+};
+
+/**
+ * Scroll a row smoothly instead of jumping one wheel-notch at a time.
+ *
+ * A raw `scrollLeft += delta` per wheel event is what made the rows feel rough:
+ * the browser fires a burst of wheel events with uneven deltas, and every one of
+ * them snapped the row to a new position. Here the wheel only moves a *target*,
+ * and a frame loop eases the row toward it, so a flick glides and a slow scroll
+ * creeps. With motion switched off it goes straight to the target.
+ */
+const glides = new WeakMap();
+
+function glide(row, target) {
+  if (reducedMotion()) {
+    row.scrollLeft = target;
+    return;
+  }
+  const anim = glides.get(row) || { target: row.scrollLeft, raf: 0 };
+  anim.target = target;
+  glides.set(row, anim);
+  if (anim.raf) return;
+  const step = () => {
+    const delta = anim.target - row.scrollLeft;
+    if (Math.abs(delta) < 0.6) {
+      row.scrollLeft = anim.target;
+      anim.raf = 0;
+      return;
+    }
+    row.scrollLeft += delta * 0.24;
+    anim.raf = requestAnimationFrame(step);
+  };
+  anim.raf = requestAnimationFrame(step);
+}
+
 function horizontalWheel() {
   document.addEventListener(
     "wheel",
@@ -2826,7 +3753,7 @@ function horizontalWheel() {
       // The page never moves while the cursor is on the titles: the row takes the
       // wheel to its end and then simply stops.
       e.preventDefault();
-      row.scrollLeft = Math.max(0, Math.min(row.scrollWidth - row.clientWidth, row.scrollLeft + delta));
+      glide(row, Math.max(0, Math.min(row.scrollWidth - row.clientWidth, row.scrollLeft + delta)));
     },
     { passive: false },
   );
@@ -2903,6 +3830,943 @@ function setupInput() {
   });
 }
 
+/* ---------------------------------------------------------- Live TV & Sports */
+
+/**
+ * The second profile is a different app.
+ *
+ * It has its own two buttons (Live TV / Sports, where Movies & Shows has
+ * Movies / Shows), its own cards — the channels, grouped by the playlist's own
+ * categories, with the Guide as the first card — its own screens (the TiviMate-
+ * style Guide and a channel page) and its own settings, which replace the
+ * Movies & Shows ones entirely rather than sitting beside them.
+ */
+const LIVE_ROWS = [["livetv", "Live TV"], ["sports", "Sports"]];
+const liveProfile = () => state.profile === LIVE_PROFILE;
+
+const liveRowKey = () => state.liveRow;
+const setLiveRow = (value) => {
+  state.liveRow = value;
+  localStorage.setItem(KEY.liveRow, value);
+};
+
+/** The Live TV / Sports switch — the profile's own two buttons. */
+function liveRowSwitch() {
+  return el(
+    "div",
+    { class: "row-switch", role: "tablist", "aria-label": "Live TV or Sports" },
+    ...LIVE_ROWS.map(([value, label]) =>
+      el("button", {
+        class: `row-btn focusable${liveRowKey() === value ? " active" : ""}`,
+        type: "button",
+        role: "tab",
+        id: `live-row-${value}`,
+        "aria-selected": String(liveRowKey() === value),
+        text: label,
+        onclick: () => {
+          setLiveRow(value);
+          render();
+        },
+      }),
+    ),
+  );
+}
+
+/** The live source, as the app keeps it (the server keeps its own masked copy). */
+const liveSource = () => ({
+  // `dth` is the premium/DTH/operator catalogue — the profile's own source. `m3u`
+  // and `xtream` are your own box's export.
+  mode: "dth",
+  m3u: "",
+  host: "",
+  username: "",
+  password: "",
+  epg: "",
+  refreshMinutes: 0,
+  // Which of the catalogue's providers this profile is drawn from. Empty means
+  // "not picked yet", and the app says so rather than showing an empty profile.
+  providers: [],
+  // Which countries of the catalogue this profile is scoped to. `allCountries`
+  // means every country the catalogue covers; a picked list means just those.
+  countries: [],
+  allCountries: false,
+  ...state.liveSource,
+});
+
+/**
+ * The countries Live TV is scoped to, as the `countries=` parameter.
+ *
+ * Empty means "no filter": either every country is enabled or none is picked, and
+ * the whole directory is in play either way. This one string is what the Guide, the
+ * Categories card and the channel rows all read, so one setting moves them together.
+ */
+const liveCountriesPicked = () => {
+  const live = liveSource();
+  if (live.allCountries) return "";
+  return (Array.isArray(live.countries) ? live.countries : []).map((c) => String(c).toUpperCase()).join(",");
+};
+
+const liveFetch = (params = {}, force = false) => {
+  const p = new URLSearchParams({ limit: "400", ...params });
+  const picked = liveCountriesPicked();
+  if (picked && !p.has("countries")) p.set("countries", picked);
+  if (force) p.set("force", "1");
+  return get(`/live/channels.json?${p.toString()}`);
+};
+
+/**
+ * Read the channels: the full list once, then one row per category.
+ *
+ * Rows are per category because that is what the request asked for — cards like
+ * the Movies & Shows ones — and because one request per row keeps each row's
+ * payload small however large the playlist is.
+ */
+async function loadLive({ force = false } = {}) {
+  if (state.live.loading) return;
+  state.live = { ...state.live, loading: true };
+  render();
+  try {
+    const first = await liveFetch({}, force);
+    const groups = (first.groups || []).map((g) => g.name).filter((name) => name && name !== "General");
+    const wanted = groups.slice(0, LIVE_MAX_ROWS);
+    const rows = await Promise.all(
+      wanted.map(async (name) => {
+        const res = await liveFetch({ group: name, limit: String(LIVE_ROW_CHANNELS) }, force).catch(() => ({ channels: [] }));
+        return [name, res.channels || []];
+      }),
+    );
+    state.live = {
+      loading: false,
+      loaded: true,
+      all: first.channels || [],
+      total: first.total || 0,
+      groups,
+      // The server's own group list — name *and* channel count. `groups` above is
+      // just the names in row order; the Categories screen needs the counts too.
+      groupList: first.groups || [],
+      rows: rows.filter(([, list]) => list.length),
+      updated: first.updated || 0,
+      error: first.error || "",
+      guide: state.live.guide,
+      guideLoading: false,
+      guideError: state.live.guideError,
+    };
+  } catch (err) {
+    state.live = { ...state.live, loading: false, loaded: true, error: String((err && err.message) || err) };
+  }
+  render();
+}
+
+const liveRowsShown = () =>
+  liveRowKey() === "sports" ? state.live.rows.filter(([name]) => /sport/i.test(name)) : state.live.rows;
+
+/** Every channel currently on screen, for the Guide and for lookups. */
+function liveChannelsShown() {
+  const rows = liveRowsShown();
+  if (rows.length) return rows.flatMap(([, list]) => list);
+  return state.live.all || [];
+}
+
+const findChannel = (id) => liveChannelsShown().find((c) => c.id === id) || (state.live.all || []).find((c) => c.id === id) || null;
+
+/* ------------------------------------------------------------------- guide */
+
+/** Read the guide: programme blocks per channel id, when an EPG URL is set. */
+async function loadGuide({ force = false } = {}) {
+  if (state.live.guideLoading) return;
+  state.live = { ...state.live, guideLoading: true };
+  render();
+  try {
+    const picked = liveCountriesPicked();
+    const guide = await get(
+      `/live/guide.json?hours=6${force ? "&force=1" : ""}${picked ? `&countries=${encodeURIComponent(picked)}` : ""}`,
+    );
+    state.live = { ...state.live, guideLoading: false, guide, guideError: guide.error || "" };
+  } catch (err) {
+    state.live = { ...state.live, guideLoading: false, guideError: String((err && err.message) || err) };
+  }
+  render();
+}
+
+const minutesLeft = (ms) => Math.max(0, Math.round(ms / 60_000));
+const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+/** The programme on now, and the one after, for one channel. */
+function nowNext(channel, guide) {
+  const key = channel.epgId || channel.id;
+  const list = guide?.programmes?.[key] || [];
+  const now = Date.now();
+  const index = list.findIndex((p) => p.start <= now && p.stop > now);
+  if (index === -1) return { now: null, next: list.find((p) => p.start > now) || null };
+  return { now: list[index], next: list[index + 1] || null };
+}
+
+/**
+ * The Guide — the TiviMate-shaped grid: a time ruler across the top, a channel
+ * column down the left, and one block per programme.
+ *
+ * The blocks are real programmes when an XMLTV URL is set. Without one the grid
+ * still draws the lineup and says so once at the top, rather than inventing a
+ * schedule or hiding the screen.
+ */
+function renderGuide() {
+  if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
+  if (!state.live.guide && !state.live.guideLoading) queueMicrotask(() => loadGuide());
+
+  const channels = liveChannelsShown().slice(0, LIVE_GUIDE_CHANNELS);
+  const guide = state.live.guide;
+  const hasEpg = Boolean(guide && guide.epg);
+  const start = Date.now();
+  const span = LIVE_GUIDE_HOURS * 3600_000;
+  const hours = Array.from({ length: LIVE_GUIDE_HOURS }, (_, i) => start + i * 3600_000);
+
+  const rows = channels.map((channel, i) => {
+    const programs = hasEpg ? (guide.programmes[channel.epgId || channel.id] || []) : [];
+    const blocks = programs
+      .filter((p) => p.stop > start && p.start < start + span)
+      .map((p) => {
+        const from = Math.max(p.start, start);
+        const to = Math.min(p.stop, start + span);
+        const left = ((from - start) / span) * 100;
+        const width = Math.max(((to - from) / span) * 100, 2);
+        return el(
+          "div",
+          { class: "guide-block", style: `left:${left}%;width:${width}%` },
+          el("span", { class: "guide-block-title", text: p.title }),
+          el("span", { class: "guide-block-time", text: `${clockOf(p.start)} – ${clockOf(p.stop)}` }),
+        );
+      });
+    return el(
+      "div",
+      { class: "guide-row" },
+      el(
+        "button",
+        {
+          class: "guide-channel focusable",
+          type: "button",
+          title: `Open ${channel.name}`,
+          onclick: () => go(`#/channel/${encodeURIComponent(channel.id)}`),
+        },
+        el("span", { class: "guide-num", text: String(i + 1) }),
+        channel.logo
+          ? el("img", { class: "guide-logo", src: channel.logo, alt: "", loading: "lazy" })
+          : el("span", { class: "guide-logo fallback", text: (channel.name || "?").slice(0, 1).toUpperCase() }),
+        el("span", { class: "guide-name", text: channel.name }),
+      ),
+      el(
+        "div",
+        { class: `guide-track${hasEpg ? "" : " bare"}` },
+        hasEpg ? blocks : el("span", { class: "guide-nodata", text: "No programme data" }),
+      ),
+    );
+  });
+
+  const marker = ((Math.max(Date.now(), start) - start) / span) * 100;
+
+  return [
+    el("h1", { class: "view-title", text: "Guide" }),
+    el("p", { class: "view-hint", text: `${channels.length} channels · the next ${LIVE_GUIDE_HOURS} hours` }),
+    liveRowSwitch(),
+    hasEpg
+      ? null
+      : el("p", {
+          class: "view-hint",
+          text: "No guide data — add an XMLTV (EPG) URL in Settings → Guide & EPG and these rows fill with real programmes.",
+        }),
+    el(
+      "div",
+      { class: "guide" },
+      el(
+        "div",
+        { class: "guide-head" },
+        el("span", { class: "guide-corner", text: "Channel" }),
+        el(
+          "div",
+          { class: "guide-times" },
+          ...hours.map((h) => el("span", { class: "guide-time", text: clockOf(h) })),
+          // Where "now" is, so the grid reads like a live TV app's.
+          el("span", { class: "guide-now", style: `left:${marker}%`, "aria-hidden": "true" }),
+        ),
+      ),
+      el("div", { class: "guide-body" }, ...rows),
+    ),
+  ].filter(Boolean);
+}
+
+/* ----------------------------------------------------------------- channels */
+
+/** One channel tile: logo, name, and the group/country it came with. */
+function channelCard(channel) {
+  return el(
+    "button",
+    {
+      class: "channel-card focusable",
+      type: "button",
+      title: `${channel.name}${channel.groups?.length ? ` — ${channel.groups.join(", ")}` : ""}`,
+      onclick: () => go(`#/channel/${encodeURIComponent(channel.id)}`),
+    },
+    el(
+      "span",
+      { class: "channel-art" },
+      channel.logo
+        ? el("img", { src: channel.logo, alt: "", loading: "lazy" })
+        : el("span", { class: "channel-fallback", text: (channel.name || "?").slice(0, 1).toUpperCase() }),
+    ),
+    el("span", { class: "channel-name", text: channel.name }),
+    el("span", { class: "channel-sub", text: [channel.groups?.[0], channel.country].filter(Boolean).join(" · ") }),
+  );
+}
+
+function channelRow(name, channels) {
+  return el(
+    "section",
+    { class: "cat-row live-row", "data-group": name },
+    el(
+      "header",
+      { class: "cat-head" },
+      el("h2", { class: "cat-name", text: name }),
+      el("span", { class: "cat-count", text: `${channels.length} channels` }),
+    ),
+    el("div", { class: "channel-strip" }, ...channels.map(channelCard)),
+  );
+}
+
+/**
+ * One Live TV card — the same box a Movies card wears.
+ *
+ * The profile's two cards used to be `hero` **banners**: a full-width panel with a
+ * big title and two buttons, twice, one under the other. They are **cards** now,
+ * exactly like Genres and Decades are on the Movies home: a 16:9 frame carrying the
+ * first few rows of what is inside it, then the name and a line of description under
+ * it — and the frame is the button, the way a cover is.
+ */
+function liveCard({ id, title, sub, rows, action }) {
+  return el(
+    "div",
+    { class: "icon-box live-card" },
+    el(
+      "div",
+      { class: "icon-wrap" },
+      el(
+        "button",
+        { class: "icon-art focusable", type: "button", id, title, "aria-label": title, onclick: action },
+        el("div", { class: "guide-mini" }, ...rows),
+      ),
+    ),
+    el(
+      "span",
+      { class: "icon-meta" },
+      el("span", { class: "icon-name", text: title }),
+      el("span", { class: "icon-sub", text: sub }),
+    ),
+  );
+}
+
+/** The Guide card — the first card of the profile, and its way into the grid. */
+function guideCard() {
+  const channels = liveChannelsShown().slice(0, 4);
+  const guide = state.live.guide;
+  const rows = channels.map((channel) => {
+    const { now } = nowNext(channel, guide);
+    return el(
+      "div",
+      { class: "guide-mini-row" },
+      el("span", { class: "guide-mini-name", text: channel.name }),
+      el("span", { class: `guide-mini-block${now ? "" : " bare"}`, text: now ? now.title : "—" }),
+    );
+  });
+  if (!rows.length) {
+    rows.push(
+      el("div", { class: "guide-mini-row" },
+        el("span", { class: "guide-mini-name", text: "Lineup" }),
+        el("span", { class: "guide-mini-block bare", text: state.live.loading ? "reading…" : "—" })),
+    );
+  }
+  const updated = state.live.updated ? new Date(state.live.updated).toLocaleTimeString() : "";
+  return liveCard({
+    id: "open-guide",
+    title: "Guide",
+    sub: [
+      `${state.live.total || state.live.all.length} channels`,
+      state.live.groups.length ? `${state.live.groups.length} categories` : "",
+      updated ? `updated ${updated}` : "",
+      state.live.guide && state.live.guide.epg === false ? "no EPG yet" : "",
+    ].filter(Boolean).join(" · "),
+    rows,
+    action: () => go("#/guide"),
+  });
+}
+
+/**
+ * The Categories card — the profile's second card.
+ *
+ * The playlist's own categories (Sports, News, Movies, …) with how many channels
+ * each one holds, and a way into the full list. It reads the same channel list the
+ * Guide does, so the country setting moves both cards together.
+ */
+function categoriesCard() {
+  const groups = state.live.groupList || [];
+  const total = state.live.total || state.live.all.length || 0;
+  const rows = groups.slice(0, 4).map((group) =>
+    el(
+      "div",
+      { class: "guide-mini-row" },
+      el("span", { class: "guide-mini-name", text: group.name }),
+      el("span", { class: "guide-mini-block", text: `${group.count} channels` }),
+    ),
+  );
+  if (!rows.length) {
+    rows.push(el("div", { class: "guide-mini-row" }, el("span", { class: "guide-mini-name", text: "Categories" }), el("span", { class: "guide-mini-block bare", text: "—" })));
+  }
+  return liveCard({
+    id: "open-categories",
+    title: "Categories",
+    sub: groups.length ? `${groups.length} categories · ${total} channels` : "Reading the channel list…",
+    rows,
+    action: () => go("#/categories"),
+  });
+}
+
+/**
+ * Live TV & Sports Home: the **Guide** and the **Categories** cards, then a row per
+ * group.
+ *
+ * The two cards sit side by side in the home grid — two cards, the way Genres and
+ * Decades are two cards on the Movies home — rather than two full-width banners.
+ */
+function renderLiveHome() {
+  if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
+  const nodes = [
+    el("div", { class: "icons grid live-cards" }, guideCard(), categoriesCard()),
+    liveRowSwitch(),
+  ];
+  if (state.live.loading && !state.live.loaded) {
+    nodes.push(el("p", { class: "empty", text: "Reading the channel list…" }));
+  } else if (state.live.error && !state.live.rows.length) {
+    nodes.push(el("p", { class: "empty", text: `The channel source could not be read — ${state.live.error}` }));
+  } else {
+    const rows = liveRowsShown();
+    if (!rows.length) {
+      nodes.push(el("p", { class: "empty", text: "No Sports channels in this playlist — Live TV has the full list." }));
+    }
+    for (const [name, channels] of rows) nodes.push(channelRow(name, channels));
+    if (state.live.error) nodes.push(el("p", { class: "view-hint", text: `Last read failed (${state.live.error}) — showing the channels from the last good read.` }));
+  }
+  return nodes;
+}
+
+/**
+ * The Categories screen — every category in this playlist, with its channel count.
+ *
+ * Picking one opens that category's channels. The list is the playlist's own
+ * vocabulary, not a fixed set, so a directory read by country and a personal M3U
+ * both answer with their real categories.
+ */
+function renderLiveCategories() {
+  if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
+  const groups = state.live.groupList || [];
+  return [
+    el("h1", { class: "view-title", text: "Categories" }),
+    el("p", {
+      class: "view-hint",
+      text: groups.length
+        ? `${groups.length} categories, ${state.live.total || state.live.all.length} channels — pick one to see its channels.`
+        : "Reading the channel list…",
+    }),
+    el(
+      "div",
+      { class: "cat-tiles" },
+      ...groups.map((group) =>
+        el(
+          "button",
+          {
+            class: "cat-tile focusable",
+            type: "button",
+            "data-group": group.name,
+            onclick: () => go(`#/categories/${encodeURIComponent(group.name)}`),
+          },
+          el("span", { class: "cat-tile-name", text: group.name }),
+          el("span", { class: "cat-tile-count", text: `${group.count} channel${group.count === 1 ? "" : "s"}` }),
+        ),
+      ),
+    ),
+  ];
+}
+
+/** One category's channels. */
+function renderLiveCategory(group) {
+  if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
+  if (state.live.categoryGroup !== group && !state.live.categoryLoading) loadLiveGroup(group);
+  const channels = state.live.categoryGroup === group ? state.live.categoryChannels || [] : [];
+  return [
+    el("h1", { class: "view-title", text: group }),
+    el("p", {
+      class: "view-hint",
+      text: channels.length ? `${channels.length} channels in ${group}.` : "Reading this category…",
+    }),
+    channels.length
+      ? el("div", { class: "channel-strip search-channels" }, ...channels.map(channelCard))
+      : el("p", { class: "empty", text: "No channels in this category." }),
+  ];
+}
+
+/** Read one category's channels — one request, only when it is opened. */
+async function loadLiveGroup(group) {
+  state.live = { ...state.live, categoryGroup: group, categoryChannels: [], categoryLoading: true };
+  render();
+  try {
+    const res = await liveFetch({ group, limit: "300" });
+    state.live = { ...state.live, categoryGroup: group, categoryChannels: res.channels || [], categoryLoading: false };
+  } catch {
+    state.live = { ...state.live, categoryGroup: group, categoryChannels: [], categoryLoading: false };
+  }
+  render();
+}
+
+/** A channel page: what it is, what is on now, and where it streams from. */
+function renderChannel(id) {
+  if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
+  const channel = findChannel(id);
+  if (!channel) {
+    return [
+      el("h1", { class: "view-title", text: "Channel" }),
+      el("p", { class: "empty", text: state.live.loading ? "Reading the channel list…" : "Channel not found in this playlist." }),
+    ];
+  }
+  if (!state.live.guide && !state.live.guideLoading) queueMicrotask(() => loadGuide());
+  const { now, next } = nowNext(channel, state.live.guide);
+  const url = el("input", { class: "text-input focusable", type: "text", readonly: "", value: channel.url || "", id: "channel-url" });
+  return [
+    el(
+      "section",
+      { class: "section channel-page" },
+      el(
+        "header",
+        { class: "section-head" },
+        el(
+          "div",
+          { class: "section-meta" },
+          el("h2", { text: channel.name }),
+          el("p", { class: "hero-sub", text: [channel.groups?.join(" · "), channel.country].filter(Boolean).join(" · ") }),
+          chipLine(
+            [
+              now ? el("span", { class: "chip", text: `Now: ${now.title} · ${minutesLeft(now.stop - Date.now())} min left` }) : null,
+              next ? el("span", { class: "chip", text: `Next: ${next.title} · ${clockOf(next.start)}` }) : null,
+            ].filter(Boolean),
+          ),
+        ),
+        el(
+          "div",
+          { class: "section-art channel-art-large" },
+          channel.logo
+            ? el("img", { src: channel.logo, alt: channel.name })
+            : el("span", { class: "channel-fallback big", text: (channel.name || "?").slice(0, 1).toUpperCase() }),
+        ),
+      ),
+      el("div", { class: "group-head" }, el("span", { class: "option-title", text: "Stream" })),
+      el("div", { class: "source-form" }, url,
+        el("button", {
+          class: "btn primary focusable",
+          type: "button",
+          id: "channel-play",
+          text: IS_HLS(channel.url) ? "Play (HLS)" : "Play stream",
+          disabled: !channel.url,
+          onclick: () => openPlayer(channel.url, channel.name),
+        }),
+        el("button", {
+          class: "btn subtle focusable",
+          type: "button",
+          text: "Copy link",
+          onclick: () => {
+            if (navigator.clipboard) navigator.clipboard.writeText(channel.url || "").catch(() => {});
+          },
+        }),
+      ),
+      el("p", {
+        class: "option-desc",
+        text: channel.url
+          ? "Played here — an `.m3u8` live stream is handed to the app's own player, with the embedded copy of hls.js behind it, so this window and the APK play what the browser alone cannot. Copy the link to open it in a separate player instead."
+          : "This channel has no stream URL in the lineup. Add your playlist under Settings → Source, or open the link in your own player.",
+      }),
+    ),
+  ];
+}
+
+/**
+ * Search in the Live TV profile searches *channels*, not titles.
+ *
+ * The Movies & Shows search asks TMDB about films; a live playlist has nothing to
+ * do with that, and its channel list is already in memory — so this filters it as
+ * you type, with the same suggestion behaviour (matching names under the box) the
+ * other profile's search has.
+ */
+function renderLiveSearch() {
+  if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
+  const input = el("input", {
+    class: "search-input focusable",
+    type: "search",
+    id: "search-input",
+    placeholder: "Search channels…",
+    autocomplete: "off",
+  });
+  const suggestions = el("div", { class: "search-suggest", id: "search-suggest", hidden: true });
+  const results = el("div", { class: "channel-strip search-channels", id: "live-results" });
+
+  const pool = () => state.live.all.concat(state.live.rows.flatMap(([, list]) => list));
+  const matches = (needle) => {
+    const text = needle.trim().toLowerCase();
+    if (!text) return [];
+    const seen = new Set();
+    const out = [];
+    for (const channel of pool()) {
+      if (seen.has(channel.id)) continue;
+      if (!channel.name.toLowerCase().includes(text)) continue;
+      seen.add(channel.id);
+      out.push(channel);
+      if (out.length >= 60) break;
+    }
+    return out;
+  };
+
+  const draw = () => {
+    const hits = matches(input.value);
+    suggestions.replaceChildren(
+      ...hits.slice(0, 8).map((channel) =>
+        el(
+          "button",
+          {
+            class: "suggest-item focusable",
+            type: "button",
+            onclick: () => go(`#/channel/${encodeURIComponent(channel.id)}`),
+          },
+          el("span", { class: "suggest-kind", text: "Channel" }),
+          el("span", { class: "suggest-text", text: `${channel.name}${channel.groups?.length ? ` — ${channel.groups[0]}` : ""}` }),
+        ),
+      ),
+    );
+    suggestions.hidden = !hits.length;
+    results.replaceChildren(
+      ...(input.value.trim() ? hits.map(channelCard) : []),
+    );
+  };
+  input.addEventListener("input", draw);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") suggestions.hidden = true;
+  });
+
+  return [
+    el("h1", { class: "view-title", text: "Search channels" }),
+    el("div", { class: "search-wrap" }, el("div", { class: "search-bar" }, input, suggestions)),
+    el("p", { class: "view-hint", text: `${state.live.total || state.live.all.length} channels in this playlist — type to filter them.` }),
+    results,
+  ];
+}
+
+/* -------------------------------------------------- live settings panes */
+
+/** Settings → Source: which playlist the channels come from. */
+/** The provider catalogue, read once and kept for the session. */
+let liveProviderList = null;
+
+async function loadProviderList() {
+  if (liveProviderList) return liveProviderList;
+  try {
+    const data = await get("/live/countries.json");
+    liveProviderList = Array.isArray(data.providers) ? data.providers : [];
+  } catch {
+    liveProviderList = [];
+  }
+  return liveProviderList;
+}
+
+/**
+ * The provider picker — the premium/DTH catalogue, one chip per provider.
+ *
+ * Live TV's lineup is a *subscriber's* lineup, so the first question is which
+ * provider you are a subscriber of. Picking one is what makes the profile show
+ * anything: its own feed names the channels and schedules them, and each chip says
+ * whether that provider's guide is attached.
+ */
+function providerPicker(picked, save) {
+  const search = el("input", {
+    class: "text-input focusable",
+    type: "text",
+    id: "live-provider-filter",
+    placeholder: "Filter providers or countries…",
+  });
+  const rows = el("div", { class: "filter-options country-picker", id: "live-providers" });
+  const paint = () => {
+    if (!liveProviderList) {
+      rows.replaceChildren(el("p", { class: "empty", text: "Reading the provider catalogue…" }));
+      return;
+    }
+    const needle = search.value.trim().toLowerCase();
+    const matching = liveProviderList.filter(
+      (p) => !needle || p.name.toLowerCase().includes(needle) || String(p.country).toLowerCase() === needle,
+    );
+    // What is already picked always stays on screen, so a choice cannot be hidden
+    // by whatever is typed in the filter.
+    const list = [
+      ...liveProviderList.filter((p) => picked.has(p.id)),
+      ...matching.filter((p) => !picked.has(p.id)),
+    ].slice(0, 80);
+    rows.replaceChildren(
+      ...(list.length
+        ? list.map((p) =>
+            el("button", {
+              class: `filter-chip focusable${picked.has(p.id) ? " active" : ""}`,
+              type: "button",
+              "data-provider": p.id,
+              "aria-pressed": String(picked.has(p.id)),
+              title: `${p.name} — ${p.country}${p.epg ? " · ships a public guide" : " · supply an EPG URL for its guide"}`,
+              text: `${p.name} · ${p.country}`,
+              onclick: () => {
+                const next = new Set(picked);
+                if (next.has(p.id)) next.delete(p.id);
+                else next.add(p.id);
+                save({ providers: [...next] });
+              },
+            }),
+          )
+        : [el("p", { class: "empty", text: "No provider matches that." })]),
+    );
+  };
+  search.addEventListener("input", paint);
+  if (!liveProviderList) queueMicrotask(() => loadProviderList().then(paint));
+  paint();
+  return el(
+    "div",
+    null,
+    el("div", { class: "source-form" }, search),
+    rows,
+    el("p", {
+      class: "option-desc",
+      text: "Picking a provider adds its lineup to Live TV and to the Guide. Providers that publish a public XMLTV feed bring their own schedule with them; the rest are scheduled from the EPG URL under Guide & EPG.",
+    }),
+  );
+}
+
+function paneLiveSource() {
+  const live = liveSource();
+  const pickedProviders = new Set((Array.isArray(live.providers) ? live.providers : []).map(String));
+  const field = (id, label, value, placeholder, type = "text") => {
+    const input = el("input", { class: "text-input focusable", type, id, value, placeholder });
+    input.addEventListener("change", () => save({ [label]: input.value.trim() }));
+    return input;
+  };
+  const save = (patch) => {
+    state.liveSource = { ...liveSource(), ...patch };
+    writeJSON(KEY.liveSource, state.liveSource);
+    pushSettings({ live: state.liveSource });
+    state.live = { ...state.live, loaded: false, rows: [] };
+    loadLive({ force: true });
+    // Re-draw the pane, so a picked provider's chip lights up where it stands.
+    render();
+  };
+
+  return [
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "Where the lineup comes from" }),
+      el("p", {
+        class: "option-desc",
+        text: "The catalogue is the premium, DTH and operator providers themselves — pick the ones you subscribe to and Live TV draws their lineup and their guide. Streams are never shipped: a premium stream belongs to a subscriber's box, so export your own playlist (or log in to your Xtream panel) and it meets the catalogue on the channel's `tvg-id`. The playlist URL and the password stay on the server, never in the page.",
+      }),
+      el("div", { class: "options" },
+        ...[["dth", "Premium & DTH catalogue", "Sky, DIRECTV, Tata Play, Airtel, DStv, Astro, Foxtel and the rest — the operator's own lineup and guide, per country."],
+          ["m3u", "My M3U playlist", "An M3U/M3U8 URL (or a path on the server) with your own channels, exported from your box."],
+          ["xtream", "Xtream Codes login", "Host, username and password — the live streams and their categories are read from the panel."]].map(([mode, title, desc]) =>
+          radioRow(live.mode === mode, "live-mode", title, desc, () => save({ mode })),
+        ),
+      ),
+      live.mode === "dth" ? providerPicker(pickedProviders, save) : null,
+      live.mode === "m3u"
+        ? el("div", { class: "source-form" }, field("live-m3u", "m3u", live.m3u, "https://…/playlist.m3u"))
+        : null,
+      live.mode === "xtream"
+        ? el("div", { class: "source-form" },
+            field("live-host", "host", live.host, "http://host:8080"),
+            field("live-user", "username", live.username, "username"),
+            field("live-pass", "password", live.password, "password", "password"),
+          )
+        : null,
+      el("div", { class: "provider-check" },
+        el("span", {
+          class: `source-status${state.live.error ? " bad" : state.live.loaded ? " ok" : ""}`,
+          text: state.live.loaded
+            ? `${state.live.total || state.live.all.length} channels loaded${state.live.groups.length ? ` in ${state.live.groups.length} categories` : ""}${state.live.error ? ` — last read failed (${state.live.error})` : ""}`
+            : "Reading…",
+        }),
+      ),
+      el("div", { class: "source-form" },
+        el("button", { class: "btn primary focusable", type: "button", text: "Reload channels", onclick: () => loadLive({ force: true }) }),
+      ),
+    ),
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "Metadata" }),
+      el("p", { class: "option-desc", text: "Each channel keeps the logo, its categories and its country from the playlist, and its stream URL is kept server-side. Reload re-reads all of it — on the refresh clock below, and whenever you press Refresh now." }),
+    ),
+  ];
+}
+
+/** The directory's country table, read once and kept for the session. */
+let liveCountryList = null;
+
+async function loadCountryList() {
+  if (liveCountryList) return liveCountryList;
+  try {
+    const data = await get("/live/countries.json");
+    liveCountryList = Array.isArray(data.countries) ? data.countries : [];
+  } catch {
+    liveCountryList = [];
+  }
+  return liveCountryList;
+}
+
+/**
+ * Settings → Countries: which of the directory's countries this profile reads.
+ *
+ * The public directory is published one file per country, so this is the switch
+ * that decides what the **Guide** and the **Categories** card are drawn from.
+ * Nothing here is a second source: it is the same directory, sliced by country.
+ */
+function paneLiveCountries() {
+  const live = liveSource();
+  const picked = new Set((Array.isArray(live.countries) ? live.countries : []).map((c) => String(c).toUpperCase()));
+  const save = (patch) => {
+    state.liveSource = { ...liveSource(), ...patch };
+    writeJSON(KEY.liveSource, state.liveSource);
+    pushSettings({ live: state.liveSource });
+    // A different slice of the directory is a different lineup, so the channels and
+    // the guide are re-read rather than filtered on screen.
+    state.live = { ...state.live, loaded: false, rows: [], guide: null, categoryChannels: [] };
+    loadLive({ force: true });
+    loadGuide({ force: true });
+    render();
+  };
+  const toggle = (code) => {
+    const next = new Set(picked);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    save({ countries: [...next], allCountries: false });
+  };
+
+  const search = el("input", {
+    class: "text-input focusable",
+    type: "text",
+    id: "live-country-filter",
+    placeholder: "Filter countries…",
+  });
+  const rows = el("div", { class: "filter-options country-picker" });
+  const paint = () => {
+    if (!liveCountryList) {
+      rows.replaceChildren(el("p", { class: "empty", text: "Reading the country list…" }));
+      return;
+    }
+    const needle = search.value.trim().toLowerCase();
+    const matching = liveCountryList.filter(
+      (c) => !needle || c.name.toLowerCase().includes(needle) || c.code.toLowerCase() === needle,
+    );
+    // What is already picked always stays on screen, so a choice cannot be hidden
+    // by whatever is typed in the filter.
+    const list = [
+      ...liveCountryList.filter((c) => picked.has(c.code)),
+      ...matching.filter((c) => !picked.has(c.code)),
+    ].slice(0, 60);
+    rows.replaceChildren(
+      ...(list.length
+        ? list.map((c) =>
+            el("button", {
+              class: `filter-chip focusable${picked.has(c.code) ? " active" : ""}`,
+              type: "button",
+              "aria-pressed": String(picked.has(c.code)),
+              title: `${c.name} (${c.code})`,
+              text: `${c.flag ? `${c.flag} ` : ""}${c.name}`,
+              onclick: () => toggle(c.code),
+            }),
+          )
+        : [el("p", { class: "empty", text: "No country matches that." })]),
+    );
+  };
+  search.addEventListener("input", paint);
+  if (!liveCountryList) queueMicrotask(() => loadCountryList().then(paint));
+  paint();    const pickedNote = live.allCountries
+    ? "Reading every country the catalogue covers."
+    : picked.size
+      ? `${picked.size} countr${picked.size === 1 ? "y" : "ies"} selected — the Guide and the Categories card show those.`
+      : "Nothing picked, so the whole catalogue is read.";
+
+  return [
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "Countries" }),
+      el("p", { class: "option-desc", text: "Every provider in the catalogue belongs to a country. Pick the countries you want and both the Guide and the Categories card are scoped to them — the catalogue is shipped with the app, so this works with no network and with nothing to log in to." }),
+      el("div", { class: "options" },
+        radioRow(Boolean(live.allCountries), "live-countries", "All countries", "Every country the catalogue covers, read in one go.", () => save({ allCountries: true })),
+        radioRow(!live.allCountries, "live-countries", "Only the countries I pick", "Pick them below — each channel carries its own country.", () => save({ allCountries: false })),
+      ),
+      el("div", { class: "source-form" }, search),
+      rows,
+      el("div", { class: "source-form" },
+        el("button", { class: "btn subtle focusable", type: "button", text: "Clear countries", onclick: () => save({ countries: [], allCountries: false }) }),
+        el("button", { class: "btn primary focusable", type: "button", text: "Apply countries", onclick: () => loadLive({ force: true }) }),
+      ),
+      el("div", { class: "provider-check" }, el("span", { class: "source-status", text: pickedNote })),
+    ),
+  ];
+}
+
+/** Settings → Guide & EPG: the XMLTV source the grid is drawn from. */
+function paneLiveGuide() {
+  const live = liveSource();
+  const input = el("input", { class: "text-input focusable", type: "text", id: "live-epg", value: live.epg, placeholder: "https://…/guide.xml (XMLTV)" });
+  const status = el("span", { class: "source-status", text: live.epg ? "An EPG URL is set." : "No EPG URL — the Guide draws the lineup only." });
+  return [
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "XMLTV guide" }),
+      el("p", {
+        class: "option-desc",
+        text: "An XMLTV (EPG) URL — `.xml` or `.xml.gz`. A DTH provider's guide is its lineup: Foxtel, Freeview Australia and Sky New Zealand publish one, so picking those providers is enough and this box can stay empty. Set it and it wins, for your own box's guide or another provider's. Channels are matched by `tvg-id`.",
+      }),
+      el("div", { class: "source-form" }, input,
+        el("button", { class: "btn primary focusable", type: "button", text: "Save EPG", onclick: () => {
+          state.liveSource = { ...liveSource(), epg: input.value.trim() };
+          writeJSON(KEY.liveSource, state.liveSource);
+          pushSettings({ live: state.liveSource });
+          state.live = { ...state.live, guide: null, guideError: "" };
+          loadGuide({ force: true });
+        } }),
+        el("button", { class: "btn subtle focusable", type: "button", text: "Reload guide", onclick: () => loadGuide({ force: true }) }),
+      ),
+      el("div", { class: "provider-check" }, status,
+        state.live.guideError ? el("span", { class: "source-status bad", text: ` — ${state.live.guideError}` }) : null,
+      ),
+    ),
+  ];
+}
+
+/** Settings → Live TV & Sports: the refresh clock for channels and guide. */
+function paneLiveRefresh() {
+  const live = liveSource();
+  const choice = (minutes) => () => {
+    state.liveSource = { ...liveSource(), refreshMinutes: minutes };
+    writeJSON(KEY.liveSource, state.liveSource);
+    pushSettings({ live: state.liveSource });
+    render();
+  };
+  return [
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "How often the channels update" }),
+      el("p", { class: "option-desc", text: "The playlist and the guide are re-read on this clock, so channels, logos and programme data keep themselves up to date." }),
+      el("div", { class: "options" },
+        radioRow(Number(live.refreshMinutes) === 0, "live-refresh", "Follow the content refresh setting", "The same interval as Settings → Content (15 / 30 / 60 / 180 minutes, or only when you ask).", choice(0)),
+        ...[15, 30, 60, 180].map((m) => radioRow(Number(live.refreshMinutes) === m, "live-refresh", `Every ${m} minutes`, null, choice(m))),
+      ),
+      el("div", { class: "source-form" },
+        el("button", { class: "btn primary focusable", type: "button", text: "Refresh now", onclick: () => { state.gen = Date.now(); loadLive({ force: true }); loadGuide({ force: true }); } }),
+      ),
+    ),
+  ];
+}
+
 /* ------------------------------------------------------------------- boot */
 
 /** Re-read the cards — the regional OTT cards change with the country setting. */
@@ -2915,8 +4779,103 @@ async function refreshCollections() {
   state.order = {};
 }
 
+/* ---------------------------------------------------------------- playback */
+
+/**
+ * Play a stream inside the app.
+ *
+ * A live channel is an HLS playlist (`.m3u8`) far more often than it is a plain
+ * file, and only Safari and Android's own player play those natively — everything
+ * else needs `hls.js`. It is **vendored next to the app** (`./vendor/hls.min.js`)
+ * rather than pulled from a CDN, so the Electron window and the APK play a live
+ * stream with no third-party script and nothing to fetch but the stream itself. The
+ * loader is kept, so opening a second channel does not download it again.
+ */
+let hlsLoader = null;
+let playerHls = null;
+let playerNode = null;
+
+const IS_HLS = (url) => /\.m3u8(\?|#|$)/i.test(String(url || ""));
+
+function loadHls() {
+  if (window.Hls) return Promise.resolve(window.Hls);
+  if (!hlsLoader) {
+    hlsLoader = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "./vendor/hls.min.js";
+      script.onload = () => (window.Hls ? resolve(window.Hls) : reject(new Error("hls.js did not load")));
+      script.onerror = () => reject(new Error("hls.js is not available"));
+      document.head.append(script);
+    });
+  }
+  return hlsLoader;
+}
+
+function stopPlayer() {
+  if (playerHls) {
+    try { playerHls.destroy(); } catch { /* already gone */ }
+    playerHls = null;
+  }
+  if (playerNode) {
+    playerNode.remove();
+    playerNode = null;
+  }
+  document.removeEventListener("keydown", playerKey);
+}
+
+function playerKey(e) {
+  if (e.key === "Escape") stopPlayer();
+}
+
+async function openPlayer(url, title) {
+  const src = String(url || "").trim();
+  if (!src) return;
+  stopPlayer();
+  const video = el("video", { class: "player-video", controls: true, playsinline: true });
+  const node = el(
+    "div",
+    { class: "player" },
+    el(
+      "div",
+      { class: "player-head" },
+      el("span", { class: "player-title", text: title || "Live" }),
+      el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: stopPlayer }),
+    ),
+    video,
+    el("p", { class: "player-note", text: src }),
+  );
+  document.body.append(node);
+  playerNode = node;
+  document.addEventListener("keydown", playerKey);
+  try {
+    const native = video.canPlayType("application/vnd.apple.mpegurl");
+    if (IS_HLS(src) && !native) {
+      const Hls = await loadHls();
+      if (Hls.isSupported()) {
+        playerHls = new Hls({ lowLatencyMode: true });
+        playerHls.loadSource(src);
+        playerHls.attachMedia(video);
+      } else {
+        // No MSE either: the browser's own HLS is the only thing left to try.
+        video.src = src;
+      }
+    } else {
+      video.src = src;
+    }
+    await video.play().catch(() => {
+      /* autoplay refused: the controls are right there */
+    });
+  } catch (err) {
+    node.append(el("p", { class: "player-error", text: `Could not play this stream — ${err.message}` }));
+  }
+}
+
 async function boot() {
   modal.root = document.getElementById("modal");
+  // The app keeps its own place on the page (`render` remembers where each screen
+  // was left), so the browser's own restore is turned off — two of them fighting
+  // over the scroll on Back is what made it land somewhere unpredictable.
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   applyTheme();
   setupInput();
 
@@ -2929,6 +4888,21 @@ async function boot() {
     return;
   }
 
+  // What the addon actually publishes, read from its own manifest.
+  //
+  // A card is drawn from the list the app was handed, and that list can name a row
+  // the addon no longer serves — a retired catalog, or a card list from an older
+  // build. Those rows used to render and then answer 404 when they were opened. With
+  // the manifest in hand, `rowOf` drops them before anything is drawn, so a screen
+  // can only ever offer rows that exist.
+  try {
+    const manifest = await get("/manifest.json");
+    const ids = (manifest?.catalogs || []).map((c) => c.id).filter(Boolean);
+    if (ids.length) state.publishedCatalogs = new Set(ids);
+  } catch {
+    /* no manifest: nothing is filtered, exactly as before */
+  }
+
   // The country has no picker any more, but it is still real state: it decides
   // which services the three Regional OTT cards name. It was read above the card
   // list, so a country changed elsewhere has to re-read the cards here.
@@ -2939,6 +4913,20 @@ async function boot() {
     /* server without the settings route */
   }
   if (state.country !== cachedCountry) await refreshCollections();
+
+  // The AI state, from the server: which provider is in use, and whether it has a
+  // key — the key itself may be in the environment rather than in this browser, so
+  // the page must ask rather than guess. Without this, the Ask box and the AI
+  // options all behaved as if nothing were configured.
+  try {
+    const ai = await get("/ai.json");
+    if (ai && typeof ai === "object") {
+      state.ai = { ...state.ai, ...ai, hasKey: { ...(state.ai?.hasKey || {}), ...(ai.hasKey || {}) } };
+      writeJSON(KEY.ai, state.ai);
+    }
+  } catch {
+    /* server without the AI route */
+  }
 
   // The pins decide what the Watchlist card's three rows hold.
   try {
@@ -2989,6 +4977,11 @@ async function boot() {
     location.hash = "#/profiles";
   }
   render();
+  endBoot();
 }
+
+// Safety net: a boot that cannot reach the server must not leave the splash up
+// for ever, so the screen goes away on its own after a few seconds either way.
+setTimeout(endBoot, 8000);
 
 boot();

@@ -85,10 +85,17 @@ globalThis.fetch = async (url) => {
     });
   }
   if (u.includes("/search/keyword")) return jsonRes({ results: [] });
-  if (u.includes("/search/movie") || u.includes("/search/tv")) return jsonRes({ results: Array.from({ length: 6 }, item) });
+  // A full TMDB page is twenty results, and search now reads three of them per row
+  // type — the stub has to answer with a full page or paging would stop at once.
+  if (u.includes("/search/movie") || u.includes("/search/tv")) return jsonRes({ results: Array.from({ length: 20 }, item) });
   if (/\/(movie|tv)\/\d+/.test(u)) return jsonRes({ ...item(), number_of_episodes: 6, runtime: 100 });
   if (/\/(now_playing|airing_today|on_the_air|top_rated)/.test(u)) return jsonRes({ results: Array.from({ length: 15 }, item) });
-  if (u.includes("/trending/")) return jsonRes({ results: Array.from({ length: 12 }, item) });
+  // Trending takes no `include_adult`, so the stub marks every fourth title adult
+  // with a *fixed* id — that is exactly what the SFW filter has to drop, and fixed
+  // ids keep the pool from growing page after page.
+  if (u.includes("/trending/")) {
+    return jsonRes({ results: Array.from({ length: 12 }, (_, i) => ({ ...item(), id: 9000 + i, adult: i % 4 === 0 })) });
+  }
   if (u.includes("/discover/")) return jsonRes({ results: Array.from({ length: 20 }, item) });
   if (u.includes("/popular")) return jsonRes({ results: Array.from({ length: 25 }, item) });
   if (u.includes("/movie/") || u.includes("/tv/")) return jsonRes(item());
@@ -102,6 +109,10 @@ const { handleAddon, buildManifest, catalogMetas } = await import("./index.mjs")
 const { catalogDefs } = await import("./catalogs.mjs");
 const CATALOG_DEFS = catalogDefs();
 const { COUNTRIES, PLATFORMS, GLOBAL_OTT, COLLECTIONS, MOVIE_GENRES, SHOW_GENRES, collectionsFor, localServices, regionName, DEFAULT_COUNTRY, OTT_REGIONS, REGIONAL_SERVICES } = await import("../scripts/collections.mjs");
+const { originals: ORIGINALS } = JSON.parse(fs.readFileSync(new URL("../scripts/tmdb-verified.json", import.meta.url), "utf8"));
+const { CONTINENTS, keywordVocab } = await import("../scripts/collections.mjs");
+const MOOD_LABELS = new Set(keywordVocab("moods-and-vibes").map(([name]) => name));
+const THEME_LABELS = new Set(keywordVocab("themes-and-tags").map(([name]) => name));
 
 function fakeRes() {
   return {
@@ -175,8 +186,8 @@ check("manifest covers both media types", ["movie", "series"].every((t) => manif
 const CARD_ORDER_EXPECTED = [
   "watchlist", "on-the-board", "discover-top-10", "discover", "popular-by-genre", "genres",
   "popular-by-decade", "decades", "genre-from-decades", "continental", "countries", "runtimes",
-  "based-on-the", "moods-and-vibes", "themes-and-tags", "global-ott-top-10", "global-ott-popular",
-  "global-ott", "regional-ott-top-10", "regional-ott-popular", "regional-ott",
+  "based-on-the", "moods-and-vibes", "themes-and-tags", "global-ott-top-10",
+  "global-ott-popular", "global-ott", "regional-ott-top-10", "regional-ott-popular", "regional-ott",
 ];
 check(
   "the cards are published in the owner's order, with Based on the after Runtimes",
@@ -225,11 +236,18 @@ check(
   CATALOG_DEFS.filter((d) => d.type === "series" && d.entry.kind === "genre-decade").every((d) => SHOW_GENRES.includes(d.entry.genre)),
 );
 check("On the Board shows expose its three catalogs", ["Airing Today", "Airing This Week", "On the Air"].every((n) => allNames.includes(`series:${n}`)));
-check("spotlight is the discover set marked '◆ Top 10'", allNames.includes("movie:Latest ◆ Top 10") && allNames.includes("series:Top Rated ◆ Top 10"));
+check("spotlight is the discover set marked '◆ Top 25'", allNames.includes("movie:Latest ◆ Top 25") && allNames.includes("series:Top Rated ◆ Top 25"));
+// The list is every country TMDB knows; the card publishes exactly the ones the
+// probe found films for, so an island with no film industry is a fact without a
+// permanently empty row.
+const VERIFIED_FACTS = JSON.parse(fs.readFileSync(new URL("../scripts/tmdb-verified.json", import.meta.url), "utf8"));
+const withFilms = COUNTRIES.filter(([n]) => (VERIFIED_FACTS.countries?.[n]?.movieCount ?? 0) > 0);
 check(
-  "countries exposes every verified country name",
-  namesIn("countries").length === COUNTRIES.length && COUNTRIES.length >= 60 && allNames.includes("movie:Indonesia") && allNames.includes("movie:Finland"),
-  `${namesIn("countries").length} of ${COUNTRIES.length}`,
+  "countries publishes every country with films, and only those",
+  namesIn("countries").length === withFilms.length &&
+    COUNTRIES.length >= 250 &&
+    allNames.includes("movie:Indonesia") && allNames.includes("movie:Finland"),
+  `${namesIn("countries").length} published of ${COUNTRIES.length} countries`,
 );
 check("countries drops the one country with no series (Ghana)", namesIn("countries").includes("Ghana") && !namesIn("countries", "series").includes("Ghana"));
 check("continental exposes continents", allNames.includes("movie:Oceania"));
@@ -272,8 +290,29 @@ check(
   "the three Global OTT cards carry exactly the six platforms, and no more",
   GLOBAL_OTT.length === 6 &&
     GLOBAL_OTT.every(([label]) => namesIn("global-ott-top-10").includes(`${label} ◆ Top 10`) && namesIn("global-ott-popular").includes(`Popular ${label}`) && namesIn("global-ott").includes(label)) &&
-    ["global-ott", "global-ott-popular", "global-ott-top-10"].every((key) => namesIn(key).length === 6 && namesIn(key, "series").length === 6),
+    ["global-ott-popular", "global-ott-top-10"].every((key) => namesIn(key).length === 6 && namesIn(key, "series").length === 6) &&
+    ["global-ott-popular", "global-ott-top-10"].every((key) => !namesIn(key).some((n) => n.endsWith("Originals"))),
   `${namesIn("global-ott").length} global rows: ${namesIn("global-ott").join(", ")}`,
+);
+// Each platform's own studio's originals sit directly after that platform, in the
+// Global OTT card only — the row "add original catalog row after ott row" asked for.
+check(
+  "each Global OTT platform is followed by its own Originals row",
+  (() => {
+    const rows = namesIn("global-ott");
+    return GLOBAL_OTT.every(([label]) => {
+      const at = rows.indexOf(label);
+      return at !== -1 && rows[at + 1] === `${label} Originals`;
+    });
+  })(),
+  namesIn("global-ott").join(" | "),
+);
+check(
+  "and each Originals row is backed by a verified studio",
+  Object.entries(ORIGINALS).length === 6 &&
+    Object.values(ORIGINALS).every((studio) => studio.company?.movieCount > 0 || studio.tv?.tvCount > 0) &&
+    ["movie", "series"].every((type) => namesIn("global-ott", type).length === 12),
+  Object.entries(ORIGINALS).map(([label, s]) => `${label}:${s.company?.id || "-"}`).join(", "),
 );
 check(
   "a platform verified later stays a fact, not a global row",
@@ -288,6 +327,33 @@ check(
   `${OTT_REGIONS.length} regions, e.g. ${OTT_REGIONS.slice(0, 3).map(([n, c]) => `${n} (${c})`).join(", ")}`,
 );
 check("the new Popular Global OTT card exists for both rows", namesIn("global-ott-popular").length > 0 && namesIn("global-ott-popular", "series").length > 0);
+// Anime and the Asian dramas are **not** rows of the Genres card, and not part of
+// Themes & Tags either. Neither is a TMDB genre — they are keyword-backed concepts,
+// and a "genre" row that TMDB has no genre for is a row that answers with the
+// wrong titles. The Genres card is genres only, exactly the genres TMDB serves, so
+// it ends on the last real one.
+check(
+  "Anime and Asian Drama are not rows of the Genres card",
+  ["movie", "series"].every((type) => {
+    const genres = namesIn("genres", type);
+    const themes = namesIn("themes-and-tags", type);
+    return (
+      // Exactly the genre list, in order, and nothing appended to it.
+      genres.join(",") === (type === "movie" ? MOVIE_GENRES : SHOW_GENRES).join(",") &&
+      !genres.includes("Anime") &&
+      !genres.includes("Asian Drama") &&
+      !themes.includes("Anime") &&
+      !themes.includes("Asian Drama")
+    );
+  }),
+  `genres: …${namesIn("genres").slice(-3).join(",")} · themes: ${namesIn("themes-and-tags").slice(0, 3).join(",")}…`,
+);
+check(
+  "and no card was invented for them",
+  !COLLECTIONS.some((c) => c.key === "anime-and-asian-drama") &&
+    !manifest.catalogs.some((c) => c.id.includes("anime-and-asian-drama")),
+  COLLECTIONS.map((c) => c.key).join(","),
+);
 check(
   "regional OTT is named after services, never countries",
   (() => {
@@ -405,6 +471,18 @@ check("country entry returns metas", countryRow.length > 0);
 const keywordRow = await catalogMetas("movie", { entry: { name: "Zombie", kind: "keyword", id: 1234 } }, 0);
 check("keyword entry filters by the baked keyword id", calls.some((u) => u.includes("with_keywords=1234")));
 check("keyword entry returns metas", keywordRow.length > 0);
+
+// SFW has to hold on the endpoints TMDB cannot filter. `/trending` takes no
+// `include_adult`, so a title TMDB flags adult on the list item must be dropped
+// by the addon itself — the stub marks three of its twelve trending titles adult.
+const trendDef = { id: "test-trending", entry: { name: "Trending", kind: "preset", value: "trending" } };
+const sfwTrend = await catalogMetas("movie", trendDef, 0, { adult: false });
+const nsfwTrend = await catalogMetas("movie", trendDef, 0, { adult: true });
+check(
+  "SFW drops adult titles even on endpoints that take no include_adult",
+  nsfwTrend.length === 12 && sfwTrend.length === 9,
+  `sfw ${sfwTrend.length} of nsfw ${nsfwTrend.length}`,
+);
 
 const providerRow = await catalogMetas("movie", { entry: { name: "Netflix", kind: "provider", providerId: 8, region: null } }, 0);
 check("global provider entry uses the configured region", calls.some((u) => u.includes("with_watch_providers=8")) && calls.some((u) => u.includes("watch_region=US")));
@@ -702,30 +780,152 @@ check(
   `${search.res.body?.metas?.length} titles`,
 );
 check("title search looks in both movies and shows", calls.some((u) => u.includes("/search/movie")) && calls.some((u) => u.includes("/search/tv")));
+// Search depth. The old bug: each row type kept only its first page — **twelve
+// titles** — which is what "search Disney+ and you get 21 titles" was.
+check("a text search reads past TMDB's first page",
+  calls.filter((u) => u.includes("/search/movie")).some((u) => /[?&]page=2/.test(u)),
+  calls.filter((u) => u.includes("/search/movie")).slice(0, 3).join(" "));
+check("and answers with more than a dozen titles, not the old twelve",
+  search.res.body.metas.length > 12, `${search.res.body.metas.length} titles`);
 check("an empty title search is a no-op, not a crash", (await call("/search.json?q=")).res.body?.metas?.length === 0);
+
+// --- Live TV & Sports ---------------------------------------------------------
+// The channel and guide parsers are the parts of that profile a test can pin
+// without a live playlist: an M3U from anywhere, and an XMLTV document. The demo
+// source itself is exercised end to end by `scripts/ui-smoke.mjs` against the
+// running server.
+const { parseM3U, parseXMLTV, xmltvTime } = await import("./live.mjs");
+const m3u = parseM3U(
+  [
+    "#EXTM3U",
+    '#EXTINF:-1 tvg-id="5Gold.il@SD" tvg-logo="https://logo/5gold.png" group-title="Sports;News",5Gold (1080p)',
+    "http://host/5gold/index.m3u8",
+    "#EXTINF:-1,No attributes at all",
+    "http://host/bare/index.m3u8",
+  ].join("\n"),
+);
+check(
+  "an M3U playlist parses into channels with their real metadata",
+  m3u.length === 2 &&
+    m3u[0].name === "5Gold" &&
+    m3u[0].logo === "https://logo/5gold.png" &&
+    m3u[0].groups.join(",") === "Sports,News" &&
+    m3u[0].country === "IL" &&
+    m3u[0].url === "http://host/5gold/index.m3u8" &&
+    // No attributes at all is still a channel, not a crash.
+    m3u[1].name === "No attributes at all" && m3u[1].groups.length === 1 && m3u[1].url.endsWith("/bare/index.m3u8"),
+  JSON.stringify(m3u),
+);
+check(
+  "an XMLTV programme is read with its title and its times",
+  (() => {
+    const programmes = parseXMLTV(
+      '<tv><programme start="20261006120000 +0000" stop="20261006130000 +0000" channel="5Gold.il"><title>Kick Off</title><desc>Live.</desc></programme></tv>',
+    );
+    const list = programmes["5Gold.il"] || [];
+    return list.length === 1 && list[0].title === "Kick Off" && list[0].stop - list[0].start === 3_600_000;
+  })(),
+  JSON.stringify(parseXMLTV('<tv><programme start="20261006120000 +0000" stop="20261006130000 +0000" channel="x"><title>T</title></programme></tv>')),
+);
+check(
+  "the guide window keeps the programmes that overlap it",
+  (() => {
+    const now = xmltvTime("20261006120000 +0000");
+    const xml = [
+      '<programme start="20261006080000 +0000" stop="20261006090000 +0000" channel="a"><title>Past</title></programme>',
+      '<programme start="20261006120000 +0000" stop="20261006130000 +0000" channel="a"><title>Now</title></programme>',
+    ].join("");
+    const kept = Object.keys(parseXMLTV(xml, { from: now, to: now + 6 * 3600_000 }).a || {});
+    return kept.length === 1;
+  })(),
+  JSON.stringify(parseXMLTV('<tv></tv>')),
+);
+
+// --- auto refresh -------------------------------------------------------------
+// One setting drives both halves of "update itself": the addon's TMDB cache
+// lifetime server-side, and the app's own re-read of the screen. The app's half is
+// checked in `scripts/ui-smoke.mjs` (Refresh now must produce a new URL); this is
+// the server's half, through the same route the app posts to.
+const refreshOf = async () => (await call("/settings")).res.body?.refresh?.minutes;
+await postTo("/settings", { refresh: { minutes: 15 } });
+check("the refresh interval the app sets is what the addon follows", (await refreshOf()) === 15);
+await postTo("/settings", { refresh: { minutes: 0 } });
+check(
+  "and 'only when you ask' survives a round trip instead of being defaulted away",
+  (await refreshOf()) === 0,
+);
+await postTo("/settings", { refresh: { minutes: "junk" } });
+check("while a nonsense interval falls back to an hour", (await refreshOf()) === 60);
+await postTo("/settings", { refresh: { minutes: 60 } });
 
 // --- the search screen's filters ---------------------------------------------
 const vocab = await call("/search/filters.json");
 check(
   "the search screen is offered its filter vocabulary",
-  vocab.res.body?.filters?.regions?.length >= 9 &&
-    vocab.res.body.filters.categories.movie.includes("Romance") &&
+  vocab.res.body?.filters?.categories?.movie?.includes("Romance") &&
     vocab.res.body.filters.categories.series.includes("Romance") === false &&
     vocab.res.body.filters.periods.length > 10 &&
-    vocab.res.body.filters.sorts.map(([id]) => id).join(",") === "popularity,recent,rating",
-  `${vocab.res.body?.filters?.categories?.series?.length} series categories`,
+    vocab.res.body.filters.sorts.map(([id]) => id).join(",") === "popularity,recent,rating" &&
+    vocab.res.body.filters.countries.length > 100 &&
+    vocab.res.body.filters.continents.map(([id]) => id).includes("all") &&
+    vocab.res.body.filters.providers.length === 7 &&
+    vocab.res.body.filters.moods.length > 20 &&
+    vocab.res.body.filters.themes.length > 50,
+  `${vocab.res.body?.filters?.categories?.series?.length} series categories, ${vocab.res.body?.filters?.countries?.length} countries`,
+);
+// The panel is one row per card line, so its vocabulary has to be the cards' own
+// vocabulary — the same global platforms, the same continents, the same keywords.
+check(
+  "the panel's vocabulary is the cards' own, not an invented one",
+  (() => {
+    const f = vocab.res.body.filters;
+    const provinces = f.continents.map(([id]) => id).filter((id) => id !== "all");
+    return (
+      provinces.join(",") === Object.keys(CONTINENTS).join(",") &&
+      f.providers.slice(1).map(([id]) => id).join(",") === GLOBAL_OTT.map(([, id]) => String(id)).join(",") &&
+      f.moods.slice(1).every(([, label]) => MOOD_LABELS.has(label)) &&
+      f.themes.slice(1).every(([, label]) => THEME_LABELS.has(label))
+    );
+  })(),
+  vocab.res.body.filters.continents.map(([id]) => id).join(","),
 );
 check(
   "TV has no Romance genre, so it is not offered for that row",
   !vocab.res.body.filters.categories.series.includes("Romance") && vocab.res.body.filters.categories.series.includes("Drama"),
 );
 
-// Browsing with no text at all: that is what the panel is for.
-const browseKr = await call("/search.json?type=series&region=KR&category=Drama&sort=rating");
+// Browsing with no text at all: that is what the panel is for. One query per card
+// line — country, genre, sort here; continent, OTT, mood and theme below.
+const browseKr = await call("/search.json?type=series&country=KR&category=Drama&sort=rating");
 check(
   "browsing applies the filters as a TMDB discover query",
   calls.some((u) => u.includes("/discover/tv") && u.includes("with_origin_country=KR") && u.includes("with_genres=18") && u.includes("vote_average.desc")),
   calls.filter((u) => u.includes("/discover/tv")).slice(-1)[0],
+);
+await call("/search.json?type=movie&continent=Asia");
+check(
+  "a continent filter is that continent's own origin-country set",
+  // URLSearchParams percent-encodes the `|` between codes, so the assertion does too.
+  calls.some((u) => u.includes("/discover/movie") && u.includes(`with_origin_country=${encodeURIComponent(CONTINENTS.Asia.join("|"))}`)),
+  calls.filter((u) => u.includes("/discover/movie")).slice(-1)[0],
+);
+await call("/search.json?type=movie&provider=8");
+check(
+  "the OTT filter is a watch-provider filter, scoped to the region you are in",
+  calls.some((u) => u.includes("with_watch_providers=8") && u.includes("watch_region=" ) && u.includes("with_watch_monetization_types=flatrate")),
+  calls.filter((u) => u.includes("with_watch_providers")).slice(-1)[0],
+);
+const moodId = vocab.res.body.filters.moods[1][0];
+const themeId = vocab.res.body.filters.themes[1][0];
+await call(`/search.json?type=movie&mood=${moodId}&theme=${themeId}`);
+check(
+  "Mood and Theme filter by their verified keyword ids",
+  calls.some((u) => u.includes(`with_keywords=${encodeURIComponent(`${moodId},${themeId}`)}`)),
+  calls.filter((u) => u.includes("with_keywords")).slice(-1)[0],
+);
+check(
+  "an unknown filter value falls back instead of emptying the screen",
+  (await call("/search.json?type=movie&country=ZZ&provider=999999")).res.body?.metas?.length > 0,
 );
 check("and returns titles", browseKr.res.body?.metas?.length > 0, `${browseKr.res.body?.metas?.length}`);
 check("no text and no filters returns nothing", (await call("/search.json")).res.body?.metas?.length === 0);

@@ -27,6 +27,11 @@ const DEFAULTS = {
   // regional cards show *your* country's services, and the global platform rows
   // report availability for it.
   country: (process.env.NUVIO_REGION || "US").toUpperCase(),
+  // How often catalogs and metadata are re-read from TMDB. `minutes` is the
+  // refresh interval; 0 means "only when you ask". The addon's own response
+  // cache follows it and the app re-reads the screen on the same clock, so one
+  // setting drives both halves of "update itself".
+  refresh: { minutes: 60 },
   // Providers that can supply catalogs and metadata. Enabling one switches the
   // addon onto it for the parts it supports; catalog names never change.
   providers: {
@@ -40,6 +45,20 @@ const DEFAULTS = {
   // every row. "tvdb" therefore re-sources the *content* of every catalog from
   // TVDB and needs the TVDB provider enabled with a key, or it falls back.
   content: { source: "tmdb" },
+  // Live TV & Sports: where the channels and the guide come from. "demo" is the
+  // built-in public directory, "m3u" is your own playlist URL/file, "xtream" is
+  // an Xtream Codes login. `epg` is an XMLTV URL — with it the Guide draws real
+  // programme blocks, without it the lineup is still there and the Guide says so.
+  live: {
+    mode: "demo",
+    m3u: "",
+    host: "",
+    username: "",
+    password: "",
+    epg: "",
+    // 0 → follow the content refresh interval above.
+    refreshMinutes: 0,
+  },
   // Tracking services (watched history, scrobbling). Stored for the native app.
   // The anime databases track the same shows as the film ones, so they sit in the
   // same group; the drama tracker is its own catalogue and its own group.
@@ -69,6 +88,9 @@ const DEFAULTS = {
     keys: { groq: "", google: "", openrouter: "", cerebras: "" },
     // Optional model override — providers rename models faster than this ships.
     model: "",
+    // "Pick for me": which row the Ask box searches. Empty means both, so the
+    // box behaves as it always did until you choose a side.
+    pickRow: "",
     // "Classic posters & banners" → high-quality modern artwork.
     enhanceArtwork: true,
     // Apply that same treatment to titles the poster service could not cover.
@@ -121,9 +143,19 @@ export function publicSettings() {
   return {
     profile: s.profile,
     safe: s.safe,
+    refresh: { minutes: activeRefreshMinutes() },
     language: s.language || DEFAULTS.language,
     country: String(s.country || DEFAULTS.country).toUpperCase(),
     content: { source: s.content?.source === "tvdb" ? "tvdb" : "tmdb" },
+    // The live source is reported as *what is set*, never as the values: a
+    // playlist URL can carry a token and a password is a password.
+    live: {
+      mode: ["m3u", "xtream", "demo"].includes(s.live?.mode) ? s.live.mode : "demo",
+      hasM3u: Boolean(s.live?.m3u),
+      hasLogin: Boolean(s.live?.host && s.live?.username),
+      hasEpg: Boolean(s.live?.epg),
+      refreshMinutes: Number(s.live?.refreshMinutes) || 0,
+    },
     providers: mask("providers"),
     tracking: mask("tracking"),
     posters: {
@@ -139,6 +171,7 @@ export function publicSettings() {
       enabled: s.ai?.enabled !== false,
       provider: s.ai?.provider || "",
       model: s.ai?.model || "",
+      pickRow: s.ai?.pickRow === "movie" || s.ai?.pickRow === "series" ? s.ai.pickRow : "",
       hasKey: Object.fromEntries(
         Object.keys(DEFAULTS.ai.keys).map((k) => [k, Boolean(s.ai?.keys?.[k])]),
       ),
@@ -152,6 +185,19 @@ const DEFAULT_POSTER_PATTERN = "https://btttr.cc/poster/imdb/poster-default/{imd
 
 /** The content language every row is served in. */
 export const activeLanguage = () => load().language || process.env.NUVIO_LANGUAGE || "en-US";
+
+/**
+ * How often catalogs and metadata are allowed to come back new, in minutes.
+ *
+ * The known choices are 15 / 30 / 60 / 180, and 0 for "only when you ask" (the
+ * app's manual refresh). Anything else falls back to the default, so a hand-edited
+ * settings file cannot leave the cache with a nonsense lifetime.
+ */
+export const activeRefreshMinutes = () => {
+  const n = Number(load().refresh?.minutes);
+  if (!Number.isFinite(n) || n < 0) return 60;
+  return n;
+};
 
 /** The country whose services the OTT rows show. */
 export const activeCountry = () => String(load().country || process.env.NUVIO_REGION || "US").toUpperCase();

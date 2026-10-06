@@ -68,9 +68,14 @@ export const CONTINENTS = {
   Oceania: ["AU", "NZ"],
 };
 
-// Sixty countries, chosen for having a real amount of TMDB content. Every entry
-// is verified in `tmdb-verified.json` — a country with no titles for a row is
-// simply not published there (`countriesFor` filters it out).
+// The Countries card's list — **every** country and territory TMDB knows, taken
+// from its own `/configuration/countries`, with a handful renamed where TMDB uses
+// the same name twice (the two Congos) or a historical one.
+//
+// Nothing here is assumed to have content: `probe-countries.mjs` records each
+// country's real title counts, and `countriesFor` publishes only the countries a
+// row actually has titles for, so an island with no film industry contributes
+// nothing but costs nothing either.
 export const COUNTRIES = [
   ["United States", "US"], ["India", "IN"], ["Japan", "JP"], ["South Korea", "KR"],
   ["United Kingdom", "GB"], ["France", "FR"], ["Spain", "ES"], ["Germany", "DE"],
@@ -88,6 +93,59 @@ export const COUNTRIES = [
   ["New Zealand", "NZ"], ["Ukraine", "UA"], ["Czech Republic", "CZ"], ["Hungary", "HU"],
   ["Romania", "RO"], ["Finland", "FI"], ["Switzerland", "CH"], ["Belgium", "BE"],
   ["Austria", "AT"], ["Bulgaria", "BG"], ["Serbia", "RS"], ["Croatia", "HR"],
+  // Added: the second wave, each one screened for having titles on TMDB before it
+  // was written down here.
+  ["Iceland", "IS"], ["Slovakia", "SK"], ["Slovenia", "SI"], ["Lithuania", "LT"],
+  ["Latvia", "LV"], ["Estonia", "EE"], ["Bosnia and Herzegovina", "BA"], ["Albania", "AL"],
+  ["North Macedonia", "MK"], ["Malta", "MT"], ["Luxembourg", "LU"], ["Cyprus", "CY"],
+  ["Moldova", "MD"], ["Georgia", "GE"], ["Kazakhstan", "KZ"], ["Nepal", "NP"],
+  ["Lebanon", "LB"], ["Iraq", "IQ"], ["Jordan", "JO"], ["Kuwait", "KW"],
+  ["Qatar", "QA"], ["Venezuela", "VE"], ["Uruguay", "UY"], ["Ecuador", "EC"],
+  ["Bolivia", "BO"], ["Paraguay", "PY"], ["Costa Rica", "CR"], ["Panama", "PA"],
+  ["Dominican Republic", "DO"], ["Puerto Rico", "PR"], ["Guatemala", "GT"], ["Cuba", "CU"],
+  ["Tunisia", "TN"], ["Algeria", "DZ"], ["Senegal", "SN"],
+  // Added: everything else TMDB lists. Territories and historical countries are
+  // kept too — TMDB carries titles for them (Soviet Union, Czechoslovakia, East
+  // Germany), so they are rows like any other when they have something in them.
+  ["Afghanistan", "AF"], ["American Samoa", "AS"], ["Andorra", "AD"], ["Angola", "AO"],
+  ["Anguilla", "AI"], ["Antarctica", "AQ"], ["Antigua and Barbuda", "AG"], ["Armenia", "AM"],
+  ["Aruba", "AW"], ["Azerbaijan", "AZ"], ["Bahamas", "BS"], ["Bahrain", "BH"],
+  ["Barbados", "BB"], ["Belarus", "BY"], ["Belize", "BZ"], ["Benin", "BJ"],
+  ["Bermuda", "BM"], ["Bhutan", "BT"], ["Botswana", "BW"], ["Bouvet Island", "BV"],
+  ["British Indian Ocean Territory", "IO"], ["British Virgin Islands", "VG"], ["Brunei Darussalam", "BN"], ["Burkina Faso", "BF"],
+  ["Burma", "BU"], ["Burundi", "BI"], ["Cambodia", "KH"], ["Cameroon", "CM"],
+  ["Cape Verde", "CV"], ["Cayman Islands", "KY"], ["Central African Republic", "CF"], ["Chad", "TD"],
+  ["Christmas Island", "CX"], ["Cocos  Islands", "CC"], ["Comoros", "KM"], ["Congo (DRC)", "CD"],
+  ["Congo (Republic)", "CG"], ["Cook Islands", "CK"], ["Cote D'Ivoire", "CI"], ["Czechoslovakia", "XC"],
+  ["Djibouti", "DJ"], ["Dominica", "DM"], ["East Germany", "XG"], ["East Timor", "TP"],
+  ["El Salvador", "SV"], ["Equatorial Guinea", "GQ"], ["Eritrea", "ER"], ["Ethiopia", "ET"],
+  ["Faeroe Islands", "FO"], ["Falkland Islands", "FK"], ["Fiji", "FJ"], ["French Guiana", "GF"],
+  ["French Polynesia", "PF"], ["French Southern Territories", "TF"], ["Gabon", "GA"], ["Gambia", "GM"],
+  ["Gibraltar", "GI"], ["Greenland", "GL"], ["Grenada", "GD"], ["Guadaloupe", "GP"],
+  ["Guam", "GU"], ["Guinea", "GN"], ["Guinea-Bissau", "GW"], ["Guyana", "GY"],
+  ["Haiti", "HT"], ["Heard and McDonald Islands", "HM"], ["Holy See", "VA"], ["Honduras", "HN"],
+  ["Iran", "IR"], ["Jamaica", "JM"], ["Kiribati", "KI"], ["Kosovo", "XK"],
+  ["Kyrgyz Republic", "KG"], ["Lao People's Democratic Republic", "LA"], ["Lesotho", "LS"], ["Liberia", "LR"],
+  ["Libyan Arab Jamahiriya", "LY"], ["Liechtenstein", "LI"], ["Macao", "MO"], ["Madagascar", "MG"],
+  ["Malawi", "MW"], ["Maldives", "MV"], ["Mali", "ML"], ["Marshall Islands", "MH"],
+  ["Martinique", "MQ"], ["Mauritania", "MR"], ["Mauritius", "MU"], ["Mayotte", "YT"],
+  ["Micronesia", "FM"], ["Monaco", "MC"], ["Mongolia", "MN"], ["Montenegro", "ME"],
+  ["Montserrat", "MS"], ["Mozambique", "MZ"], ["Myanmar", "MM"], ["Namibia", "NA"],
+  ["Nauru", "NR"], ["Netherlands Antilles", "AN"], ["New Caledonia", "NC"], ["Nicaragua", "NI"],
+  ["Niger", "NE"], ["Niue", "NU"], ["Norfolk Island", "NF"], ["North Korea", "KP"],
+  ["Northern Ireland", "XI"], ["Northern Mariana Islands", "MP"], ["Oman", "OM"], ["Palau", "PW"],
+  ["Palestinian Territory", "PS"], ["Papua New Guinea", "PG"], ["Pitcairn Island", "PN"], ["Reunion", "RE"],
+  ["Rwanda", "RW"], ["Samoa", "WS"], ["San Marino", "SM"], ["Sao Tome and Principe", "ST"],
+  ["Serbia and Montenegro", "CS"], ["Seychelles", "SC"], ["Sierra Leone", "SL"], ["Solomon Islands", "SB"],
+  ["Somalia", "SO"], ["South Georgia and the South Sandwich Islands", "GS"], ["South Sudan", "SS"], ["Soviet Union", "SU"],
+  ["St. Helena", "SH"], ["St. Kitts and Nevis", "KN"], ["St. Lucia", "LC"], ["St. Pierre and Miquelon", "PM"],
+  ["St. Vincent and the Grenadines", "VC"], ["Sudan", "SD"], ["Suriname", "SR"], ["Svalbard & Jan Mayen Islands", "SJ"],
+  ["Swaziland", "SZ"], ["Syrian Arab Republic", "SY"], ["Tajikistan", "TJ"], ["Tanzania", "TZ"],
+  ["Timor-Leste", "TL"], ["Togo", "TG"], ["Tokelau", "TK"], ["Tonga", "TO"],
+  ["Trinidad and Tobago", "TT"], ["Turkmenistan", "TM"], ["Turks and Caicos Islands", "TC"], ["Tuvalu", "TV"],
+  ["Uganda", "UG"], ["United States Minor Outlying Islands", "UM"], ["US Virgin Islands", "VI"], ["Uzbekistan", "UZ"],
+  ["Vanuatu", "VU"], ["Wallis and Futuna Islands", "WF"], ["Western Sahara", "EH"], ["Yemen", "YE"],
+  ["Yugoslavia", "YU"], ["Zaire", "ZR"], ["Zambia", "ZM"], ["Zimbabwe", "ZW"],
 ];
 
 // The three Global OTT cards publish **six** platforms: the ones they were built
@@ -122,7 +180,7 @@ export const PLATFORMS = VERIFIED.platforms
 export const DECADES = ALL_DECADES;
 
 /** Up to `LOCAL_LIMIT` local OTT services per region, verified to return titles. */
-export const LOCAL_LIMIT = 3;
+export const LOCAL_LIMIT = 8;
 const localFor = (region, type) => (VERIFIED.regions[region]?.[type] ?? []).slice(0, LOCAL_LIMIT);
 
 /**
@@ -219,6 +277,17 @@ const runtime = (name, min) => ({ name, kind: "runtime", min });
 const episodes = (name, max) => ({ name, kind: "episodes", max });
 const keyword = (name, id, take) => ({ name, kind: "keyword", id, take });
 const provider = (name, providerId, region, take) => ({ name, kind: "provider", providerId, region, take });
+/** A platform's own studio's originals — a company, not a catalog of one. */
+const original = (name, studio, take) => ({ name, kind: "original", studio: studio || null, take });
+
+/**
+ * The studio behind a platform's Originals rows, from `tmdb-verified.json`.
+ *
+ * `probe-originals.mjs` looks each platform's company up against TMDB and keeps
+ * only candidates that really return titles, so a `<Platform> Originals` row is
+ * never an empty invention.
+ */
+const ORIGINALS = VERIFIED.originals || {};
 const watchlist = (name, state) => ({ name, kind: "watchlist", state });
 
 /**
@@ -226,15 +295,26 @@ const watchlist = (name, state) => ({ name, kind: "watchlist", state });
  * Only labels that actually have titles for this row are published — otherwise
  * the row exists but always comes back empty.
  */
-// "Documentary" is a genre, not a theme — it is deliberately not part of the
-// Themes & Tags card, and it is skipped everywhere it would otherwise appear.
-const KEYWORD_EXCLUDE = new Set(["Documentary"]);
+// Labels that live in the verified ``table but are *not* themes: **Documentary**
+// is a genre, and **Anime** / **Asian Drama** are whole catalogues with their own
+// **Genres** card. They are skipped wherever a theme list is built.
+const KEYWORD_NOT_A_THEME = new Set(["Documentary", "Anime", "Asian Drama"]);
 
 const keywordEntries = (group, type, take) =>
   Object.entries(KW[group] ?? {})
-    .filter(([name]) => !KEYWORD_EXCLUDE.has(name))
+    .filter(([name]) => !KEYWORD_NOT_A_THEME.has(name))
     .filter(([, k]) => (type === "movie" ? k.movieCount : k.tvCount) > 0)
     .map(([name, k]) => keyword(name, k.id, take));
+
+/**
+ * Named keyword rows out of a group — for a card that publishes a few verified
+ * labels rather than the whole group.
+ */
+const keywordPick = (group, names, type, take) =>
+  names
+    .filter((name) => KW[group]?.[name])
+    .filter((name) => (type === "movie" ? KW[group][name].movieCount : KW[group][name].tvCount) > 0)
+    .map((name) => keyword(name, KW[group][name].id, take));
 
 /** Countries that actually have titles for this row (Ghana has films, no series). */
 const countriesFor = (type) =>
@@ -255,7 +335,14 @@ const countriesFor = (type) =>
 const globalOtt = {
   top10: (take) => GLOBAL_OTT.map(([label, id]) => provider(`${label} ◆ Top 10`, id, null, take)),
   popular: () => GLOBAL_OTT.map(([label, id]) => provider(`Popular ${label}`, id, null)),
-  all: () => GLOBAL_OTT.map(([label, id]) => provider(label, id, null)),
+  // Each platform, then that platform's own studio's originals — the row the
+  // request asked for, directly after the platform's row.
+  all: () =>
+    GLOBAL_OTT.flatMap(([label, id]) => {
+      const rows = [provider(label, id, null)];
+      if (ORIGINALS[label]) rows.push(original(`${label} Originals`, ORIGINALS[label]));
+      return rows;
+    }),
 };
 
 /**
@@ -287,6 +374,10 @@ function regionalOtt(kind) {
 }
 
 const TOP10 = 10;
+// The Discover card publishes 25 titles per row rather than 10, so it is the one
+// "top of the pile" card that is worth scrolling. Its card key stays
+// `discover-top-10` — that is the cover's filename and the divider anchor.
+const TOP25 = 25;
 const both = (list) => ({ movie: list, show: list.map((e) => ({ ...e })) });
 const forBoth = (build) => ({ movie: build(MOVIE_GENRES), show: build(SHOW_GENRES) });
 
@@ -369,9 +460,9 @@ const buildCollections = () => {
   },
   {
     key: "discover-top-10",
-    lines: ["Discover", "◆ Top 10"],
+    lines: ["Discover", "◆ Top 25"],
     scene: "spotlight-top-10",
-    catalogs: both(discoverRow(" ◆ Top 10", TOP10)),
+    catalogs: both(discoverRow(" ◆ Top 25", TOP25)),
   },
   {
     key: "on-the-board",
@@ -402,7 +493,15 @@ const buildCollections = () => {
     key: "genres",
     lines: ["Genres"],
     scene: "genres",
-    catalogs: forBoth((list) => list.map((g) => genre(g, g))),
+    // The genres, and only the genres. **Anime** and **Asian Drama** are keywords,
+    // not genres, so they are not rows here either — they were never asked for as
+    // a card, and they are not a genre row. The cards that genuinely hold that
+    // content carry it already (Japan in Countries, Crunchyroll and Viki on the
+    // OTT cards), and both stay out of Themes & Tags.
+    catalogs: {
+      movie: MOVIE_GENRES.map((g) => genre(g, g)),
+      show: SHOW_GENRES.map((g) => genre(g, g)),
+    },
   },
   {
     key: "popular-by-decade",
@@ -570,6 +669,27 @@ export const catalogEntries = (cat, row) => {
 
 /** The catalog names inside a card for one row — what the cover shows. */
 export const catalogLabels = (cat, row) => catalogEntries(cat, row).map((e) => e.name);
+
+/**
+ * The verified keyword rows of a group as `[label, id]` — the vocabulary the
+ * search panel's Mood and Theme filters are built from, so those rows offer the
+ * same names the cards do and never a keyword TMDB does not have.
+ */
+export const keywordVocab = (group) =>
+  Object.entries(KW[group] ?? {})
+    .filter(([name]) => !KEYWORD_NOT_A_THEME.has(name))
+    .map(([name, k]) => [name, k.id]);
+
+/**
+ * Every country that really has titles, as `[code, name]` — the search panel's
+ * Country filter. A territory with nothing in it is not offered, so choosing one
+ * can never produce an empty screen.
+ */
+export const countryVocab = () =>
+  COUNTRIES.filter(([name]) => {
+    const c = VERIFIED.countries?.[name];
+    return (c?.movieCount || 0) > 0 || (c?.tvCount || 0) > 0;
+  }).map(([name, code]) => [code, name]);
 
 /** The card that should be preceded by a vertical divider in the app. */
 export const DIVIDER_BEFORE = "discover-top-10";

@@ -18,7 +18,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { COUNTRIES, collectionsFor, localServices, title as collectionTitle } from "../scripts/collections.mjs";
+import {
+  CONTINENTS,
+  COUNTRIES,
+  GLOBAL_OTT,
+  collectionsFor,
+  countryVocab,
+  keywordVocab,
+  localServices,
+  title as collectionTitle,
+} from "../scripts/collections.mjs";
 import { get, hasKey, toMeta, tmdbPath, setKey, resolveGenre } from "./tmdb.mjs";
 import { askAI, verifyAI, aiModels, aiProviderName, aiState } from "./ai.mjs";
 import {
@@ -48,6 +57,7 @@ import { applyPosters, postersEnabled, checkPosterService } from "./posters.mjs"
 import { applyContentSource, contentSourceActive, contentSourceStats } from "./tvdb.mjs";
 import { inspectSource } from "./sources.mjs";
 import { calendarMonth } from "./calendar.mjs";
+import { liveChannels, liveGuide, liveStatus, liveCountries, countrySpellings } from "./live.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WATCHLIST_FILE = path.join(__dirname, "watchlist.json");
@@ -56,6 +66,48 @@ export const ADDON_ID = "community.nuvio.collections";
 export { CATALOG_ID_PREFIX };
 
 const PAGE_SIZE = 40;
+
+/**
+ * How deep a search goes.
+ *
+ * Search and browse used to keep **twelve titles per row type** — a cap that made
+ * "search Disney+ and you get 21 titles" look like the search was asleep. Then it
+ * was sixty, which a filtered browse ran out of. TMDB answers twenty results per
+ * page, so six pages per row type are read and up to this many are kept, which is
+ * what the results grid then draws.
+ */
+const SEARCH_PAGES = 6;
+const SEARCH_LIMIT = 120;
+
+/**
+ * Read up to `pages` pages of one TMDB list, stopping early at the last page.
+ *
+ * It answers with **how far it actually got**. A short page is the last page, and
+ * the loop stops there — so a window can be three pages rather than six, and the
+ * caller must continue from wherever the read really ended. Returning the count
+ * (and whether the list is finished) is what makes "Load more" line up with TMDB
+ * instead of skipping past the end of a short result set.
+ */
+async function readPages(path, params, pages = SEARCH_PAGES, start = 0) {
+  const out = [];
+  // `start` is how many pages have already been read, so page 2 of the screen is
+  // TMDB's page 7 — that is what lets the results keep going instead of stopping
+  // at a number the server picked.
+  let read = 0;
+  let ended = false;
+  for (let page = start + 1; page <= start + pages; page += 1) {
+    const data = await get(path, { ...params, page }).catch(() => ({ results: [] }));
+    const list = data.results ?? [];
+    read += 1;
+    out.push(...list);
+    // A short page is the last page — there is nothing after it to ask for.
+    if (list.length < 20) {
+      ended = true;
+      break;
+    }
+  }
+  return { items: out, pagesRead: read, ended, next: ended ? null : start + read };
+}
 
 let warnedNoKey = false;
 
@@ -126,28 +178,24 @@ const SEARCH_CATEGORIES = [
 ];
 
 /**
- * The regions the panel browses by, as TMDB origin-country filters.
- *
- * "Europe" and "Other" are sets, because a continent is not a country. "Other"
- * means the rest of the industries people watch here rather than "everything not
- * listed" — TMDB can include countries but cannot exclude them, so a literal
- * complement is not expressible.
+ * The panel filters by the *card lines*, not by an invented vocabulary: a
+ * continent filter is the Continental card's own continents, the OTT filter is the
+ * Global OTT card's own platforms, the Mood and Theme filters are the keyword rows
+ * those two cards publish, and the Country filter is every country the Countries
+ * card has a row for. One panel, the same names the cards use — which is what the
+ * request meant by "a filter per card line".
  */
-const SEARCH_REGIONS = [
-  ["all", "All regions", ""],
-  ["US", "America", "US"],
-  ["KR", "Korea", "KR"],
-  ["GB", "U.K", "GB"],
-  ["JP", "Japan", "JP"],
-  ["TH", "Thailand", "TH"],
-  ["CN", "China", "CN"],
-  ["IN", "India", "IN"],
-  ["AU", "Australia", "AU"],
-  ["EU", "Europe", "GB|DE|FR|IT|ES|NL|SE|NO|DK|PL|BE|IE|PT|FI|CZ|AT|CH|GR"],
-  ["other", "Other", "HK|TW|PH|ID|VN|SG|MY|TR|BR|MX|AR|CL|CO|ZA|NG|EG|IL|SA|AE|NZ|RU|UA|PK|BD|LK|NP|KE"],
-];
+const SEARCH_CONTINENTS = [["all", "All continents"], ...Object.keys(CONTINENTS).map((name) => [name, name])];
+const SEARCH_COUNTRIES = [["all", "All countries"], ...countryVocab()];
+const SEARCH_PROVIDERS = [["all", "All services"], ...GLOBAL_OTT.map(([label, id]) => [String(id), label])];
+const SEARCH_MOODS = [["all", "All moods"], ...keywordVocab("moods-and-vibes").map(([name, id]) => [String(id), name])];
+const SEARCH_THEMES = [["all", "All themes"], ...keywordVocab("themes-and-tags").map(([name, id]) => [String(id), name])];
 
-const regionCodes = (id) => (SEARCH_REGIONS.find(([code]) => code === id) || [])[2] || "";
+const CONTINENT_CODES = new Map(Object.entries(CONTINENTS).map(([name, codes]) => [name, codes.join("|")]));
+const COUNTRY_CODES = new Set(SEARCH_COUNTRIES.map(([code]) => code));
+const PROVIDER_IDS = new Set(SEARCH_PROVIDERS.map(([id]) => id));
+const MOOD_IDS = new Set(SEARCH_MOODS.map(([id]) => id));
+const THEME_IDS = new Set(SEARCH_THEMES.map(([id]) => id));
 
 /** The period choices: the last eleven years, then the decade buckets, then "Before". */
 function periodChoices() {
@@ -167,7 +215,11 @@ const SEARCH_SORTS = [
 
 const SEARCH_FILTERS = {
   types: [["", "All"], ["series", "TV Series"], ["movie", "Movie"]],
-  regions: SEARCH_REGIONS.map(([code, label]) => [code, label]),
+  continents: SEARCH_CONTINENTS,
+  countries: SEARCH_COUNTRIES,
+  providers: SEARCH_PROVIDERS,
+  moods: SEARCH_MOODS,
+  themes: SEARCH_THEMES,
   categories: {
     movie: SEARCH_CATEGORIES.filter(([, movie]) => movie).map(([label]) => label),
     series: SEARCH_CATEGORIES.filter(([, , tv]) => tv).map(([label]) => label),
@@ -183,20 +235,41 @@ const categoryGenre = (label, type) => {
   return (type === "movie" ? row[1] : row[2]) || null;
 };
 
+// An unknown value falls back to "all" rather than reaching TMDB as a bad filter —
+// a hand-written URL can never empty the screen silently.
+const pickOne = (value, allowed) => (allowed.has(value) ? value : "all");
+
+/**
+ * A period is "all", "before", a year, or a `YYYY-YYYY` range — validated by shape
+ * rather than against the offered list, so a range a filter row does not happen to
+ * offer (2011-2015 is offered as 2015-2011) still means what it says.
+ */
+const validPeriod = (value) => {
+  const v = value || "all";
+  return v === "all" || v === "before" || /^\d{4}$/.test(v) || /^\d{4}-\d{4}$/.test(v) ? v : "all";
+};
+
 const parseFilters = (params) => {
   const type = params.get("type");
+  const category = params.get("category") || "all";
   return {
     type: type === "movie" || type === "series" ? type : "",
-    region: params.get("region") || "all",
-    category: params.get("category") || "all",
-    period: params.get("period") || "all",
+    continent: CONTINENT_CODES.has(params.get("continent")) ? params.get("continent") : "all",
+    country: pickOne(params.get("country"), COUNTRY_CODES),
+    provider: pickOne(params.get("provider"), PROVIDER_IDS),
+    mood: pickOne(params.get("mood"), MOOD_IDS),
+    theme: pickOne(params.get("theme"), THEME_IDS),
+    category: category === "all" || SEARCH_CATEGORIES.some(([label]) => label === category) ? category : "all",
+    period: validPeriod(params.get("period")),
     sort: SEARCH_SORTS.some(([id]) => id === params.get("sort")) ? params.get("sort") : "popularity",
   };
 };
 
+const FILTER_KEYS = ["continent", "country", "provider", "mood", "theme"];
+
 const hasFilters = (f) =>
   Boolean(f.type) ||
-  f.region !== "all" ||
+  FILTER_KEYS.some((key) => f[key] !== "all") ||
   f.category !== "all" ||
   f.period !== "all" ||
   f.sort !== "popularity";
@@ -254,25 +327,52 @@ function sortParams(sort, type) {
  * period can be applied to them; they carry **no origin country**, so the region
  * filter can only apply while browsing (the app says so on screen).
  */
-async function searchTitles(query, f, { adult = false } = {}) {
+async function searchTitles(query, f, { adult = false, start = 0 } = {}) {
   const types = f.type ? [f.type] : SEARCH_TYPES;
   const lists = await Promise.all(
     types.map(async (type) => {
-      const data = await get(`/search/${tmdbPath(type)}`, {
+      const { items: raw, next } = await readPages(`/search/${tmdbPath(type)}`, {
         query,
         ...(adult ? { include_adult: true } : {}),
-      }).catch(() => ({ results: [] }));
-      let items = data.results ?? [];
+      }, SEARCH_PAGES, start);
+      let items = raw;
       const genreName = categoryGenre(f.category, type);
       if (f.category !== "all" && genreName) {
         const id = await resolveGenre(type, genreName);
         if (id) items = items.filter((it) => (it.genre_ids || []).includes(id));
       }
       if (f.period !== "all") items = items.filter((it) => inPeriod(resultYear(it, type), f.period));
-      return sortItems(items, type, f.sort).slice(0, 12).map((it) => toMeta(it, type)).filter(Boolean);
+      // TMDB's own `include_adult` is not enough: it is a hint, and some results
+      // still carry `adult: true`. In SFW they are dropped here too.
+      if (!adult) items = items.filter((it) => !it.adult);
+      // Deduplicated on the way out: paging a search can repeat a title.
+      const seen = new Set();
+      return {
+        metas: sortItems(items, type, f.sort)
+          .filter((it) => (seen.has(it.id) ? false : seen.add(it.id)))
+          .slice(0, SEARCH_LIMIT)
+          .map((it) => toMeta(it, type))
+          .filter(Boolean),
+        next,
+      };
     }),
   );
-  return lists.flat();
+  return mergeWindows(lists);
+}
+
+/**
+ * One window's titles, plus where the next window starts.
+ *
+ * Two row types are read together, and either can run out first: the cursor is the
+ * **smallest** page still worth asking from, so neither row type is skipped over,
+ * and it is null only when both are finished.
+ */
+function mergeWindows(lists) {
+  const nexts = lists.map((l) => l.next).filter((n) => typeof n === "number");
+  return {
+    metas: lists.flatMap((l) => l.metas),
+    next: nexts.length ? Math.min(...nexts) : null,
+  };
 }
 
 /** Sort search results locally, since a search cannot be asked for an order. */
@@ -289,7 +389,7 @@ function sortItems(items, type, sort) {
  * This is the panel's real job — "Korean romance series, high rating" is a
  * discover query, not a search.
  */
-async function browseTitles(f, { adult = false } = {}) {
+async function browseTitles(f, { adult = false, start = 0 } = {}) {
   const types = f.type ? [f.type] : SEARCH_TYPES;
   const lists = await Promise.all(
     types.map(async (type) => {
@@ -304,19 +404,41 @@ async function browseTitles(f, { adult = false } = {}) {
         // would otherwise lead the row.
         "vote_count.gte": f.sort === "rating" ? 50 : 5,
       };
-      const region = regionCodes(f.region);
-      if (region) params.with_origin_country = region;
+      // A continent is a set of origin countries; a single country is itself.
+      const codes = f.continent !== "all" ? CONTINENT_CODES.get(f.continent) : f.country !== "all" ? f.country : "";
+      if (codes) params.with_origin_country = codes;
+      // The OTT filter is a watch-provider filter, so it needs the region you are
+      // browsing from as well — a service is only "available" somewhere.
+      if (f.provider !== "all") {
+        params.with_watch_providers = f.provider;
+        params.watch_region = activeRegion();
+        params.with_watch_monetization_types = "flatrate";
+      }
+      // Mood and Theme are keyword rows; both at once asks for titles that carry
+      // both keywords, which is what choosing two does.
+      const keywords = [f.mood, f.theme].filter((id) => id !== "all");
+      if (keywords.length) params.with_keywords = keywords.join(",");
       if (genreName) {
         const id = await resolveGenre(type, genreName);
         if (!id) return [];
         params.with_genres = id;
       }
       if (adult) params.include_adult = true;
-      const data = await get(`/discover/${tmdbPath(type)}`, params).catch(() => ({ results: [] }));
-      return (data.results ?? []).slice(0, 12).map((it) => toMeta(it, type)).filter(Boolean);
+      const { items: raw, next } = await readPages(`/discover/${tmdbPath(type)}`, params, SEARCH_PAGES, start);
+      let items = raw;
+      if (!adult) items = items.filter((it) => !it.adult);
+      const seen = new Set();
+      return {
+        metas: items
+          .filter((it) => (seen.has(it.id) ? false : seen.add(it.id)))
+          .slice(0, SEARCH_LIMIT)
+          .map((it) => toMeta(it, type))
+          .filter(Boolean),
+        next,
+      };
     }),
   );
-  return lists.flat();
+  return mergeWindows(lists);
 }
 
 export function buildManifest(base) {
@@ -477,7 +599,17 @@ function poolItems(entry) {
  * Metas are built fresh for every request: the route mutates them downstream
  * (better posters, ratings), so a cached object must never be handed out twice.
  */
-const metasFor = (entry) => poolItems(entry).map((item) => toMeta(item, entry.media)).filter(Boolean);
+const metasFor = (entry) =>
+  poolItems(entry)
+    // SFW is enforced here as well as at the API. `include_adult` only covers the
+    // discover endpoints, and it is a hint even there: `/trending`, `/now_playing`,
+    // `/airing_today` and `/top_rated` take no such parameter at all, so an adult
+    // title TMDB flags on a list item would otherwise reach a safe-for-work app.
+    // The flag rides on the raw item, so the filter belongs here, before the meta
+    // is built — and after it, nothing downstream can tell the difference.
+    .filter((item) => entry.adult || !item.adult)
+    .map((item) => toMeta(item, entry.media))
+    .filter(Boolean);
 
 /**
  * Grow the pool until it covers `need` titles, or it runs out.
@@ -503,6 +635,33 @@ function deepen(entry, need) {
   return next;
 }
 
+/**
+ * Countries the shuffle skims, so one draw is not one country's chart.
+ *
+ * A row sorted by popularity is, in practice, an American chart: the same big
+ * titles at the top of it every time. Shuffle samples the row *and* a handful of
+ * other origin countries, so the draw covers what the row actually holds across
+ * the world — the row's own filters (its OTT, its genre, its decade) still apply
+ * to every one of these, they only change where the titles come from.
+ */
+const SHUFFLE_COUNTRIES = [
+  "US", "IN", "JP", "KR", "GB", "FR", "ES", "IT", "DE", "BR", "MX", "TR",
+  "NG", "CN", "HK", "TW", "TH", "ID", "PH", "VN", "SE", "NO", "DK", "FI",
+  "PL", "RU", "NL", "BE", "PT", "GR", "AR", "CO", "CL", "EG", "ZA", "AU",
+];
+
+/** The row's specs, plus a few country-scoped ones when the row is discover-based. */
+function shuffleCountrySpecs(specs) {
+  const discover = specs.filter((s) => typeof s?.path === "string" && s.path.startsWith("/discover/"));
+  if (!discover.length || discover.length !== specs.length) return specs;
+  const picks = [...SHUFFLE_COUNTRIES].sort(() => Math.random() - 0.5).slice(0, 4);
+  const extra = picks.map((code) => {
+    const base = discover[Math.floor(Math.random() * discover.length)];
+    return { path: base.path, params: { ...base.params, with_origin_country: code }, take: PAGE_SIZE / 2 };
+  });
+  return [...specs, ...extra];
+}
+
 /** A random sample of a catalog — what the Explore shuffle rows draw from. */
 export async function catalogShuffle(media, def, count, opts = {}) {
   const specs = def.entry ? await catalogSpecs(def.entry, media, opts) : [];
@@ -518,12 +677,18 @@ export async function catalogShuffle(media, def, count, opts = {}) {
   } else if (specs.length === 1 && specs[0].custom) {
     pool = customMetas(specs[0].custom, media, 0, 300);
   } else if (specs.length === 1 && specs[0].episodes) {
-    pool = await episodeMetas(media, specs[0].episodes, language);
+    pool = await episodeMetas(media, specs[0].episodes, language, Boolean(opts.adult));
   } else {
-    const entry = remember(pools, key, () => ({ at: Date.now(), media, specs, lists: specs.map(() => []), rounds: 0, items: null }));
-    // Sample from a pool several times the sample size, so one shuffle is not
-    // just the same handful of titles reordered.
-    pool = await deepen(entry, Math.max(count * 4, PAGE_SIZE * 3));
+    // The pool is the row's own specs **plus a few origin countries**, so a draw
+    // is not always the same Hollywood titles: "everything from every country
+    // this row holds" is what a shuffle is supposed to mean.
+    const varied = shuffleCountrySpecs(specs);
+    const entry = remember(pools, key, () => ({ at: Date.now(), media, specs: varied, lists: varied.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
+    // Sample from a pool many times the sample size. Twelve of the top twenty
+    // most popular titles is what made one shuffle look like the last one, and
+    // like nothing but the biggest names: the pool has to reach well past them
+    // before a random draw is worth anything.
+    pool = await deepen(entry, Math.max(count * 8, PAGE_SIZE * 4));
   }
 
   const picked = pool.slice();
@@ -545,8 +710,8 @@ const EPISODE_POOL_PAGES = 4;
 const episodePools = new Map();
 
 /** Every episode-cap title for a media type, cached. */
-async function episodeMetas(media, max, language = activeLanguage()) {
-  const entry = remember(episodePools, `${media}:${max}:${language}`, () => ({ shows: null }));
+async function episodeMetas(media, max, language = activeLanguage(), adult = false) {
+  const entry = remember(episodePools, `${media}:${max}:${language}:${adult ? "a" : "s"}`, () => ({ shows: null }));
   if (!entry.shows) {
     const t = tmdbPath(media);
     const requests = [
@@ -561,11 +726,11 @@ async function episodeMetas(media, max, language = activeLanguage()) {
     // Cache the *shows*; the metas are built per request (they get mutated).
     entry.shows = dedupe(details.filter((d) => d && (d.number_of_episodes ?? Infinity) <= max));
   }
-  return entry.shows.map((d) => toMeta(d, media)).filter(Boolean);
+  return entry.shows.filter((d) => adult || !d.adult).map((d) => toMeta(d, media)).filter(Boolean);
 }
 
-async function episodesMetas(media, max, skip, language) {
-  const metas = await episodeMetas(media, max, language);
+async function episodesMetas(media, max, skip, language, adult) {
+  const metas = await episodeMetas(media, max, language, adult);
   return metas.slice(skip, skip + PAGE_SIZE);
 }
 
@@ -578,7 +743,7 @@ export async function catalogMetas(media, def, skip, opts = {}) {
   const key = `${media}:${identity}:${opts.adult ? "a" : "s"}:${language}`;
 
   if (specs.length === 1 && specs[0].episodes) {
-    return episodesMetas(media, specs[0].episodes, skip, language);
+    return episodesMetas(media, specs[0].episodes, skip, language, Boolean(opts.adult));
   }
 
   // The watchlist is served from the stored pins, not from TMDB.
@@ -594,7 +759,7 @@ export async function catalogMetas(media, def, skip, opts = {}) {
   // A pool that only grows: page 2 continues where page 1 stopped, and repeat
   // requests are served from memory. `take` catalogues (the ◆ Top 10 rows) stop
   // at their length, because a Top 10 really does hold ten titles.
-  const entry = remember(pools, key, () => ({ at: Date.now(), media, specs, lists: specs.map(() => []), rounds: 0, items: null }));
+  const entry = remember(pools, key, () => ({ at: Date.now(), media, specs, lists: specs.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
   const pool = await deepen(entry, skip + PAGE_SIZE);
   return pool.slice(skip, skip + PAGE_SIZE);
 }
@@ -931,18 +1096,79 @@ export async function handleAddon(req, res, pathname, origin) {
       json(res, 200, { query, metas: [], filters: filtersPayload(filters) });
       return true;
     }
+    // `start` is the window the screen is asking for: 0 is the first, and each
+    // further window continues where the last one stopped. Nothing is capped —
+    // the client keeps asking until TMDB runs out.
+    const start = Math.max(0, Number(params.get("start")) || 0);
     try {
-      const metas = query
-        ? await searchTitles(query, filters, { adult })
-        : await browseTitles(filters, { adult });
+      const { metas, next } = query
+        ? await searchTitles(query, filters, { adult, start })
+        : await browseTitles(filters, { adult, start });
       await applyPosters(metas);
       await applyContentSource(metas);
       await enrichRatings(metas);
-      json(res, 200, { query, metas, filters: filtersPayload(filters) }, 300);
+      json(res, 200, { query, metas, next, filters: filtersPayload(filters) }, 300);
     } catch (err) {
       console.error(`[addon] search ${query || "(browse)"} failed:`, err.message);
       json(res, 200, { query, metas: [], filters: filtersPayload(filters) });
     }
+    return true;
+  }
+
+  /* ------------------------------------------------------- Live TV & Sports */
+
+  // The channel list: the Live TV profile's catalog. `group` picks one of the
+  // playlist's own categories (Sports, News, …), `q` filters by name, and
+  // `country` by the country a playlist names in the channel's id.
+  if (pathname === "/live/channels.json") {
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    const group = params.get("group") || "";
+    // One country (`country=US`) or a picked set (`countries=US,GB`). A picked set
+    // is what the country setting hands over, so the Guide, the Categories card and
+    // the channel rows all read the same slice of the directory.
+    const wanted = [params.get("country") || "", ...(params.get("countries") || "").split(",")]
+      .flatMap((c) => countrySpellings(c))
+      .filter(Boolean);
+    const needle = (params.get("q") || "").trim().toLowerCase();
+    const list = await liveChannels({ force: params.get("force") === "1" });
+    const channels = (list.channels || []).filter(
+      (c) =>
+        (!group || (c.groups || []).includes(group)) &&
+        (!wanted.length || wanted.includes(String(c.country || "").toUpperCase())) &&
+        (!needle || c.name.toLowerCase().includes(needle)),
+    );
+    json(res, 200, {
+      channels: channels.slice(0, Number(params.get("limit")) || 400),
+      total: channels.length,
+      groups: list.groups || [],
+      updated: list.at || 0,
+      error: list.error || "",
+    }, 300);
+    return true;
+  }
+
+  // The guide: the next `hours` of programmes per channel id, plus the lineup the
+  // grid is drawn against. Empty programmes with `epg: false` is the honest answer
+  // when no XMLTV source is configured.
+  if (pathname === "/live/guide.json") {
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    const guide = await liveGuide({
+      hours: Number(params.get("hours")) || 6,
+      force: params.get("force") === "1",
+      countries: params.get("countries") || "",
+    });
+    json(res, 200, guide, 300);
+    return true;
+  }
+
+  // The directory's country table, for the settings screen's country picker.
+  if (pathname === "/live/countries.json") {
+    json(res, 200, await liveCountries(), 86400);
+    return true;
+  }
+
+  if (pathname === "/live/status.json") {
+    json(res, 200, await liveStatus(), 60);
     return true;
   }
 

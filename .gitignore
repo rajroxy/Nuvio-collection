@@ -9,6 +9,9 @@ addon/settings.json
 # Runtime state written by the app (your pinned titles, not source)
 addon/watchlist.json
 
+# Live TV's parsed playlist + guide (runtime cache, not source)
+addon/live-cache.json
+
 # Dependencies
 node_modules/
 scripts/node_modules/

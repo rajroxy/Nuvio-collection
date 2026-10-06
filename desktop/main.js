@@ -39,7 +39,8 @@ async function createWindow() {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: "#08090C",
+    // The window is painted before the UI arrives, so it wears the app's own ink.
+    backgroundColor: "#0B0B0B",
     title: "Nuvio Collections",
     autoHideMenuBar: true,
     webPreferences: {

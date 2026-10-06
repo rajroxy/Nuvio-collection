@@ -60,6 +60,9 @@ export async function calendarMonth(media, month, { adult = false } = {}) {
   // TMDB's list endpoint sometimes omits the date we filtered on — pass
   // `release_date.*` through when present, otherwise fall back to the field.
   const metas = dedupe(pages.flatMap((p) => p.results ?? []))
+    // `include_adult` is a hint, and the calendar asks for a date range rather
+    // than a list endpoint, so the `adult` flag is honoured here as well.
+    .filter((item) => adult || !item.adult)
     .map((item) => {
       const date = (media === "movie" ? item.release_date : item.first_air_date) || null;
       return { ...toMeta(item, media), releaseDate: date };
