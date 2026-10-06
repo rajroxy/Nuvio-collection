@@ -1674,12 +1674,57 @@ button.hero-art {
    and can never leave the card's own box. The strip is clipped to the frame's radius
    for the same reason: the photographs are inside the card, never across its edge. */
 .icon-box { overflow: hidden; }
-.icon-box:hover,
-.icon-box:focus-within {
+/* `:hover` only — **not `:focus-within`**. A card holds a button, so clicking the
+   card focused it and `:focus-within` then held an accent ring on the card you had
+   pressed: a selection highlight that stayed after the click. Hover is the state
+   that means "the cursor is here"; focus is not a card's business. */
+.icon-box:hover {
   transform: none;
   background: var(--panel-2);
   box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.45);
 }
+
+/* **A divider has no cell in the grid.** `collectionGrid` drops a `v-divider` before
+   the watchlist card; in the row layout that is a 1px rule between two cards, but in
+   the **grid** layout it became a grid item and stretched into a whole card-shaped
+   hole. It is drawn in rows and left out of the grid. */
+.icons.grid .v-divider { display: none; }
+
+/* **The focus ring is for buttons, not for fields.** `:focus-visible` matches a text
+   input, a checkbox and a radio the moment a mouse click lands on them (browsers
+   treat anything that takes keyboard input as keyboard-reachable), so every settings
+   field, every switch and the channel page's read-only URL answered a click with a
+   3px accent box — the highlight that was still "on many components". Fields show
+   focus with their own fill; the ring stays on controls you navigate to by keyboard. */
+input.focusable:focus-visible,
+.text-input:focus-visible,
+.option input:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* ------------------------------------------------------------- profile avatars */
+
+/* The avatar is a drawn mark on the accent disc rather than a letter. The mark takes
+   its colour from the disc's text colour, so it reads on the gradient, and it is
+   sized as a share of the disc — the same mark works at 84px on the picker and at
+   46px in Settings. */
+.avatar-mark {
+  display: block;
+  width: 62%;
+  height: 62%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* The name and the Edit button share the row: the body takes the space, the button
+   keeps its own width. */
+.current-profile-body { flex: 1; min-width: 0; }
+.current-profile .btn { flex: none; }
 .icon-wrap { overflow: hidden; border-radius: var(--radius) var(--radius) 0 0; }
 .content-strip { overflow: hidden; border-radius: 12px; }
 .content-tile { min-height: 0; }

@@ -273,7 +273,7 @@ settings offer them:
 
 | Mode | What it reads |
 |---|---|
-| **Premium & DTH catalogue** (default) | a catalogue of **real DTH, cable and premium operators**, per country, shipped with the app in `addon/dth.mjs` — Sky, DIRECTV, DISH, Xfinity, Tata Play, Airtel Digital TV, d2h, Sun Direct, DStv, GOtv, StarTimes, Astro, Unifi, Cignal, Sky Cable, Foxtel, Sky NZ, beIN, OSN, Canal+, Polsat Box, Digiturk and the rest. **No public free-TV directory and no iptv-org** — a premium profile opening on free public streams is the wrong app. Pick the providers you subscribe to and Live TV draws their **lineup and their guide**: a provider's XMLTV feed declares its own channels (`<channel>`) as well as its schedule (`<programme>`), so one read answers both. Providers with a public feed — Foxtel, Freeview Australia, Sky New Zealand — bring the schedule with them; the others are scheduled from your own EPG URL. |
+| **Premium & DTH catalogue** (default) | a catalogue of **real DTH, cable and premium operators**, per country, shipped with the app in `addon/dth.mjs`: **281 providers across 107 countries** — Sky, DIRECTV, DISH, Xfinity, Tata Play, Airtel Digital TV, d2h, Sun Direct, DStv, GOtv, StarTimes, Astro, Unifi, Cignal, Sky Cable, Foxtel, Sky NZ, beIN, OSN, Canal+, Polsat Box, Digiturk, HOT, yes, now TV, Hikari TV, KT SkyLife, Magti, ZAP, my.t and the rest. **No public free-TV directory and no iptv-org** — a premium profile opening on free public streams is the wrong app. Pick the providers you subscribe to and Live TV draws their **lineup and their guide**: a provider's XMLTV feed declares its own channels (`<channel>`) as well as its schedule (`<programme>`), so one read answers both. **It is a curated starting set, not every operator that exists** — no such list does. Adding one is a single line in `addon/dth.mjs`. Providers with a public feed — Foxtel, Freeview Australia, Sky New Zealand — bring the schedule with them; every other provider's schedule comes from your own EPG URL, because `epg` is filled in only where a public XMLTV feed genuinely exists (an invented URL fails on the first read and looks like a broken app). |
 | **M3U playlist** | your own `.m3u`/`.m3u8` URL, or a path on the server — what your set-top box or operator app exports. Parsed properly: attributes are optional, the name is the last comma-separated part, the trailing quality marker is dropped, and `group-title` is treated as the `;`-separated category list it is. |
 | **Xtream Codes** | host + username + password; the live streams and their categories come from the panel, and the stream URL is composed per channel. |
 
@@ -787,7 +787,18 @@ The UI is Nuvio-shaped:
 - **Start-up** — the app opens on the **switch-profile screen** (`#/profiles`) with
   the two profiles as tiles: **Movies & Shows** and **Live TV & Sports**. Picking one
   enters Home; the **profile icon** in the top bar reopens the screen at any time
-  (the picker itself has no *Manage profiles* button).
+  (the picker itself has no *Manage profiles* button). Each profile has an
+  **avatar** — a drawn mark, not a letter: a **clapperboard** for Movies & Shows, a
+  **screen taking a signal** for Live TV & Sports, and a person for anything else, so
+  a profile added later still gets one. The avatar is SVG in the SVG namespace
+  (`svgNode`), sized as a share of the accent disc, so the same mark works at 84px on
+  the picker and 46px in Settings.
+- **Settings → Profile has an Edit button.** The profile in use is shown with its
+  avatar and name, and **Edit** sits on that row. Pressing it opens the editor — one
+  switch per **media row**, one per **card**, and one per **catalog row inside each
+  card** — and the button becomes **Done**. The editor used to be a bare toggle with a
+  paragraph under it, so "there is a profile editor at all" was something you had to
+  notice. Closed, nothing is hidden; the picks live per profile in `localStorage`.
 - **Top bar** — no app logo/label, **no Movies/Shows tabs** and **no counts line**.
   On the left, a **profile icon** (a person glyph — no name pill, no dropdown), the
   **calendar** button, then a **vertical divider**; on the right, a **search** button
@@ -801,6 +812,10 @@ The UI is Nuvio-shaped:
 - **A poster plate is never left empty** — a calendar plan stores only the fields
   the app draws and any picture can fail to load, so a card with no artwork draws the
   title's own **initials** instead of a dark rectangle.
+- **The grid has no holes.** `collectionGrid` puts a `v-divider` before the watchlist
+  card: in the **rows** layout that is a 1px rule between two cards, but in the
+  **grid** layout it became a grid item and stretched into a card-shaped hole — the
+  "one card gap". It is drawn in rows and left out of the grid.
 - **Live TV & Sports** — the second profile is a **different app**, and its Home is
   **two cards**. The first is the **Guide** (a preview of what is on now, opening the
   full grid); the second is **Categories** (the playlist's own categories with their
@@ -835,17 +850,30 @@ The UI is Nuvio-shaped:
   so the Electron window and the APK work offline — decodes it. Browsers that play
   HLS natively (Safari, Android TV) use their own player. Escape or **Close**
   returns to the page you came from.
+- **Live TV Home is the switch, then two cards, and nothing else.** The **Live TV /
+  Sports** buttons come **first**, and the **Guide** and **Channels** cards sit
+  **under them** — the same reading as the Movies home, where the Movies/Shows buttons
+  are above the cards. (They were the other way round, so the cards floated over the
+  tabs that decide what they show.) The **wall of one channel row per category is
+gone**: the profile used to fetch the lineup and then a second request per category to
+  draw twelve rows nobody asked for, which is also why the first screen was slow. The
+  second card is **Channels** — the channels themselves with the count — not a
+  *Categories* card that listed category names you had not seen yet. The **Sports**
+  tab is the same two cards over the lineup filtered to sport (by channel name and
+  group), and it falls back to the whole list rather than showing an empty screen.
 - **Home** — a **hero** panel, then **Movies** and **Shows** buttons below it.
   Movies is the default; picking Shows swaps both the cards *and* the hero banner.
-  The banner carries no counters — just its **Explore** action.
-  The banner reads **left to right: text, then picture**. The titles, their catalog
-  chips, the cards beside it and **Explore** sit on the **left**, and the artwork
-  holds the **right-hand slot** — it was moved to the left by mistake and is back.
-  The frame is a **button**: the landscape shot is the way into the title on it
-  (falling back to the collection before the shot arrives).
-  Under the chips is a second line, **the cards beside the one on the banner** — each
-  one's label and one of its own rows — and that line **refreshes on the banner's own
-  clock**, so the left side moves with the picture instead of standing still.
+  The banner carries no counters and **no Explore button** — it is a billboard, and
+  the frame *is* the way in: clicking the artwork opens the title on it.
+  The banner reads **left to right: text, then picture**. The wording and the
+  **card's own catalog tags** sit on the **left**, and the artwork holds the
+  **right-hand slot** — it was moved to the left by mistake and is back. The frame is
+  a **button**: the landscape shot is the way into the title on it (falling back to
+  the collection before the shot arrives).
+  The banner is **its card**, and it says so: **Spotlight** above, then the **card's
+  title** where the film's name used to be, then only that card's own tags. There is
+  **no Explore button** and **no other cards' labels** on it, and the picture's
+  rotation never overwrites the title with the name of whatever film is on screen.
   The frame wears **no generated vector scene at any point**: while the backdrop is on
   its way you see the app's own flat panel, never the collection's cover.
   A tile is opened by clicking its **artwork**, not the whole tile.
@@ -914,8 +942,10 @@ belong to.
   titles come back as two lists, **Movies** then **Shows**, never one mixed grid:
   the row type is the first thing you want to know about a result. A query reads
   **six pages of TMDB per row type** (20 results a page) to fill the first window,
-  and **Load more results** reads the next window — **there is no ceiling**, it keeps
-  going until TMDB has nothing left. It used to keep only its first page, which is why
+  and **Load more results** reads the next window — **there is no ceiling**: the
+  120-title cap per row type is gone, so the count under each group is the real number
+  of results and it keeps growing for as long as the row does. It used to keep only
+  its first page, which is why
   "disney+" looked like it had barely twenty results. Typing shows **suggestions**,
   and this is what the Ask box feeds.
 

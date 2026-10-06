@@ -95,10 +95,20 @@ Add-ons, Plugins, Tracking and AI do not apply to a live playlist and are not
 offered there; switching back restores them. The playlist URL and the Xtream
 password are kept server-side — the page is told only that they are set.
 
-**Live TV Home is two cards, not two banners.** The **Guide** and the **Categories**
-cards wear the same box a Movies card does — a 16:9 frame holding the first few rows
-of what is inside, with the name and a line under it — and they sit side by side in
-the home grid, the way Genres and Decades do. **A channel plays in the app**: its page
+**Live TV Home is the switch, then two cards, and nothing else.** The **Live TV /
+Sports** buttons come **first** and the two cards sit **under them** — the same reading
+as the Movies home. The cards wear the same box a Movies card does: a 16:9 frame
+holding the first few rows of what is inside, with the name and a line under it. They
+are the **Guide** and the **Channels** — the channels themselves with their count, not
+a *Categories* card that listed category names you had not seen yet.
+
+**The wall of one channel row per category is gone.** The profile used to fetch the
+lineup and then a second request per category to draw a channel row for each — a dozen
+calls to paint rows nobody asked for, and a long list under the cards. The lineup is
+read **once** now, and the categories come from the server's own group list, which is
+what the Channels screen draws its tiles from. The **Sports** tab is the same two cards
+over the lineup filtered to sport (by channel name and group), falling back to the
+whole list rather than showing an empty screen. **A channel plays in the app**: its page
 carries **Play** as well as *Copy link*, and HLS is decoded by `hls.js` **vendored at
 `ui/vendor/hls.min.js`**, so the Electron window and the APK play with no CDN
 (Safari and Android TV use their own player). Escape or **Close** leaves it.
@@ -140,9 +150,13 @@ lifts and the row highlight).
 one enters Home. At any time the **profile icon** in the top-left reopens that
 screen; the picker carries no *Manage profiles* button.
 
-**Settings → Profile** shows **only the profile you are on** (its initial and name,
-marked *Current profile*) — it lists no other profile and offers no switch. Switching
-happens on the switch-profile screen, which the top-bar icon opens.
+**Settings → Profile** shows **only the profile you are on** — its **avatar**, its
+name, and an **Edit** button — and it lists no other profile and offers no switch.
+Switching happens on the switch-profile screen, which the top-bar icon opens. The
+avatar is a **drawn mark**: a clapperboard for Movies & Shows, a screen taking a signal
+for Live TV & Sports, a person for anything else (SVG in the SVG namespace, so it
+paints). **Edit** opens the profile editor — one switch per media row, per card, and
+per catalog row inside each card — and becomes **Done**; closed, nothing is hidden.
 
 **One surface language, on every screen.** Nothing is drawn with a hairline: cards,
 tiles, the banner, panels, fields, buttons and the rail are single flat fills that
@@ -179,16 +193,18 @@ the title's own **initials** instead of a dark rectangle.
 default; picking Shows swaps both the cards *and* the hero banner to that row. The
 banner shows no counters — only its **Explore** action.
 
-The banner reads **left to right: text, then picture**. The titles, their catalog
-chips and **Explore** sit on the **left**, the artwork frame holds the **right-hand
+The banner reads **left to right: text, then picture**. The wording and the card's
+own catalog chips sit on the **left**, the artwork frame holds the **right-hand
 slot** (it was moved to the left by mistake and is back), and the frame is a
 **button**: the landscape shot is the way into the title on it (falling back to the
-collection before the shot arrives). Under the chips is a second line — **the cards
-beside the one on the banner**, each one's label and one of its own rows — and that
-line **refreshes on the banner's own ten-second clock**, so the left side moves with
-the picture rather than standing still. The frame also wears **no generated vector
-scene at any point**: while the backdrop is on its way you see the app's own flat
-panel.
+collection before the shot arrives).
+
+The banner **is its card and says so**: **Spotlight**, then the **card's title** where
+the film's name used to be, then only that card's own tags. There is **no Explore
+button** and **no other cards' labels** on it, and the ten-second picture rotation
+never overwrites the title with whatever film is on screen. The frame also wears **no
+generated vector scene at any point**: while the backdrop is on its way you see the
+app's own flat panel.
 
 A **boot screen** covers the app until the first screen is drawn, then fades out — it is
 a real element, so what appears behind it is a finished page and not an empty shell.

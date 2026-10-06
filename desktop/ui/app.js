@@ -62,8 +62,8 @@ const PROFILES = ["Movies & Shows", LIVE_PROFILE];
 
 // How much of a playlist Live TV & Sports draws: rows for a playlist's biggest
 // categories, a cap on the channels inside one row, and the guide's own window.
-const LIVE_MAX_ROWS = 10;
-const LIVE_ROW_CHANNELS = 80;
+/** How many channels one read of the channel list asks for. */
+const LIVE_CHANNEL_LIMIT = 1500;
 const LIVE_GUIDE_CHANNELS = 40;
 const LIVE_GUIDE_HOURS = 6;
 
@@ -987,6 +987,43 @@ function chooseProfile(name) {
 }
 
 /**
+ * A profile's avatar — a drawn mark, not a letter.
+ *
+ * The two profiles are not people, they are **ways of watching**, so each gets the
+ * mark that says which: a clapperboard for Movies & Shows, a screen taking a signal
+ * for Live TV & Sports. Anything else falls back to a person, so a profile added
+ * later still has one. Drawn with `svgNode`, in the SVG namespace — `el("svg", …)`
+ * makes an HTML element that merely has the name, whose paths never paint.
+ */
+function avatarNode(name) {
+  if (name === LIVE_PROFILE) {
+    return svgNode(
+      "svg",
+      { class: "avatar-mark", viewBox: "0 0 48 48", "aria-hidden": "true" },
+      svgNode("rect", { x: "8", y: "16", width: "32", height: "21", rx: "3.5" }),
+      svgNode("path", { d: "M19 41l-3 4M29 41l3 4" }),
+      svgNode("path", { d: "M24 5v5" }),
+      svgNode("path", { d: "M18 10a8.5 8.5 0 0 1 12 0" }),
+    );
+  }
+  if (name === PROFILES[0]) {
+    return svgNode(
+      "svg",
+      { class: "avatar-mark", viewBox: "0 0 48 48", "aria-hidden": "true" },
+      svgNode("rect", { x: "9", y: "20", width: "30", height: "19", rx: "3" }),
+      svgNode("path", { d: "M7 16h34l-2.5-6.5H9.5z" }),
+      svgNode("path", { d: "M16 9.5l4.5 6.5M26 9.5l4.5 6.5" }),
+    );
+  }
+  return svgNode(
+    "svg",
+    { class: "avatar-mark", viewBox: "0 0 48 48", "aria-hidden": "true" },
+    svgNode("circle", { cx: "24", cy: "17", r: "7.5" }),
+    svgNode("path", { d: "M10 40c0-7.5 6.3-12 14-12s14 4.5 14 12" }),
+  );
+}
+
+/**
  * The switch-profile screen — the first thing the app shows, as Nuvio does.
  * Pick a profile to enter the app; `#/profiles` reopens it from the top bar.
  */
@@ -1010,7 +1047,7 @@ function renderProfiles() {
               "aria-current": name === state.profile ? "true" : false,
               onclick: () => chooseProfile(name),
             },
-            el("span", { class: "avatar", "aria-hidden": "true", text: (name[0] || "P").toUpperCase() }),
+            el("span", { class: "avatar", "aria-hidden": "true" }, avatarNode(name)),
             el("span", { class: "profile-tile-name", text: name }),
             el("span", { class: "profile-tile-sub", text: name === state.profile ? "current profile" : "switch to this profile" }),
           ),
@@ -1242,12 +1279,10 @@ function drawHeroTile(node) {
   // A freshly built banner is not in the document yet, so the caller's node wins
   // when it passes one; the ten-second redraw passes none and uses the page.
   const scope = node || document;
-  // The **left-hand labels refresh with the picture**. What sits there is not only
-  // the card the banner is on: it is the cards *beside* it — each one's label and
-  // one of its own rows — and the window moves every time the banner moves, so the
-  // column is not the same six words for the whole session.
-  const tags = scope.querySelector(".hero-tags") || document.querySelector(".hero-tags");
-  if (tags && heroFeatured) tags.replaceChildren(...heroOtherChips(heroFeatured, heroAt));
+  // The banner shows **its card**: the card's own title, its own tags, and one of
+  // its own pictures. So the title is not touched here — `heroBlock` sets it and
+  // nothing overwrites it with the name of whatever film happens to be on screen,
+  // which is what turned the banner into a title poster with the card's name lost.
   const shot = scope.querySelector(".hero-art .content-strip") || document.querySelector(".hero-art .content-strip");
   if (!shot || !heroList.length) return;
   const m = heroList[heroAt % heroList.length];
@@ -1257,45 +1292,6 @@ function drawHeroTile(node) {
   shot.classList.add("filled");
   const frame = shot.closest(".hero-art");
   if (frame) frame.classList.add("art-filled");
-  // The name on the banner is the name of the picture on it.
-  const title = scope.querySelector(".hero-title") || document.querySelector(".hero-title");
-  if (title && m.name) title.textContent = m.name;
-}
-
-/**
- * The cards beside the one on the banner, as chips: a card's label, then the first
- * row inside it.
- *
- * This is the banner's left-hand column. It moves with the banner's own clock (the
- * window starts at the title that is on screen), so the labels and their tags
- * refresh every ten seconds along with the picture, and each chip is a way into
- * that row — the same reading as a collection's own tag line.
- */
-function heroOtherChips(featured, at) {
-  const others = state.collections.filter(
-    (c) => cardVisible(c) && c.key !== featured.key && rowOf(c).catalogs.length,
-  );
-  if (!others.length) return [];
-  const out = [];
-  for (let i = 0; i < Math.min(others.length, 6); i += 1) {
-    const card = others[(at + i) % others.length];
-    const cat = orderedCatalogs(card).filter(catalogVisible)[0];
-    out.push(
-      el(
-        "button",
-        {
-          class: "chip chip-card focusable",
-          type: "button",
-          "data-card": card.key,
-          title: cat ? `Open ${cat.name} in ${card.title}` : `Open ${card.title}`,
-          onclick: () => (cat ? openRow(card.key, cat.id) : go(`#/c/${encodeURIComponent(card.key)}`)),
-        },
-        el("span", { class: "chip-card-name", text: card.title }),
-        cat ? el("span", { class: "chip-card-tag", text: cat.name }) : null,
-      ),
-    );
-  }
-  return out;
 }
 
 /**
@@ -1399,30 +1395,17 @@ function heroBlock() {
   // panel — never the star-and-constellation cover underneath it.
   const node = el(
     "section",
-    { class: "hero" },
-    el(
-      "div",
-      { class: "hero-body" },
-      el("p", { class: "hero-kicker", text: "Spotlight" }),
-      el("h2", { class: "hero-title", text: featured.title }),
-      // Every catalog label is a link into that catalog — clamped to two rows,
-      // because a big card carries eighty of them.
-      chipLine(row.catalogs.map((cat) => catalogChip(featured, cat)), { className: "hero-cats" }),
-      // The cards *beside* the one on the banner, each with one of its own rows.
-      // This is the line that refreshes with the picture.
-      el("div", { class: "hero-tags" }, ...heroOtherChips(featured, heroAt)),
-      // Just the action — no "N catalogs · movies" counters on the banner.
-      el(
-        "div",
-        { class: "hero-actions" },
-        el("button", {
-          class: "btn primary focusable",
-          type: "button",
-          text: "Explore",
-          onclick: () => go(`#/c/${encodeURIComponent(featured.key)}`),
-        }),
+    { class: "hero" },      el("div",
+        { class: "hero-body" },
+        el("p", { class: "hero-kicker", text: "Spotlight" }),
+        // **The card's own title**, not the name of the film that happens to be on
+        // the picture, and not a mix of every other card's labels.
+        el("h2", { class: "hero-title", text: featured.title }),
+        // Just this card's catalog labels, each one a link into that catalog —
+        // clamped to two rows, because a big card carries eighty of them. Nothing
+        // else goes on the banner: no Explore button, no other cards' tags.
+        chipLine(row.catalogs.map((cat) => catalogChip(featured, cat)), { className: "hero-cats" }),
       ),
-    ),
     el(
       "button",
       {
@@ -2928,27 +2911,45 @@ function visRow(checked, level, id, title, desc, depth = 0) {
 function paneProfile() {
   // Only the profile in use — switching happens on the switch-profile screen.
   const v = visFor();
+  const editing = state.pickCards === true;
+  // **Edit** is the way in. The editor used to be a bare toggle sitting in the pane
+  // with a paragraph of explanation, so "there is a profile editor at all" was
+  // something you had to notice; an Edit button on the profile itself is where you
+  // look for it — and it reads as edit-then-done, which is what it is.
+  const setEditing = (on) => {
+    state.pickCards = on;
+    writeJSON(KEY.pickCards, on);
+    render();
+  };
   return [
     el(
       "div",
       { class: "current-profile" },
-      el("span", { class: "avatar", "aria-hidden": "true", text: (state.profile[0] || "M").toUpperCase() }),
+      el("span", { class: "avatar", "aria-hidden": "true" }, avatarNode(state.profile)),
       el(
         "div",
         { class: "current-profile-body" },
         el("span", { class: "current-profile-name", text: state.profile }),
-        el("span", { class: "current-profile-note", text: "Current profile" }),
+        el("span", { class: "current-profile-note", text: editing ? "Editing this profile" : "Current profile" }),
       ),
+      el("button", {
+        class: `btn focusable${editing ? " subtle" : " primary"}`,
+        type: "button",
+        id: "profile-edit",
+        text: editing ? "Done" : "Edit",
+        "aria-pressed": String(editing),
+        title: editing ? "Close the profile editor" : "Pick the rows, cards and catalogs this profile shows",
+        onclick: () => setEditing(!editing),
+      }),
     ),
-    el("p", { class: "option-desc", text: "This is the profile the app is using. Open the profile icon in the top bar to switch. Each profile keeps its own picks below." }),
-
-    toggleRow(state.pickCards === true, "Pick the rows, cards and catalogs for this profile", "When this is on, only what you switch on below is shown on Home for this profile. Off means everything shows — nothing disappears unless you ask it to.", (e) => {
-      state.pickCards = e.target.checked;
-      writeJSON(KEY.pickCards, state.pickCards);
-      render();
+    el("p", {
+      class: "option-desc",
+      text: editing
+        ? "Switch off anything this profile should not show, then press Done. Off by default: with the editor closed, everything shows and nothing is hidden."
+        : "This is the profile the app is using. Open the profile icon in the top bar to switch; press Edit to choose which rows, cards and catalogs this profile shows.",
     }),
 
-    state.pickCards ? el("div", { class: "vis-editor" },
+    editing ? el("div", { class: "vis-editor" },
       el("section", { class: "vis-section" },
         el("div", { class: "group-head" },
           el("span", { class: "option-title", text: "Media rows" }),
@@ -3934,25 +3935,21 @@ async function loadLive({ force = false } = {}) {
   state.live = { ...state.live, loading: true };
   render();
   try {
-    const first = await liveFetch({}, force);
-    const groups = (first.groups || []).map((g) => g.name).filter((name) => name && name !== "General");
-    const wanted = groups.slice(0, LIVE_MAX_ROWS);
-    const rows = await Promise.all(
-      wanted.map(async (name) => {
-        const res = await liveFetch({ group: name, limit: String(LIVE_ROW_CHANNELS) }, force).catch(() => ({ channels: [] }));
-        return [name, res.channels || []];
-      }),
-    );
+    // **One read, not one per group.** Live TV used to fetch the lineup and then a
+    // second request per category to draw a channel row for each one — a dozen calls
+    // to paint rows nobody asked for. The profile is two cards and the channels are
+    // inside them, so the lineup is read once and the categories come from the
+    // server's own group list.
+    const first = await liveFetch({ limit: String(LIVE_CHANNEL_LIMIT) }, force);
     state.live = {
       loading: false,
       loaded: true,
       all: first.channels || [],
       total: first.total || 0,
-      groups,
-      // The server's own group list — name *and* channel count. `groups` above is
-      // just the names in row order; the Categories screen needs the counts too.
+      groups: (first.groups || []).map((g) => g.name).filter((name) => name && name !== "General"),
+      // The server's own group list — name *and* channel count — which is what the
+      // Channels screen draws its tiles from.
       groupList: first.groups || [],
-      rows: rows.filter(([, list]) => list.length),
       updated: first.updated || 0,
       error: first.error || "",
       guide: state.live.guide,
@@ -3965,14 +3962,19 @@ async function loadLive({ force = false } = {}) {
   render();
 }
 
-const liveRowsShown = () =>
-  liveRowKey() === "sports" ? state.live.rows.filter(([name]) => /sport/i.test(name)) : state.live.rows;
-
-/** Every channel currently on screen, for the Guide and for lookups. */
+/**
+ * Every channel currently on screen, for the Guide, the cards and lookups.
+ *
+ * The **Sports** tab is the Live TV lineup filtered to sport — by the channel's own
+ * name and its groups — rather than a second list built from category rows. A
+ * lineup with nothing sport-shaped in it falls back to the whole list, so the tab
+ * is never an empty screen on a playlist that simply does not carry any.
+ */
 function liveChannelsShown() {
-  const rows = liveRowsShown();
-  if (rows.length) return rows.flatMap(([, list]) => list);
-  return state.live.all || [];
+  const all = state.live.all || [];
+  if (liveRowKey() !== "sports") return all;
+  const sport = all.filter((c) => /sport/i.test(`${c.name || ""} ${(c.groups || []).join(" ")}`));
+  return sport.length ? sport : all;
 }
 
 const findChannel = (id) => liveChannelsShown().find((c) => c.id === id) || (state.live.all || []).find((c) => c.id === id) || null;
@@ -4212,53 +4214,64 @@ function guideCard() {
  * each one holds, and a way into the full list. It reads the same channel list the
  * Guide does, so the country setting moves both cards together.
  */
-function categoriesCard() {
-  const groups = state.live.groupList || [];
-  const total = state.live.total || state.live.all.length || 0;
-  const rows = groups.slice(0, 4).map((group) =>
+/**
+ * The Channels card — the profile's second card.
+ *
+ * It was a **Categories** card that listed category names and nothing else, which
+ * is a table of contents for a list you have not seen. This one is the channels
+ * themselves: the first few in the lineup, and the count, with the frame opening the
+ * full list. No category rows sit under it either — the wall of one row per category
+ * is gone, so the profile is the switch, two cards, and the screens they open.
+ */
+function channelsCard() {
+  const channels = liveChannelsShown();
+  const rows = channels.slice(0, 4).map((channel) =>
     el(
       "div",
       { class: "guide-mini-row" },
-      el("span", { class: "guide-mini-name", text: group.name }),
-      el("span", { class: "guide-mini-block", text: `${group.count} channels` }),
+      el("span", { class: "guide-mini-name", text: channel.name }),
+      el("span", { class: "guide-mini-block", text: channel.groups?.[0] || "—" }),
     ),
   );
   if (!rows.length) {
-    rows.push(el("div", { class: "guide-mini-row" }, el("span", { class: "guide-mini-name", text: "Categories" }), el("span", { class: "guide-mini-block bare", text: "—" })));
+    rows.push(
+      el("div", { class: "guide-mini-row" },
+        el("span", { class: "guide-mini-name", text: "Channels" }),
+        el("span", { class: "guide-mini-block bare", text: state.live.loading ? "reading…" : "—" })),
+    );
   }
   return liveCard({
-    id: "open-categories",
-    title: "Categories",
-    sub: groups.length ? `${groups.length} categories · ${total} channels` : "Reading the channel list…",
+    id: "open-channels",
+    title: liveRowKey() === "sports" ? "Sports channels" : "Channels",
+    sub: channels.length
+      ? `${channels.length} channels${state.live.groups.length ? ` · ${state.live.groups.length} groups` : ""}`
+      : "Reading the channel list…",
     rows,
     action: () => go("#/categories"),
   });
 }
 
 /**
- * Live TV & Sports Home: the **Guide** and the **Categories** cards, then a row per
- * group.
+ * Live TV & Sports Home.
  *
- * The two cards sit side by side in the home grid — two cards, the way Genres and
- * Decades are two cards on the Movies home — rather than two full-width banners.
+ * **The Live TV / Sports switch comes first**, and the **two cards sit under it** —
+ * the same reading as the Movies home, where the Movies/Shows buttons are above the
+ * cards. (They were the other way round, so the cards floated over the tabs that
+ * decide what they show.) Under the cards there is **nothing**: the wall of one
+ * channel row per category is gone.
  */
 function renderLiveHome() {
   if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
   const nodes = [
-    el("div", { class: "icons grid live-cards" }, guideCard(), categoriesCard()),
     liveRowSwitch(),
+    el("div", { class: "icons grid live-cards" }, guideCard(), channelsCard()),
   ];
   if (state.live.loading && !state.live.loaded) {
     nodes.push(el("p", { class: "empty", text: "Reading the channel list…" }));
-  } else if (state.live.error && !state.live.rows.length) {
+  } else if (state.live.error && !state.live.all.length) {
     nodes.push(el("p", { class: "empty", text: `The channel source could not be read — ${state.live.error}` }));
-  } else {
-    const rows = liveRowsShown();
-    if (!rows.length) {
-      nodes.push(el("p", { class: "empty", text: "No Sports channels in this playlist — Live TV has the full list." }));
-    }
-    for (const [name, channels] of rows) nodes.push(channelRow(name, channels));
-    if (state.live.error) nodes.push(el("p", { class: "view-hint", text: `Last read failed (${state.live.error}) — showing the channels from the last good read.` }));
+  } else if (state.live.error) {
+    nodes.push(el("p", { class: "view-hint", text: `Last read failed (${state.live.error}) — showing the lineup from the last good read.` }));
   }
   return nodes;
 }
@@ -4274,11 +4287,11 @@ function renderLiveCategories() {
   if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
   const groups = state.live.groupList || [];
   return [
-    el("h1", { class: "view-title", text: "Categories" }),
+    el("h1", { class: "view-title", text: "Channels" }),
     el("p", {
       class: "view-hint",
       text: groups.length
-        ? `${groups.length} categories, ${state.live.total || state.live.all.length} channels — pick one to see its channels.`
+        ? `${liveChannelsShown().length} channels in ${groups.length} groups — pick a group to see its channels.`
         : "Reading the channel list…",
     }),
     el(
@@ -4420,7 +4433,7 @@ function renderLiveSearch() {
   const suggestions = el("div", { class: "search-suggest", id: "search-suggest", hidden: true });
   const results = el("div", { class: "channel-strip search-channels", id: "live-results" });
 
-  const pool = () => state.live.all.concat(state.live.rows.flatMap(([, list]) => list));
+  const pool = () => state.live.all;
   const matches = (needle) => {
     const text = needle.trim().toLowerCase();
     if (!text) return [];

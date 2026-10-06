@@ -68,16 +68,19 @@ export { CATALOG_ID_PREFIX };
 const PAGE_SIZE = 40;
 
 /**
- * How deep a search goes.
+ * How much one search window reads.
  *
- * Search and browse used to keep **twelve titles per row type** — a cap that made
- * "search Disney+ and you get 21 titles" look like the search was asleep. Then it
- * was sixty, which a filtered browse ran out of. TMDB answers twenty results per
- * page, so six pages per row type are read and up to this many are kept, which is
- * what the results grid then draws.
+ * Search and browse used to keep **twelve titles per row type**, then sixty, then
+ * 120 — every one of those was a *cap*, and a cap is the bug: the server had already
+ * fetched the titles and then threw them away, so a search offered exactly 120 of
+ * something that had thousands. **Nothing is capped now.** A window is `SEARCH_PAGES`
+ * TMDB pages per row type (TMDB answers twenty a page), and `Load more` reads the
+ * next window and keeps going until TMDB has nothing left to ask for — so the count
+ * under each group is the real number of results, and it grows as far as the row
+ * does. The only limit left is TMDB's own (page 500 per query), which is not ours to
+ * move.
  */
 const SEARCH_PAGES = 6;
-const SEARCH_LIMIT = 120;
 
 /**
  * Read up to `pages` pages of one TMDB list, stopping early at the last page.
@@ -350,7 +353,6 @@ async function searchTitles(query, f, { adult = false, start = 0 } = {}) {
       return {
         metas: sortItems(items, type, f.sort)
           .filter((it) => (seen.has(it.id) ? false : seen.add(it.id)))
-          .slice(0, SEARCH_LIMIT)
           .map((it) => toMeta(it, type))
           .filter(Boolean),
         next,
@@ -431,7 +433,6 @@ async function browseTitles(f, { adult = false, start = 0 } = {}) {
       return {
         metas: items
           .filter((it) => (seen.has(it.id) ? false : seen.add(it.id)))
-          .slice(0, SEARCH_LIMIT)
           .map((it) => toMeta(it, type))
           .filter(Boolean),
         next,
