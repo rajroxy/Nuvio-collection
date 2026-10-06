@@ -101,7 +101,7 @@ const { handleAddon, buildManifest, catalogMetas } = await import("./index.mjs")
 // request does: through `catalogDefs()` for the country currently configured.
 const { catalogDefs } = await import("./catalogs.mjs");
 const CATALOG_DEFS = catalogDefs();
-const { COUNTRIES, PLATFORMS, GLOBAL_OTT, COLLECTIONS, MOVIE_GENRES, SHOW_GENRES, collectionsFor, localServices, regionName, DEFAULT_COUNTRY, OTT_REGIONS } = await import("../scripts/collections.mjs");
+const { COUNTRIES, PLATFORMS, GLOBAL_OTT, COLLECTIONS, MOVIE_GENRES, SHOW_GENRES, collectionsFor, localServices, regionName, DEFAULT_COUNTRY, OTT_REGIONS, REGIONAL_SERVICES } = await import("../scripts/collections.mjs");
 
 function fakeRes() {
   return {
@@ -249,7 +249,7 @@ check(
   ),
 );
 check(
-  "and they are in the three Regional OTT cards for every country",
+  "and they are in every region's row list",
   ["Crunchyroll", "Viki"].every((label) =>
     OTT_REGIONS.every(([, code]) => localServices(code, "movie").some((s) => s.name === label)),
   ),
@@ -302,42 +302,39 @@ check(
     );
   })(),
 );
-// The three regional cards are scoped to the country in Settings, so they name
-// **that** country's services — and no other country's.
-const serviceNames = (code, type) => localServices(code, type).map((s) => s.name);
+// The three regional cards publish the regional OTT data itself — every region's
+// verified services, each row scoped to a region where it resolves — so they are no
+// longer one country's five rows, and the country setting must not move them.
 const namesInOf = (manifestOf, key, type = "movie") =>
   manifestOf.catalogs.filter((c) => c.id.startsWith(`nuvio-${key}--`) && c.type === type).map((c) => c.name);
+const regionalNames = (manifestOf) => namesInOf(manifestOf, "regional-ott");
+const cardRowCount = (key, type) => manifest.catalogs.filter((c) => c.id.startsWith(`nuvio-${key}--`) && c.type === type).length;
 check(
-  "regional OTT carries the configured country's real service names",
-  namesIn("regional-ott").length > 0 && namesIn("regional-ott").every((n) => serviceNames(DEFAULT_COUNTRY, "movie").includes(n)),
-  namesIn("regional-ott").join(", ") || "none",
+  "regional OTT carries every region's verified services, not one country's five",
+  cardRowCount("regional-ott", "movie") === REGIONAL_SERVICES("movie").length &&
+    cardRowCount("regional-ott", "series") === REGIONAL_SERVICES("tv").length &&
+    ["Hulu", "JioHotstar", "Stan", "BBC iPlayer", "Canal+"].every((n) => regionalNames(manifest).includes(n)),
+  `${cardRowCount("regional-ott", "movie")} rows: ${regionalNames(manifest).slice(0, 6).join(", ")}, …`,
 );
-
-// Moving the country setting has to move the rows themselves, not just redraw a
-// label: this is what makes the three regional cards follow where you are.
+check(
+  "each regional row id carries the region its service was verified in",
+  manifest.catalogs.some((c) => c.id === "nuvio-regional-ott--jiohotstar-in") &&
+    manifest.catalogs.some((c) => c.id === "nuvio-regional-ott--hulu-us") &&
+    new Set(manifest.catalogs.map((c) => `${c.type}:${c.id}`)).size === manifest.catalogs.length,
+  manifest.catalogs.filter((c) => c.id.startsWith("nuvio-regional-ott--")).slice(0, 3).map((c) => c.id).join(", "),
+);
+// The country setting still scopes the rows that have no region of their own
+// (`activeRegion()` in addon/catalogs.mjs) — it must simply not move these.
 const defaultRowCount = manifest.catalogs.length;
 await postTo("/settings", { country: "IN" });
 const inManifest = buildManifest("http://localhost:4173");
 check(
-  "moving the country setting swaps the regional OTT services",
-  namesInOf(inManifest, "regional-ott").includes("JioHotstar") &&
-    namesInOf(inManifest, "regional-ott").every((n) => serviceNames("IN", "movie").includes(n)),
-  namesInOf(inManifest, "regional-ott").join(", ") || "none",
-);
-check(
-  "the regional row ids carry the new country, so two countries never collide",
-  inManifest.catalogs.some((c) => c.id === "nuvio-regional-ott--jiohotstar-in") &&
-    inManifest.catalogs.length === defaultRowCount,
-  inManifest.catalogs.filter((c) => c.id.startsWith("nuvio-regional-ott--")).map((c) => c.id).join(", "),
+  "moving the country setting leaves the regional OTT rows alone",
+  inManifest.catalogs.length === defaultRowCount &&
+    regionalNames(inManifest).join(", ") === regionalNames(manifest).join(", "),
+  `${regionalNames(inManifest).length} rows, unchanged`,
 );
 await postTo("/settings", { country: "US" });
-const backManifest = buildManifest("http://localhost:4173");
-check(
-  "and switching back restores the original rows",
-  namesInOf(backManifest, "regional-ott").every((n) => serviceNames(DEFAULT_COUNTRY, "movie").includes(n)) &&
-    !backManifest.catalogs.some((c) => c.id.startsWith("nuvio-regional-ott") && c.id.endsWith("-in")),
-  namesInOf(backManifest, "regional-ott").join(", "),
-);
 
 // One setting covers both: the language rows are served in is the primary
 // subtitle language, so it has to reach the provider as a `language` parameter.

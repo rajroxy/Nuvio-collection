@@ -80,8 +80,9 @@ Routing mirrors Nuvio:
 read as if it moved the regional cards (it never did — rows are served in English
 and the server's `language` still rides on every catalog URL as `?lang=`), and the
 country one only ever named the regional OTT services. The country is still real
-server state and the cards still follow it (`POST /settings {"country":"NZ"}`), it
-is just not a switch in the app.
+server state (`POST /settings {"country":"NZ"}`), it is just not a switch in the app —
+and it no longer decides what the Regional OTT cards hold: those publish every region's
+services, each row carrying its own region.
 
 **Content source lives under Providers.** TMDB and TVDB are providers; which one
 supplies the titles inside a row belongs next to their keys, not in a second

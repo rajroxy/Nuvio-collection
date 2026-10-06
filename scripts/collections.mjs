@@ -174,6 +174,32 @@ export const OTT_REGIONS = Object.entries(VERIFIED.regions)
   .map(([name, entry]) => [name, String(entry.code || "").toUpperCase()])
   .sort((a, b) => a[0].localeCompare(b[0]));
 
+/**
+ * Every regional OTT service the facts hold — one entry per provider id, in name
+ * order, each carrying the region it was verified in.
+ *
+ * This is what the three Regional OTT cards publish: the regional OTT data itself
+ * (78 services), not one country's slice of it (five rows). Two regions listing the
+ * same service — Tubi TV is verified in more than one — is one row, scoped to a
+ * region where it really resolves, so the catalog it opens is a real one rather than
+ * an empty duplicate. Crunchyroll and Viki are not in the regional data (they are the
+ * two Asian-catalogue services), so they are appended region-less and
+ * `activeRegion()` scopes them per request.
+ */
+export const REGIONAL_SERVICES = (type) => {
+  const byId = new Map();
+  for (const entry of Object.values(VERIFIED.regions)) {
+    for (const svc of entry[type] || []) {
+      if (!byId.has(svc.id)) {
+        byId.set(svc.id, { id: svc.id, name: svc.name, region: String(entry.code || "").toUpperCase() });
+      }
+    }
+  }
+  const list = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const seen = new Set(list.map((s) => s.id));
+  return [...list, ...WORLDWIDE.filter((s) => !seen.has(s.id))];
+};
+
 /** The country the collection set is built for unless Settings picks another. */
 export const DEFAULT_COUNTRY = (process.env.NUVIO_REGION || "US").toUpperCase();
 
@@ -240,18 +266,21 @@ const globalOtt = {
  * now holds that country's services — up to `LOCAL_LIMIT` per row type — and each
  * row is scoped to that country's region.
  */
-function regionalOtt(kind, code) {
+function regionalOtt(kind) {
   const build = (type) => {
-    const services = localServices(code, type);
-    // Two services in one region could share a name; disambiguate so two rows can
-    // never collide on the same catalog id.
+    const services = REGIONAL_SERVICES(type);
+    // Two services could share a name; disambiguate so two rows can never collide on
+    // the same catalog id.
     const nameCount = new Map();
     for (const svc of services) nameCount.set(svc.name, (nameCount.get(svc.name) || 0) + 1);
     const label = (svc) => (nameCount.get(svc.name) > 1 ? `${svc.name} (${svc.id})` : svc.name);
     return services.map((svc) => {
-      if (kind === "top10") return provider(`${label(svc)} ◆ Top 10`, svc.id, code, TOP10);
-      if (kind === "popular") return provider(`Popular ${label(svc)}`, svc.id, code);
-      return provider(label(svc), svc.id, code);
+      // The row carries its own region: this is what makes one service row usable
+      // from the region it was verified in instead of one country's five.
+      const region = svc.region || null;
+      if (kind === "top10") return provider(`${label(svc)} ◆ Top 10`, svc.id, region, TOP10);
+      if (kind === "popular") return provider(`Popular ${label(svc)}`, svc.id, region);
+      return provider(label(svc), svc.id, region);
     });
   };
   return { movie: build("movie"), show: build("tv") };
@@ -322,7 +351,7 @@ const CARD_ORDER = [
  * Settings changes — a card names the catalogs inside it, and those names are
  * another country's services the moment the setting moves.
  */
-const buildCollections = (code) => {
+const buildCollections = () => {
   // The array is written card-group by card-group; `CARD_ORDER` sets the order
   // Home shows them in. The three Watchlist rows are the states a pinned title
   // moves through, served from the stored pins rather than from TMDB; the row
@@ -420,29 +449,31 @@ const buildCollections = (code) => {
     catalogs: both(globalOtt.all()),
   },
 
-  // Regional OTT — the region's own services: Top 10, Popular, then everything.
-  // The three regional cards follow your country, so their covers are title-only
-  // (drawing one country's service names would be wrong for every other country).
+  // Regional OTT — every region's own services: Top 10, Popular, then everything.
+  // The rows are the regional OTT data itself, one per service, each scoped to a
+  // region where it resolves, so the card is the same everywhere and does not shrink
+  // to one country's handful. Covers stay title-only: drawing service names would be
+  // wrong for every region the card now covers.
   {
     key: "regional-ott-top-10",
     lines: ["Regional OTT", "◆ Top 10"],
     scene: "regional-ott-top-10",
     titleOnly: true,
-    catalogs: regionalOtt("top10", code),
+    catalogs: regionalOtt("top10"),
   },
   {
     key: "regional-ott-popular",
     lines: ["Popular", "Regional OTT"],
     scene: "regional-ott",
     titleOnly: true,
-    catalogs: regionalOtt("popular", code),
+    catalogs: regionalOtt("popular"),
   },
   {
     key: "regional-ott",
     lines: ["Regional OTT"],
     scene: "regional-ott",
     titleOnly: true,
-    catalogs: regionalOtt("all", code),
+    catalogs: regionalOtt("all"),
   },
 
   {
@@ -510,14 +541,22 @@ const ordered = (cards) => {
   return sorted.map((c, i) => ({ ...c, divider: i === 1 }));
 };
 
-const buildCollectionsOrdered = (code) => ordered(buildCollections(code));
+const buildCollectionsOrdered = () => ordered(buildCollections());
 
-/** Default country's set — what the cover art is generated for. */
-export const COLLECTIONS = buildCollectionsOrdered(DEFAULT_COUNTRY);
+/** The card set, in the published order. */
+export const COLLECTIONS = buildCollectionsOrdered();
 
-/** The card set for one country ("US", "IN", …), in the published order. */
-export const collectionsFor = (code) =>
-  buildCollectionsOrdered(String(code || DEFAULT_COUNTRY).toUpperCase());
+/**
+ * The card set, in the published order.
+ *
+ * It no longer varies by country: the three Regional OTT cards publish the regional
+ * OTT data itself, each row carrying its own region, so there is one card set for
+ * every country. The country argument is still accepted — the addon uses it as its
+ * per-country defs cache key — and deliberately ignored; what a request still scopes
+ * by region are the rows with no region of their own, which `activeRegion()` resolves
+ * per request in `addon/catalogs.mjs`.
+ */
+export const collectionsFor = (_code) => buildCollectionsOrdered();
 
 export const title = (cat) => cat.lines.join(" ");
 
