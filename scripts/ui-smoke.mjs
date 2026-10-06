@@ -1606,22 +1606,26 @@ $$(".profile-tile")[1].click();
 // A cold public directory is one ~2.5-5 MB read on the server, so the first Live TV
 // screen can legitimately take half a minute to have channels; the budget is sized
 // for that rather than for a warm cache.
-const liveReady = await waitFor(() => $$(".channel-card").length > 0, { tries: 200, ms: 250 });
+const liveReady = await waitFor(
+  () => $$(".live-card .icon-sub").some((s) => /\d+\s+channels/.test(text(s))),
+  { tries: 200, ms: 250 },
+);
 check("the Live TV profile reads a real channel list",
   liveReady && requested.some((u) => u.includes("/live/channels.json")),
-  `${$$(".channel-card").length} channel cards`);
-check("its Home is the channels, not the Movies & Shows card grid",
-  $$(".icon-box").length === 0 && $$(".cat-row.live-row").length > 0,
-  `${$$(".icon-box").length} cards, ${$$(".cat-row.live-row").length} channel rows`);
+  $$(".live-card .icon-sub").map(text).join(" · ") || "no cards");
+check("its Home is two Live TV cards under the switch, not the Movies & Shows card grid",
+  $$(".icon-box.live-card").length === 2 && $$(".cat-row.live-row").length === 0 &&
+    $$(".live-card .icon-name").map(text).join(",") === "Guide,Channels",
+  `${$$(".live-card .icon-name").map(text).join(",")} · ${$$(".cat-row.live-row").length} channel rows`);
 check("one card of Live TV is the Guide",
-  text($(".live-hero .hero-title")) === "Guide" && $$(".live-hero .guide-mini-row").length > 0 &&
+  text($(".live-card .icon-name")) === "Guide" && $$(".live-card .guide-mini-row").length > 0 &&
     Boolean($("#open-guide")),
-  text($(".live-hero .hero-title")));
-// The second card is the playlist's own categories, and it opens the full list.
-check("the other card of Live TV is Categories",
-  $$(".live-hero .hero-title").map(text).join(",") === "Guide,Categories" && Boolean($("#open-categories")),
-  $$(".live-hero .hero-title").map(text).join(","));
-$("#open-categories").click();
+  text($(".live-card .icon-name")));
+// The second card is the channels themselves, and it opens the category list.
+check("the other card of Live TV is Channels",
+  Boolean($("#open-channels")) && text($$(".live-card .icon-name")[1]) === "Channels",
+  $$(".live-card .icon-name").map(text).join(","));
+$("#open-channels").click();
 await settle(220);
 check("and it opens the categories the playlist actually publishes",
   window.location.hash === "#/categories" && $$(".cat-tile").length > 0 && $$(".cat-tile .cat-tile-count").length === $$(".cat-tile").length,
@@ -1632,23 +1636,25 @@ firstTile.click();
 await settle(260);
 check("picking one shows that category's channels",
   window.location.hash.startsWith("#/categories/") && text($(".view-title")) === firstGroup && $$(".channel-card").length > 0,
-  `${window.location.hash} · ${$$(".channel-card").length} channels`);
+  `${window.location.hash} · ${$$(".channel-card").length} channels`);check("a channel carries its logo, its name and its group",
+  $$(".channel-card").length > 0 &&
+    $$(".channel-card").every((c) => c.querySelector(".channel-art") && text(c.querySelector(".channel-name"))),
+  text($$(".channel-card")[0]));
 await nav("#/", 220);
 check("same two buttons as Movies & Shows, named Live TV and Sports",
-  $$(".row-switch .row-btn").map(text).join(",") === "Live TV,Sports",
+  $$(".row-switch .row-btn").map(text).join(", ") === "Live TV,Sports",
   $$(".row-switch .row-btn").map(text).join(","));
-check("a channel carries its logo, its name and its group",
-  $$(".channel-card").every((c) => c.querySelector(".channel-art") && text(c.querySelector(".channel-name"))),
-  text($$(".channel-card")[0]));
-check("the channel rows are named after the playlist's own categories",
-  $$(".cat-row.live-row .cat-name").length === $$(".cat-row.live-row").length && $$(".cat-row.live-row").length >= 2,
-  $$(".cat-row.live-row .cat-name").map(text).join(", "));
-// Sports is the same list, narrowed — not an empty screen.
+check("the switch sits above the cards, and no channel rows follow them",
+  $$(".live-cards .icon-box.live-card").length === 2 && $$(".cat-row.live-row").length === 0,
+  `${$$(".live-cards .icon-box.live-card").length} cards, ${$$(".cat-row.live-row").length} channel rows`);
+// Sports is the same two cards, narrowed — not an empty screen.
 $("#live-row-sports").click();
-await settle(220);
-check("Sports narrows the same channels to sport",
-  $$(".cat-row.live-row").length > 0 && $$(".cat-row.live-row .cat-name").every((n) => /sport/i.test(text(n))) && $$(".channel-card").length > 0,
-  $$(".cat-row.live-row .cat-name").map(text).join(", ") || "no rows");
+await settle(260);
+check("Sports narrows the Channels card to sport",
+  $$(".live-cards .icon-box.live-card").length === 2 &&
+    text($$(".live-card .icon-name")[1]) === "Sports channels" &&
+    $$(".live-cards .guide-mini-row").length > 0,
+  text($$(".live-card .icon-name")[1]));
 $("#live-row-livetv").click();
 await settle(200);
 
