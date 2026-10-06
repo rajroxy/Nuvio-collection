@@ -18,5 +18,8 @@
     "@capacitor/cli": "^6.2.2",
     "@capacitor/core": "^6.2.2",
     "electron": "^31.2.0"
+  },
+  "allowScripts": {
+    "electron": true
   }
 }

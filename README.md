@@ -500,10 +500,14 @@ run needs a TMDB key (environment variable or Settings → Providers → TMDB).
   which writes it to `addon/settings.json` for every later run (the Electron app
   and the preview share that file).
 - **A missing Electron binary installs itself.** `npm start` runs
-  `scripts/start-desktop.mjs`, which sees that
-  `desktop/node_modules/electron/path.txt` is absent, installs the desktop
-  dependencies (clearing `ELECTRON_SKIP_BINARY_DOWNLOAD` for that run) and only
-  then opens the window. `npm run desktop:install` does just the install half.
+  `scripts/start-desktop.mjs`, which sees that Electron's binary is not in place,
+  installs the desktop dependencies (clearing `ELECTRON_SKIP_BINARY_DOWNLOAD` for
+  that run) and — because npm 11.16 / 12 block dependency install scripts unless
+  they are approved — runs Electron's own installer
+  (`node node_modules/electron/install.js`, what the blocked postinstall does)
+  when the binary is still missing. `desktop/package.json` also lists `electron`
+  under `allowScripts`, so npm's own postinstall works. `npm run desktop:install`
+  does just the install half.
 - **A headless machine cannot launch the window** — Electron needs a display. On a
   desktop OS it just opens; over SSH/X-forwarding you get a blank
   `Missing X server` style failure, which is the environment, not the app.

@@ -41,8 +41,14 @@ npm run start:web  # prints "Nuvio gallery + catalog addon → http://0.0.0.0:41
 Use `start:web` (or `npm run preview`, which is the same thing) when you want the
 web app in a browser at `/app/`; use `npm start` when you want the desktop app.
 
-`npm start` fetches Electron's binary once if a previous `npm install` skipped it (`ELECTRON_SKIP_BINARY_DOWNLOAD`), so a fresh clone does not need its
-own install step.
+`npm start` fetches Electron's binary once if it is missing, so a fresh clone does
+not need its own install step — including on **npm 11.16 / 12**, which blocks
+dependency install scripts unless they are approved. `desktop/package.json` lists
+`electron` in `allowScripts` so npm runs its postinstall itself, and when a clone
+predates that (or the approval is missing) `npm start` runs Electron's own
+installer — `node node_modules/electron/install.js`, exactly what the blocked
+postinstall would have done — instead of failing with *"Electron failed to
+install correctly"*.
 
 Requires **Electron ≥ 28** (the main process is an ES module).
 
