@@ -95,8 +95,14 @@ Add-ons, Plugins, Tracking and AI do not apply to a live playlist and are not
 offered there; switching back restores them. The playlist URL and the Xtream
 password are kept server-side — the page is told only that they are set.
 
-**Live TV Home is the switch, then two cards, and nothing else.** The **Live TV /
-Sports** buttons come **first** and the two cards sit **under them** — the same reading
+**Live TV Home opens on a banner, then the switch, then two cards, and nothing
+else.** The profile had no banner of its own; it now wears the one the Movies home
+has — a kicker naming the tab (**Live TV**, or **Sports**), the **channel's name**,
+what is on it now (or its group while no guide has been read), its groups as chips,
+and its **logo** on the right, centred on the flat panel, with the frame a button into
+that channel. A channel's picture is its logo and its name, and both are already
+stable, so one channel is drawn per launch rather than rotated. The **Live TV /
+Sports** buttons come **next** and the two cards sit **under them** — the same reading
 as the Movies home. The cards wear the same box a Movies card does: a 16:9 frame
 holding the first few rows of what is inside, with the name and a line under it. They
 are the **Guide** and the **Channels** — the channels themselves with their count, not
@@ -243,7 +249,12 @@ same letter again restores the whole row. Letters the loaded pages do not cover 
 dimmed, never dead. The rail is a **column in the grid's own row**
 (`.explore-body`), so it starts with the catalog row rather than the shuffle sample
 above it, and it is `sticky` at `50vh` — its letters sit level with the **middle of
-the screen** beside the poster columns, in the gutter, never an overlay.
+the screen** beside the poster columns, in the gutter, never an overlay. Its
+`translateY(-50%)` used to carry the rail's top half a rail-height **above** its own
+box, and that box is the top of `.explore-body` — so the letters came up across the
+page header and the **Shuffle** button over them. The same half-height is handed back
+as a top margin now: the rail's drawn top lands on the grid's own top edge and
+nothing above it is covered.
 
 **A card's own titles replace its cover — and the cover is never drawn.** Every
 card, the banner and a card page wear `art-blank` from the first paint, so what
@@ -308,17 +319,31 @@ Everything below the divider is the normal, endlessly scrolling catalog.
 **Search goes as deep as a row does, and the bar carries no magnifier.** The field
 is the panel: one flat fill, the text edge to edge, and the **Filters** control
 closing it. The field draws no focus ring of its own either — the accent ring belongs
-to the whole bar. A query (or a browse with no text) reads
-**six pages of TMDB per row type** to fill the first window, and **Load more
-results** under the last group reads the next window — there is no ceiling;
-it used to keep only the first page, which is why "disney+" looked like it answered
-with about twenty titles. `◆ Top 10` rows are the deliberate exception.
+to the whole bar. It searches **titles**, and only titles: the *Collections* and
+*Catalogs* lists that used to open under the results were **labels** standing where
+the contents should be, and they are gone (the suggestion dropdown still offers a
+collection or a catalog to jump to). A query (or a browse with no text) reads
+**six pages of TMDB per row type** to fill the first window, and then **the results
+page themselves in** — a sentinel at the foot of the list reads the next window as it
+comes into view, so the count under each group keeps climbing and the list never looks
+like it stopped at 120. There is **no button**: a search that ends in a *Load more*
+control is one that looks finished. It used to keep only the first page, which is why
+"disney+" looked like it answered with about twenty titles. `◆ Top 10` rows are the
+deliberate exception.
 
 **Where the next window starts is the server's answer.** A window stops early at a
 short TMDB page, so a search with forty results is finished on page two — and
-"six pages further on" then stepped past the end, which is why **Load more** looked
+"six pages further on" then stepped past the end, which is why the old button looked
 dead. The response carries `next`, the page to continue from (null when the row type
-is finished), and the button hides on that.
+is finished), and the sentinel stops on that.
+
+**The filter panel is four lines: Type, Country, Genre, Time — then Sort.** A
+country already narrows the ground a continent did, a mood is a genre under another
+name, and a service filter only means anything once you have said where you are, so
+**Continent, OTT, Mood and Theme are gone**. Country and Genre hold every choice and
+are the **same two-row window the card tag lines use**: a pair of up/down arrows that
+step them a row at a time, each dimming at its own end, with your chosen chip
+scrolled into view — instead of a *More (N)* pill that expanded the line in place.
 
 The depth comes from the server: it reads TMDB 20 titles at a time into a growing,
 10-minute cache per catalog, so each 40-title window continues where the last
@@ -329,7 +354,7 @@ going. A strip in a collection also loads the next window as you scroll it to th
 end.
 
 **Calendar** is a real month grid: pick a day to see what releases on it, with
-previous/next month navigation — not a list of Latest/New Release rows. A day
+previous/next month navigation — not a list of Latest/Newest rows. A day
 lists **films and shows together** (each card is tagged with which it is), clicking
 the selected day again **deselects** it, and the grid carries no caption text.
 Every release has its own **Plan to Watch** pin, and it is a **toggle**: a planned

@@ -46,7 +46,7 @@ const KEY = {
   liveSource: "nuvio.liveSource",
 };
 
-const PINNED = /◆ Top 10|◆ Top 25|Airing Today|Airing This Week|On the Air|Now Playing|^Latest|^New Release|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
+const PINNED = /◆ Top 10|◆ Top 25|Airing Today|Airing This Week|On the Air|Now Playing|^Latest|^Newest|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
 
 // The watchlist rows are states, in the order a title moves through them.
 const WATCH_STATES = [
@@ -1519,15 +1519,10 @@ function rowSwitch() {
 function renderHome() {
   // If this profile hides the row you were on, land on the one it does show.
   if (!rowEnabled(state.row)) setRow(rowEnabled("movie") ? "movie" : "series");
-  // Just the heading — no hint line under it, and no "Picked for you".
-  return [
-    heroBlock(),
-    rowSwitch(),
-    el("div", { class: "home-head" },
-      el("h2", { class: "section-title", text: state.row === "movie" ? "Movies" : "Shows" }),
-    ),
-    collectionGrid(state.row),
-  ].filter(Boolean);
+  // **No heading under the switch.** It used to draw "Movies" or "Shows" on a line
+  // of its own, directly under the Movies / Shows buttons that already say exactly
+  // that — a second label for the same fact, pushing the grid down for nothing.
+  return [heroBlock(), rowSwitch(), collectionGrid(state.row)].filter(Boolean);
 }
 
 /** One catalog row on a collection page: label, shuffle, explore. */
@@ -1928,33 +1923,6 @@ function allCatalogs() {
   return out;
 }
 
-function searchResults(query) {
-  const q = (query || "").trim().toLowerCase();
-  if (!q) return [el("p", { class: "view-hint", text: "Type to search every collection and catalog in this row." })];
-  const cards = state.collections.filter((c) => c.title.toLowerCase().includes(q));
-  const cats = allCatalogs().filter(({ cat }) => cat.name.toLowerCase().includes(q)).slice(0, 60);
-  const nodes = [];
-  if (cards.length) {
-    nodes.push(el("h3", { class: "result-head", text: `Collections (${cards.length})` }));
-    nodes.push(el("div", { class: "result-list" }, ...cards.map((c) =>
-      el("button", { class: "result focusable", type: "button", onclick: () => go(`#/c/${encodeURIComponent(c.key)}`) },
-        el("span", { class: "result-name", text: c.title }),
-        el("span", { class: "result-sub", text: `${rowOf(c).catalogs.length} catalogs` })),
-    )));
-  }
-  if (cats.length) {
-    nodes.push(el("h3", { class: "result-head", text: `Catalogs (${cats.length})` }));
-    nodes.push(el("div", { class: "result-list" }, ...cats.map(({ card, cat }) =>
-      el("button", { class: "result focusable", type: "button", onclick: () => go(`#/x/${encodeURIComponent(card.key)}/${encodeURIComponent(cat.id)}`) },
-        el("span", { class: "result-name", text: cat.name }),
-        el("span", { class: "result-sub", text: card.title })),
-    )));
-  }
-  if (!nodes.length) return [el("p", { class: "empty", text: "Nothing matched." })];
-  return nodes;
-}
-
-
 // A drawn funnel, like the rest of the controls.
 const filterIcon = () =>
   el(
@@ -2011,39 +1979,57 @@ function filterRow(label, choices, active, onPick, { clamp = false } = {}) {
     }),
   );
   const long = clamp && choices.length > FILTER_CLAMP_AT;
-  // The chosen chip has to stay readable, so a line holding it is never collapsed.
-  const activeIndex = choices.findIndex(([value]) => value === active);
-  const collapsed = long && (activeIndex < FILTER_CLAMP_AT || activeIndex === -1);
-  const options = el("div", { class: `filter-options${collapsed ? " clamped" : ""}` }, ...chips);
-  let toggle = null;
-  if (long) {
-    const setOpen = (open) => {
-      options.classList.toggle("clamped", !open);
-      toggle.classList.toggle("up", open);
-      toggle.setAttribute("aria-expanded", String(open));
-      const text = open ? "Less" : `More (${choices.length})`;
-      toggle.title = open ? "Show fewer choices" : `Show all ${choices.length} choices`;
-      toggle.querySelector(".chip-more-text").textContent = text;
-    };
-    toggle = el(
-      "button",
-      {
-        class: `chip-more focusable${collapsed ? "" : " up"}`,
-        type: "button",
-        "aria-expanded": String(!collapsed),
-        title: `Show all ${choices.length} choices`,
-        "aria-label": `Show all ${choices.length} choices`,
-        onclick: () => setOpen(options.classList.contains("clamped")),
-      },
-      chevronDown(),
-      el("span", { class: "chip-more-text", text: collapsed ? `More (${choices.length})` : "Less" }),
+  if (!long) {
+    return el(
+      "div",
+      { class: "filter-row" },
+      el("span", { class: "filter-label", text: label }),
+      el("div", { class: "filter-body" }, el("div", { class: "filter-options" }, ...chips)),
     );
   }
+  // **The same control the card tag lines use**: a two-row window with up and down
+  // arrows that step it a row at a time (and the wheel working over it). It used to
+  // be a "More (N)" pill that expanded the line in place, which turned one filter
+  // into a wall of chips and pushed every line under it off the screen.
+  const options = el("div", { class: "filter-options clamped", tabindex: "0" }, ...chips);
+  // A DOM with no layout (jsdom, a WebView before first paint) has no `scrollBy`, so
+  // the arrows stay usable there instead of throwing on the first press.
+  const step = (direction) => {
+    if (typeof options.scrollBy !== "function") return;
+    options.scrollBy({ top: direction * trackRow(options), behavior: reducedMotion() ? "auto" : "smooth" });
+  };
+  const up = el(
+    "button",
+    { class: "chip-arrow up focusable", type: "button", title: `Scroll ${label} up`, "aria-label": `Scroll ${label} up`, onclick: () => step(-1) },
+    chevronUp(),
+  );
+  const down = el(
+    "button",
+    { class: "chip-arrow down focusable", type: "button", title: `Scroll ${label} down`, "aria-label": `Scroll ${label} down`, onclick: () => step(1) },
+    chevronDown(),
+  );
+  // Each arrow dims at its own end, and "at the end" is only claimed once the track
+  // can be measured, so a DOM with no layout keeps both arrows usable.
+  const sync = () => {
+    const measurable = options.scrollHeight > options.clientHeight + 2;
+    const hidden = options.scrollHeight - options.clientHeight - options.scrollTop;
+    down.disabled = measurable && hidden <= 2;
+    up.disabled = measurable && options.scrollTop <= 2;
+    down.classList.toggle("at-end", down.disabled);
+    up.classList.toggle("at-end", up.disabled);
+  };
+  options.addEventListener("scroll", sync, { passive: true });
+  requestAnimationFrame(() => {
+    sync();
+    // The chip you already picked is always on screen, however far down the list it is.
+    const chosen = options.querySelector(".filter-chip.active");
+    if (chosen && typeof chosen.scrollIntoView === "function") chosen.scrollIntoView({ block: "nearest" });
+  });
   return el(
     "div",
     { class: "filter-row" },
     el("span", { class: "filter-label", text: label }),
-    el("div", { class: "filter-body" }, options, toggle),
+    el("div", { class: "filter-body" }, options, el("div", { class: "chip-scroll" }, up, down)),
   );
 }
 
@@ -2058,21 +2044,20 @@ function filterRow(label, choices, active, onPick, { clamp = false } = {}) {
 function renderSearch() {
   const params = searchParams();
   const query = params.get("q") || "";
-  // One filter per card line, in the order the cards come in: where it is from
-  // (Continent, Country), who has it (OTT), what it is (Genre), how it feels
-  // (Mood, Theme), when it is (Time), and how it is ordered (Sort).
+  // Where it is from (Country), what it is (Genre), when it is (Time), and how it
+  // is ordered (Sort). **Continent, OTT, Mood and Theme are gone**: a country
+  // already narrows the same ground a continent does, a mood is a genre under
+  // another name, and a service filter only means something once you have said
+  // where you are — four more lines of chips to scroll past for an answer the
+  // three under them already give.
   const filters = {
     type: params.get("type") || "",
-    continent: params.get("continent") || "all",
     country: params.get("country") || "all",
-    provider: params.get("provider") || "all",
     category: params.get("category") || "all",
-    mood: params.get("mood") || "all",
-    theme: params.get("theme") || "all",
     period: params.get("period") || "all",
     sort: params.get("sort") || "popularity",
   };
-  const FILTER_KEYS = ["continent", "country", "provider", "category", "mood", "theme", "period"];
+  const FILTER_KEYS = ["country", "category", "period"];
   const vocab = state.searchVocab || SEARCH_FALLBACK;
 
   // No `text-input` here: that class paints a bordered box, and inside the bar's own
@@ -2080,7 +2065,7 @@ function renderSearch() {
   const input = el("input", {
     class: "search-input focusable",
     type: "search",
-    placeholder: "Search titles, collections and catalogs…",
+    placeholder: "Search titles…",
     value: query,
     id: "search-input",
     autocomplete: "off",
@@ -2168,6 +2153,16 @@ function renderSearch() {
     return node;
   };
 
+  // **The results page themselves in.** A window is six TMDB pages per row type —
+  // 120 titles — and there used to be a *Load more results* button for the next
+  // one, so a search looked like it had stopped at 120 whatever the catalogue
+  // really held. The sentinel at the foot of the list does what Explore's does:
+  // when it comes into view the next window is read and appended, and the count
+  // beside each group climbs until TMDB has nothing left to hand over.
+  const moreSentinel = el("div", { class: "sentinel", id: "search-sentinel" });
+  let searchDone = true;
+  let searchObserver = null;
+
   const appendMetas = (metas) => {
     for (const m of metas) {
       const key = m.type === "movie" ? "movie" : "show";
@@ -2178,19 +2173,22 @@ function renderSearch() {
       node.querySelector(".grid-titles").append(posterCard(m));
       const label = key === "movie" ? "Movies" : "Shows";
       node.querySelector(".result-head").textContent = `${label} (${node.querySelectorAll(".poster").length})`;
-      // Always in front of the button, even when this group is new.
-      if (!node.isConnected) titles.insertBefore(node, moreBtn.isConnected ? moreBtn : null);
+      // Always in front of the sentinel, even when this group is new.
+      if (!node.isConnected) titles.insertBefore(node, moreSentinel.isConnected ? moreSentinel : null);
     }
   };
 
-  const moreBtn = el("button", {
-    class: "btn subtle focusable",
-    type: "button",
-    id: "search-more",
-    text: "Load more results",
-    hidden: true,
-    onclick: () => loadTitles(query, true),
-  });
+  // One observer for the screen, watching the sentinel; a redraw builds a new one,
+  // and the old sentinel is out of the document by then so it can never fire.
+  const watchSentinel = () => {
+    if (searchObserver || typeof IntersectionObserver !== "function") return;
+    searchObserver = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      if (searchBusy || searchDone) return;
+      loadTitles(query, true);
+    }, { rootMargin: "600px" });
+    searchObserver.observe(moreSentinel);
+  };
 
   const loadTitles = async (text, more = false) => {
     const trimmed = (text || "").trim();
@@ -2199,11 +2197,12 @@ function renderSearch() {
       searchSeen.clear();
       groups.movie = null;
       groups.show = null;
+      searchDone = true;
       titles.replaceChildren();
     }
     if (!resultQuery()) {
       drawSuggestions(trimmed);
-      moreBtn.hidden = true;
+      searchDone = true;
       return;
     }
     if (searchBusy) return;
@@ -2218,7 +2217,7 @@ function renderSearch() {
         drawSuggestions(trimmed, metas);
         if (!metas.length) {
           titles.append(el("p", { class: "view-hint", text: "Nothing matched. Try fewer filters, or a different region." }));
-          moreBtn.hidden = true;
+          searchDone = true;
           return;
         }
       }
@@ -2226,19 +2225,18 @@ function renderSearch() {
       // `next` is the server's own cursor: the page to continue from, or null once
       // it has read past the end of every row type.
       searchStart = typeof next === "number" && next > 0 ? next : 0;
-      moreBtn.hidden = !metas.length || typeof next !== "number";
-      if (!moreBtn.isConnected) titles.append(moreBtn);
+      searchDone = !metas.length || typeof next !== "number";
+      if (!searchDone && !moreSentinel.isConnected) titles.append(moreSentinel);
+      watchSentinel();
     } catch {
       if (!more) titles.replaceChildren();
-      moreBtn.hidden = true;
+      searchDone = true;
     } finally {
       searchBusy = false;
     }
   };
 
   const refresh = (value) => {
-    const results = document.getElementById("search-results");
-    if (results) results.replaceChildren(...searchResults(value));
     clearTimeout(timer);
     drawSuggestions(value);
     timer = setTimeout(() => loadTitles(value), 250);
@@ -2286,9 +2284,7 @@ function renderSearch() {
     "section",
     { class: "search-filters", id: "search-filters", hidden: !filtersActive(filters) },
     filterRow("Type", vocab.types, filters.type, (v) => pick("type", v)),
-    filterRow("Continent", vocab.continents, filters.continent, (v) => pick("continent", v)),
     filterRow("Country", vocab.countries, filters.country, (v) => pick("country", v), { clamp: true }),
-    filterRow("OTT", vocab.providers, filters.provider, (v) => pick("provider", v)),
     categoryList.length
       ? filterRow(
           "Genre",
@@ -2298,8 +2294,6 @@ function renderSearch() {
           { clamp: true },
         )
       : null,
-    filterRow("Mood", vocab.moods, filters.mood, (v) => pick("mood", v), { clamp: true }),
-    filterRow("Theme", vocab.themes, filters.theme, (v) => pick("theme", v), { clamp: true }),
     filterRow("Time", vocab.periods, filters.period, (v) => pick("period", v)),
     filterRow("Sort", vocab.sorts, filters.sort, (v) => pick("sort", v)),
   );
@@ -2333,22 +2327,19 @@ function renderSearch() {
       // edge to edge, and the filter control closes it — one control, full width.
       el("div", { class: "search-bar" }, input, filterBtn, suggestions),
     ),
-    (filters.continent !== "all" || filters.country !== "all" || filters.provider !== "all" || filters.mood !== "all" || filters.theme !== "all") && query.trim()
+    filters.country !== "all" && query.trim()
       ? el("p", {
           class: "view-hint",
-          text: "TMDB search results carry no origin country, provider or keywords, so Continent, Country, OTT, Mood and Theme apply while browsing — clear the text box to browse by them.",
+          text: "TMDB search results carry no origin country, so Country applies while browsing — clear the text box to browse by it.",
         })
       : null,
     panel,
     titles,
-    el("div", { class: "search-results", id: "search-results" }, ...searchResults(query)),
   ].filter(Boolean);
 }
 
 const filtersActive = (f) =>
-  Boolean(f.type) ||
-  ["continent", "country", "provider", "category", "mood", "theme", "period"].some((k) => f[k] !== "all") ||
-  f.sort !== "popularity";
+  Boolean(f.type) || ["country", "category", "period"].some((k) => f[k] !== "all") || f.sort !== "popularity";
 
 /* ----------------------------------------------------------------- calendar */
 
@@ -4208,13 +4199,6 @@ function guideCard() {
 }
 
 /**
- * The Categories card — the profile's second card.
- *
- * The playlist's own categories (Sports, News, Movies, …) with how many channels
- * each one holds, and a way into the full list. It reads the same channel list the
- * Guide does, so the country setting moves both cards together.
- */
-/**
  * The Channels card — the profile's second card.
  *
  * It was a **Categories** card that listed category names and nothing else, which
@@ -4252,20 +4236,82 @@ function channelsCard() {
 }
 
 /**
+ * The Live TV banner — this profile's own Spotlight.
+ *
+ * The Movies home opens on a banner, and the Live TV profile had none: it began
+ * at the switch. This is the same box: a kicker that says which tab you are on, the
+ * channel's name where a card's title sits, what is on it now (or its group when
+ * there is no guide yet), its own groups as chips, and its picture on the right —
+ * a channel's picture is its **logo**, so that is what the frame holds, centred on
+ * the app's flat panel. There is nothing to rotate here the way the Movies banner
+ * refreshes a backdrop: a logo and a name are already stable, so the banner picks
+ * one channel per launch the way every card picks its own slice.
+ */
+function liveHeroBlock() {
+  const channels = liveChannelsShown().filter((c) => c.name);
+  if (!channels.length) return null;
+  const channel = channels[LAUNCH_SEED % channels.length];
+  const { now } = nowNext(channel, state.live.guide);
+  const sports = liveRowKey() === "sports";
+  const groups = channel.groups || [];
+  return el(
+    "section",
+    { class: "hero live-hero" },
+    el(
+      "div",
+      { class: "hero-body" },
+      el("p", { class: "hero-kicker", text: sports ? "Sports" : "Live TV" }),
+      el("h2", { class: "hero-title", text: channel.name }),
+      el("p", {
+        class: "hero-line",
+        text: now
+          ? `Now playing · ${now.title}`
+          : [groups[0], channel.country].filter(Boolean).join(" · ") || "Live channel",
+      }),
+      chipLine(
+        groups.map((group) =>
+          el("button", {
+            class: "chip focusable",
+            type: "button",
+            text: group,
+            onclick: () => go(`#/categories/${encodeURIComponent(group)}`),
+          }),
+        ),
+        { className: "hero-cats" },
+      ),
+    ),
+    el(
+      "button",
+      {
+        class: "hero-art focusable live-hero-art",
+        type: "button",
+        title: `Open ${channel.name}`,
+        "aria-label": `Open ${channel.name}`,
+        onclick: () => go(`#/channel/${encodeURIComponent(channel.id)}`),
+      },
+      channel.logo
+        ? el("img", { class: "live-hero-logo", src: channel.logo, alt: "", loading: "lazy" })
+        : el("span", { class: "live-hero-initials", text: initialsOf(channel.name) }),
+    ),
+  );
+}
+
+/**
  * Live TV & Sports Home.
  *
- * **The Live TV / Sports switch comes first**, and the **two cards sit under it** —
- * the same reading as the Movies home, where the Movies/Shows buttons are above the
- * cards. (They were the other way round, so the cards floated over the tabs that
- * decide what they show.) Under the cards there is **nothing**: the wall of one
- * channel row per category is gone.
+ * **The banner comes first, then the Live TV / Sports switch, then the two cards** —
+ * the same reading as the Movies home, where the banner is above the Movies/Shows
+ * buttons and the cards are under them. They were the other way round once, so the
+ * cards floated over the tabs that decide what they show. Under the cards there is
+ * **nothing**: the wall of one channel row per category is gone.
  */
 function renderLiveHome() {
   if (!state.live.loaded && !state.live.loading) queueMicrotask(() => loadLive());
   const nodes = [
+    liveHeroBlock(),
     liveRowSwitch(),
     el("div", { class: "icons grid live-cards" }, guideCard(), channelsCard()),
-  ];
+  ].filter(Boolean);
   if (state.live.loading && !state.live.loaded) {
     nodes.push(el("p", { class: "empty", text: "Reading the channel list…" }));
   } else if (state.live.error && !state.live.all.length) {
@@ -4689,10 +4735,14 @@ function paneLiveCountries() {
     );
     // What is already picked always stays on screen, so a choice cannot be hidden
     // by whatever is typed in the filter.
+    // **Every country, not the first sixty.** The list was cut at 60 — which, at
+    // an alphabetical start, meant it stopped around Denmark and countries after
+    // it could not be picked at all. The picker is its own scrolling window
+    // (`.country-picker`), so the whole list lives in it and nothing is hidden.
     const list = [
       ...liveCountryList.filter((c) => picked.has(c.code)),
       ...matching.filter((c) => !picked.has(c.code)),
-    ].slice(0, 60);
+    ];
     rows.replaceChildren(
       ...(list.length
         ? list.map((c) =>

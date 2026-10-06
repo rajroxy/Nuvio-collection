@@ -1,7 +1,7 @@
 /**
  * Release calendar — what actually comes out in a given month.
  *
- * A calendar is not "Latest" or "New Release": those are catalogs. This asks
+ * A calendar is not "Latest" or "Newest": those are catalogs. This asks
  * TMDB discover for a date range and returns one entry per title with the date
  * it lands on, so the UI can draw a real month grid.
  *

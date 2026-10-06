@@ -1804,3 +1804,54 @@ textarea:focus-visible {
 /* The settings screen reads as a stack of groups, the way a streaming app's does. */
 .settings-group { margin: 18px 0 6px; }
 .settings-group:first-child { margin-top: 0; }
+
+/* ------------------------------------------------ the filter's long lines */
+
+/* A long line — Country, Genre — is now the **same control a card's tag line
+   uses**: a two-row window with an up and a down arrow that step it a row at a
+   time (and the wheel working over it), each arrow dimming at its own end. It used
+   to be a "More (N)" pill that expanded the line where it stood, which turned one
+   filter into a wall of chips and pushed every line under it out of the panel. */
+.filter-options.clamped {
+  max-height: 76px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.filter-options.clamped::-webkit-scrollbar { width: 0; height: 0; }
+.filter-row .chip-scroll { margin-top: 6px; }
+
+/* ---------------------------------------------------- the alphabet rail */
+
+/* **The rail starts level with the grid, not over the shuffle row.** It is
+   `sticky` at the middle of the screen with `translateY(-50%)`, and that lift
+   raises its top half a rail-height above its own box — which is the top of
+   `.explore-body`, so the letters came up across the header and the Shuffle button
+   sitting above them. The same half-height is handed back as a top margin, so the
+   rail's *drawn* top lands on the grid's own top edge, its middle falls on the
+   middle of the screen as the row scrolls, and nothing above it is covered. The
+   rail's height is fixed (26 letters, then its padding), so the half is exact. */
+.alpha-rail { --rail-half: 217px; margin-top: var(--rail-half); }
+@media (max-height: 640px) { .alpha-rail { --rail-half: 178px; } }
+
+/* ------------------------------------------------------ the Live TV banner */
+
+/* The banner's frame holds a channel **logo**, so it sits centred on the app's flat
+   panel instead of being cropped to fill the frame the way a backdrop is. */
+.live-hero .hero-art { display: grid; place-items: center; background: var(--panel-2); }
+.live-hero-logo { max-width: 62%; max-height: 68%; object-fit: contain; }
+.live-hero-initials {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 20px;
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--accent);
+  font-size: 40px;
+  font-weight: 800;
+}
+.live-hero .hero-line { margin: 0 0 14px; color: var(--muted); font-size: 14px; }

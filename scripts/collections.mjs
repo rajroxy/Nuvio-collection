@@ -394,7 +394,7 @@ const decadeGenres = (type, list) =>
 
 const discoverRow = (suffix = "", take) => [
   discover(`Latest${suffix}`, "latest", take),
-  discover(`New Release${suffix}`, "new", take),
+  discover(`Newest${suffix}`, "new", take),
   preset(`Trending${suffix}`, "trending", take),
   preset(`Popular${suffix}`, "popular", take),
   preset(`Top Rated${suffix}`, "top_rated", take),

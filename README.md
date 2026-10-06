@@ -97,7 +97,7 @@ cannot drift:
   renders at one uniform size (the largest that fits every collection), so no card's text is
   smaller than another's.
 - **Subtitles** — under the title, a card names the catalogs that live inside it (e.g. Discover
-  → Latest · New Release · Trending · Popular · Top Rated; On the Board → Now Playing for movies,
+  → Latest · Newest · Trending · Popular · Top Rated; On the Board → Now Playing for movies,
   Airing Today · Airing This Week · On the Air for shows). Names wrap and shrink to fit. Never an
   editorial descriptor. A card with no catalogs is title-only.
 - **Colour** — a single near-black field (`#08090C`, matching the Nuvio home background) with a
@@ -150,9 +150,9 @@ drawn on the cover:
 | Card | Catalogs (movies / shows) |
 |---|---|
 | Watchlist | `Plan to Watch` · `Watching` · `Watched` (both) — served from your pins, not from TMDB |
-| Discover ◆ Top 25 | Latest/New Release/Trending/Popular/Top Rated, each **Top 25** (both) |
+| Discover ◆ Top 25 | Latest/Newest/Trending/Popular/Top Rated, each **Top 25** (both) |
 | On the Board | Now Playing / Airing Today · Airing This Week · On the Air |
-| Discover | Latest · New Release · Trending · Popular · Top Rated (both) |
+| Discover | Latest · Newest · Trending · Popular · Top Rated (both) |
 | Popular by ◆ Genre | `Popular in <Genre>` — movie genres / TV genres |
 | Genres | `<Genre>` — the movie genres / TV genres, and nothing else (Anime and Asian Drama are keywords, not genres) |
 | Popular by ◆ Decade | `Popular in <decade>s` (both) |
@@ -372,7 +372,12 @@ everything. Letters the loaded pages do not cover are dimmed, never dead. The ra
 is a column **in the grid's own row** (`.explore-body`, so it begins at the catalog
 row and not at the shuffle sample above it), `sticky` at `50vh` so its letters sit
 **level with the middle of the screen** beside the poster columns rather than pinned
-under the header, and it is not an overlay.
+under the header, and it is not an overlay. Its `translateY(-50%)` used to carry the
+rail's top half a rail-height **above** its own box — and that box is the top of
+`.explore-body` — so the letters came up across the page header and the **Shuffle**
+button over them. The same half-height is now handed back as a top margin: the rail's
+drawn top lands on the grid's own top edge, its middle finds the middle of the screen
+as the row scrolls, and nothing above it is covered.
 
 ### Symbols on the covers
 
@@ -832,7 +837,9 @@ The UI is Nuvio-shaped:
 - **Live TV settings** — entering that profile **replaces the settings screen
   entirely**: **Source** (the **Premium & DTH catalogue** with a provider picker,
   your own **M3U** URL or file, or an **Xtream Codes** host/username/password),
-  **Countries** (**All countries**, or pick the ones you want), **Guide & EPG** (an
+  **Countries** (**All countries**, or pick the ones you want — **the whole list**, where the picker used to be cut at
+  sixty countries, which on an alphabetical list stopped around **Denmark** and left
+  everything after it unpickable), **Guide & EPG** (an
   XMLTV URL, `.xml` or `.xml.gz`), **Refresh** (follow the content setting, or
   15/30/60/180 minutes), then **Profile & playback** and **This device**. The
   catalogue is shipped with the app, so the provider and country pickers work with
@@ -850,8 +857,15 @@ The UI is Nuvio-shaped:
   so the Electron window and the APK work offline — decodes it. Browsers that play
   HLS natively (Safari, Android TV) use their own player. Escape or **Close**
   returns to the page you came from.
-- **Live TV Home is the switch, then two cards, and nothing else.** The **Live TV /
-  Sports** buttons come **first**, and the **Guide** and **Channels** cards sit
+- **Live TV Home opens on a banner, then the switch, then two cards, and nothing
+  else.** The profile had no banner of its own — it began at the buttons. It now
+  wears the same box the Movies home does: a kicker naming the tab (**Live TV**, or
+  **Sports** on that tab), the **channel's name**, what is on it now (or its group
+  while no guide has been read), its own groups as chips, and its **logo** on the
+  right, centred on the app's flat panel — the frame is a button into that channel.
+  There is nothing to rotate the way the Movies banner refreshes a backdrop: a logo
+  and a name are already stable, so one channel is drawn per launch. The **Live TV /
+  Sports** buttons come next, and the **Guide** and **Channels** cards sit
   **under them** — the same reading as the Movies home, where the Movies/Shows buttons
   are above the cards. (They were the other way round, so the cards floated over the
   tabs that decide what they show.) The **wall of one channel row per category is
@@ -861,7 +875,10 @@ gone**: the profile used to fetch the lineup and then a second request per categ
   *Categories* card that listed category names you had not seen yet. The **Sports**
   tab is the same two cards over the lineup filtered to sport (by channel name and
   group), and it falls back to the whole list rather than showing an empty screen.
-- **Home** — a **hero** panel, then **Movies** and **Shows** buttons below it.
+- **Home** — a **hero** panel, then **Movies** and **Shows** buttons, then the cards.
+  There is **no heading under the buttons**: the switch already says which row you
+  are on, so the *Movies* / *Shows* line that used to be drawn beneath it was a
+  second label for the same fact, and it pushed the grid down for nothing.
   Movies is the default; picking Shows swaps both the cards *and* the hero banner.
   The banner carries no counters and **no Explore button** — it is a billboard, and
   the frame *is* the way in: clicking the artwork opens the title on it.
@@ -916,7 +933,7 @@ scrolling catalog.
   provider nodes linked to the add-on, plugin or repository that returns them, and
   the sources interlinked.
 - **Calendar** — a real **month grid**: pick a day to see what releases on it,
-  with previous/next month navigation (not a list of Latest/New Release rows).
+  with previous/next month navigation (not a list of Latest/Newest rows).
   A day lists **films and shows together** (each card says which it is), clicking the
   selected day again **deselects** it, and the grid carries no captions — no
   "everything releasing this month", no "N titles" line over the results.
@@ -937,17 +954,20 @@ belong to.
   `text-input` as well as `search-input`, so a second bordered box was painted inside
   the bar — and it draws **no focus ring of its own** either; the accent ring belongs
   to the whole bar (`:focus-within`), because the bar is the control. It searches
-  **titles** (TMDB,
-  through the server) as well as collections and catalogs in the current row, and
-  titles come back as two lists, **Movies** then **Shows**, never one mixed grid:
+  **titles** (TMDB, through the server). The screen used to open a *Collections* and
+  a *Catalogs* list under the results — a list of **labels** standing where the
+  contents should be — and **it is gone**: the suggestion dropdown still offers a
+  collection or a catalog to jump to, but the page itself is the titles. They come
+  back as two lists, **Movies** then **Shows**, never one mixed grid:
   the row type is the first thing you want to know about a result. A query reads
-  **six pages of TMDB per row type** (20 results a page) to fill the first window,
-  and **Load more results** reads the next window — **there is no ceiling**: the
-  120-title cap per row type is gone, so the count under each group is the real number
-  of results and it keeps growing for as long as the row does. It used to keep only
-  its first page, which is why
-  "disney+" looked like it had barely twenty results. Typing shows **suggestions**,
-  and this is what the Ask box feeds.
+  **six pages of TMDB per row type** (20 results a page) to fill the first window, and
+  then **the results page themselves in**: a sentinel at the foot of the list reads the
+  next window as it comes into view, so the count under each group keeps climbing and
+  the list never appears to stop at 120. There is **no ceiling and no button** — the
+  *Load more results* control is gone, because a search that ends in a button is one
+  that looks finished. It used to keep only its first page, which is why "disney+"
+  looked like it had barely twenty results. Typing shows **suggestions**, and this is
+  what the Ask box feeds.
 
   **Which page the next window starts at is the server's answer, not the app's
   arithmetic.** A window reads up to six TMDB pages and stops early at a short one —
@@ -955,20 +975,23 @@ belong to.
   straight past the end of a short result set and the button appeared to do nothing.
   The response now carries `next`, the page to continue from (null when the row type
   is finished), and the button hides on that instead of on a number the client picked.
-- **Search filters are one row per card line** — **Type**, **Continent**,
-  **Country** (every country the Countries card publishes, clamped to two rows with
-  a chevron), **OTT** (the Global OTT card's own six platforms), **Genre**, **Mood**
-  and **Theme** (the keyword rows those cards publish, clamped too), **Time**, and
-  **Sort**. The choices are the app's own **pills** — the same flat fill the tag lines
-  and the card labels use, 999px radius, solid accent when chosen, no outline — not
-  underlined words that match nothing else on screen, and the clamped rows say
-  **More (N)** / **Less** rather than showing a bare chevron. They are the cards' own vocabulary, served from
-  `/search/filters.json`, so the panel can never offer a genre, a country or a
-  keyword TMDB does not have. A continent expands to its origin-country set, OTT is
-  a watch-provider filter scoped to your region, and Mood/Theme are keyword ids. An
-  unknown value in a hand-written URL falls back to "all" instead of emptying the
-  screen. Text searches can only honour what TMDB's search endpoint supports (genre
-  and year), and the screen says so when a filter can only apply while browsing.
+- **Search filters are four lines — Type, Country, Genre, Time — then Sort.** A
+  **country** already narrows the ground a *continent* did, a **mood** is a genre
+  under another name, and a **service** filter only means anything once you have said
+  where you are; so **Continent, OTT, Mood and Theme are gone**, four fewer lines of
+  chips to scroll past for an answer the lines under them already give. **Country**
+  and **Genre** hold every choice, and both are the **same two-row window the card
+  tag lines use**: a pair of up/down arrows stepping them a row at a time, each dimming
+  at its own end, with the chip you picked scrolled into view. (They used to clamp to
+  two rows behind a *More (N)* pill that expanded the line where it stood, which
+  turned one filter into a wall of chips and pushed everything under it out of the
+  panel.) The choices are the app's own **pills** — the same flat fill the tag lines
+  and the card labels use, 999px radius, solid accent when chosen, no outline — and
+  they are the cards' own vocabulary, served from `/search/filters.json`, so the panel
+  can never offer a genre or a country TMDB does not have. An unknown value in a
+  hand-written URL falls back to "all" instead of emptying the screen. Text searches
+  can only honour what TMDB's search endpoint supports (genre and year); the screen
+  says so when a filter can only apply while browsing.
 - **Settings**, grouped, with the group name over its tabs:
   **What you see** — **Content** (SFW / NSFW), **Layout**, **Posters**,
   **Appearance** (the accent colour and how much the app moves);

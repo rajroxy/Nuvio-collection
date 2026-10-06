@@ -18,7 +18,7 @@
   {
     "collection": "discover-top-10",
     "title": "Discover ◆ Top 25",
-    "subtitle": "Latest ◆ Top 25 · New Release ◆ Top 25 · Trending ◆ Top 25 · Popular ◆ Top 25 · Top Rated ◆ Top 25",
+    "subtitle": "Latest ◆ Top 25 · Newest ◆ Top 25 · Trending ◆ Top 25 · Popular ◆ Top 25 · Top Rated ◆ Top 25",
     "row": "movie",
     "svg": "covers/movies/discover-top-10.svg",
     "png": "covers/movies/discover-top-10.png"
@@ -26,7 +26,7 @@
   {
     "collection": "discover",
     "title": "Discover",
-    "subtitle": "Latest · New Release · Trending · Popular · Top Rated",
+    "subtitle": "Latest · Newest · Trending · Popular · Top Rated",
     "row": "movie",
     "svg": "covers/movies/discover.svg",
     "png": "covers/movies/discover.png"
@@ -186,7 +186,7 @@
   {
     "collection": "discover-top-10",
     "title": "Discover ◆ Top 25",
-    "subtitle": "Latest ◆ Top 25 · New Release ◆ Top 25 · Trending ◆ Top 25 · Popular ◆ Top 25 · Top Rated ◆ Top 25",
+    "subtitle": "Latest ◆ Top 25 · Newest ◆ Top 25 · Trending ◆ Top 25 · Popular ◆ Top 25 · Top Rated ◆ Top 25",
     "row": "show",
     "svg": "covers/shows/discover-top-10.svg",
     "png": "covers/shows/discover-top-10.png"
@@ -194,7 +194,7 @@
   {
     "collection": "discover",
     "title": "Discover",
-    "subtitle": "Latest · New Release · Trending · Popular · Top Rated",
+    "subtitle": "Latest · Newest · Trending · Popular · Top Rated",
     "row": "show",
     "svg": "covers/shows/discover.svg",
     "png": "covers/shows/discover.png"

@@ -2,7 +2,7 @@
  * Nuvio Collections — a Stremio/Nuvio catalog addon.
  *
  * Publishes one catalog row per catalog that lives inside each Nuvio card: a
- * card that names its catalogs (Discover → Latest, New Release, Trending,
+ * card that names its catalogs (Discover → Latest, Newest, Trending,
  * Popular, Top Rated) yields one row per name; a card without names yet yields
  * a single collection-level row. Every row is backed live by TMDB, and only the
  * `catalog` resource is advertised — no search, no discover resource.

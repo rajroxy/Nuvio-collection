@@ -318,13 +318,18 @@ check("the hero carries no counts line, only its Explore action",
 check("no poster carries a BTTR badge",
   !$(".bttr-tag") && !/\bBTTR\b/.test(window.document.body.textContent),
   `${$$(".bttr-tag").length} badges`);
-check("the grid heading carries no 'click the artwork' hint",
-  !window.document.body.textContent.includes("click a collection's artwork"),
-  text($(".home-head")));
-check("the grid heading is just the row name", text($(".home-head")) === "Movies", JSON.stringify(text($(".home-head"))));
+check("the grid carries no 'click the artwork' hint",
+  !window.document.body.textContent.includes("click a collection's artwork"));
+// **No second label under the switch.** The Movies / Shows buttons already say which
+// row this is, so the *Movies* / *Shows* heading that used to be drawn beneath them
+// is gone.
+check("there is no second row label under the switch",
+  !$(".home-head") && !$(".section-title") && $$(".row-switch .row-btn").length === 2,
+  `head ${$(".home-head") ? "present" : "absent"} · ${$$(".row-switch .row-btn").map(text).join(",")}`);
 check("Movies and Shows are buttons after the hero, not tabs", $$(".row-switch .row-btn").map(text).join(",") === "Movies,Shows");
 check("Movies is the default selection", $$(".row-switch .row-btn")[0]?.classList.contains("active") === true);
-check("the grid under the hero is the Movies grid", text($(".section-title")) === "Movies" && $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/movies/")));
+check("the grid under the hero is the Movies grid",
+  $$(".icon-art img").length > 0 && $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/movies/")));
 check("every tile image has a real cover src", $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/")));
 check("a tile is entered by its artwork only", $$(".icon-box .icon-art").length === $$(".icon-box").length && $$(".icon-box button").length === $$(".icon-box").length);
 // Every card (and the banner) draws pictures of what it holds over its cover, and the
@@ -387,7 +392,9 @@ check("Home has no 'Picked for you'", !window.document.body.textContent.includes
 const heroArtBefore = $(".hero-art")?.getAttribute("style");
 $$(".row-switch .row-btn")[1].click();
 await settle(120);
-check("clicking Shows swaps the cards", text($(".section-title")) === "Shows" && $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/shows/")));
+check("clicking Shows swaps the cards",
+  $$(".row-switch .row-btn")[1]?.classList.contains("active") === true &&
+    $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/shows/")));
 check("and swaps the hero banner too", ($(".hero-art")?.getAttribute("style") || "") !== heroArtBefore && ($(".hero-art")?.getAttribute("style") || "").includes("/covers/shows/"));
 // The banner moves on its own: a different card every ten seconds, at random. This
 // waits out one interval rather than trusting the timer to exist.
@@ -453,7 +460,7 @@ check("and it moves again once the cursor leaves it",
   text($(".hero-title")) !== hoveredTitle, `${hoveredTitle} → ${text($(".hero-title"))}`);
 $$(".row-switch .row-btn")[0].click();
 await settle(120);
-check("clicking Movies swaps back", text($(".section-title")) === "Movies");
+check("clicking Movies swaps back", $$(".row-switch .row-btn")[0]?.classList.contains("active") === true);
 
 /* ----------------------------------------------- hero label -> its row */
 /* A catalog label jumps to that row on the card; it no longer skips past the
@@ -865,7 +872,7 @@ check(
 await nav("#/calendar", 260);
 check("calendar is a month grid, not a catalog list", $$(".cal-grid .cal-cell").length > 27 && $$(".cal-dow").length === 7, `${$$(".cal-grid .cal-cell").length} cells`);
 check("calendar shows the month name", /^[A-Z][a-z]+ \d{4}$/.test(text($(".cal-month"))), text($(".cal-month")));
-check("calendar is not Latest or New Release rows", !/^Latest|^New Release/.test(text($(".view-title"))));
+check("calendar is not Latest or Newest rows", !/^Latest|^Newest/.test(text($(".view-title"))));
 
 /* The caption texts are gone. */
 check(
@@ -913,17 +920,13 @@ if (bothDay) {
     $$(".cal-detail .cal-pin.active").length === 1,
     $$(".cal-detail .cal-pin").map((b) => `${text(b)}:${b.className}`).join(" | "),
   );
-  // The heading and the cards, and no paragraph of explanation under them — the
-  // long hint was asked off this screen.
+  // **No *Recently planned* shelf, and no paragraph of explanation.** The plans live
+  // on the day they belong to; the shelf that repeated them under the grid — and the
+  // long hint that explained the pins — were both asked off this screen.
   check(
-    "Recently planned shows the plan as a card",
-    $$(".cal-recent .poster").length === 1 && text($(".cal-recent .section-title")) === "Recently planned",
-    text($(".cal-recent"))?.slice(0, 120),
-  );
-  check(
-    "and it carries no paragraph of explanation",
-    $$(".cal-recent .view-hint").length === 0 && $$(".cal-recent p").length === 0,
-    text($(".cal-recent"))?.slice(0, 160),
+    "the calendar carries no Recently planned shelf",
+    !$(".cal-recent") && !window.document.body.textContent.includes("Recently planned"),
+    `${$$(".cal-recent").length} shelves`,
   );
   // A calendar plan is stored in its own row: putting it in a watch state would
   // fill the Watchlist card's Plan to Watch row with something never planned there.
@@ -959,7 +962,11 @@ check("calendar days can be selected", (() => {
 
 /* ------------------------------------------------------------ search */
 await nav("#/search?q=india", 200);
-check("search finds results", $$(".result-list .result").length > 0, `${$$(".result-list .result").length} results`);
+// The page is the titles, not a list of catalog labels standing where the contents
+// should be: the *Collections* and *Catalogs* lists are gone.
+check("the search page opens no catalog-label lists",
+  $$(".search-results").length === 0 && $$(".result-list .result").length === 0,
+  `${$$(".result-list .result").length} label results`);
 await nav("#/search?q=zzzzzznope", 200);
 check("search reports no match for nonsense", window.document.body.textContent.includes("Nothing matched"));
 // Movies and shows are two lists under one search, never one mixed grid.
@@ -1011,14 +1018,14 @@ check("the filter choices are the app's own pills",
   /border-radius:\s*999px/.test(ruleFor(".filter-chip")) &&
     /background:\s*rgba\(255, 255, 255, 0\.07\)/.test(ruleFor(".filter-chip")),
   ruleFor(".filter-chip").trim().replace(/\s+/g, " ").slice(0, 80));
-// The chosen chip is solid, and the "More (216)" control is a drawn pill of its own:
-// it had *no rule at all*, so it fell back to the browser's own grey button — the
-// control that read like something random on the page.
-check("the chosen chip is solid, and the More control is not the browser's default button",
+// The chosen chip is solid, and a long line's control is **the card tag line's own
+// arrows** — a drawn, accent-tinted plate with a stroked chevron, not a bare mark and
+// not the browser's default button.
+check("the chosen chip is solid, and the long-line arrows are drawn controls",
   /\.filter-chip\.active\s*\{[^}]*background:\s*var\(--accent\)/.test(css) &&
-    /\.chip-more\s*\{/.test(css) &&
-    /border-radius:\s*999px/.test(ruleFor(".chip-more")),
-  ruleFor(".chip-more").trim().replace(/\s+/g, " ").slice(0, 80));
+    /\.chip-arrow\s*\{/.test(css) &&
+    /border-radius:\s*10px/.test(ruleFor(".chip-arrow")),
+  ruleFor(".chip-arrow").trim().replace(/\s+/g, " ").slice(0, 80));
 
 // Typing suggests, before you have asked for anything.
 const searchInput = $("#search-input");
@@ -1042,47 +1049,48 @@ $("#search-filter-btn").click();
 await settle(140);
 check("the filter button opens the filter panel", $("#search-filters") && !$("#search-filters").hidden);
 const filterLabels = () => $$("#search-filters .filter-row .filter-label").map(text);
-check("the panel carries one filter row per card line",
-  filterLabels().join(",") === "Type,Continent,Country,OTT,Genre,Mood,Theme,Time,Sort",
+check("the panel is four lines plus Sort",
+  filterLabels().join(",") === "Type,Country,Genre,Time,Sort",
+  filterLabels().join(","));
+check("Continent, OTT, Mood and Theme are not offered",
+  !filterLabels().some((l) => ["Continent", "OTT", "Mood", "Theme"].includes(l)),
   filterLabels().join(","));
 // One row of chips, as labels.
 const filterChips = (i) => [
   ...($$("#search-filters .filter-row")[i]?.querySelectorAll(".filter-chip") || []),
 ].map(text);
 const filterRowNode = (i) => $$("#search-filters .filter-row")[i];
-check("the Continent row is the Continental card's own continents",
-  filterChips(1).length === (liveFilters?.continents?.length ?? 0) && filterChips(1).includes("Asia"),
-  filterChips(1).join(","));
-check("the Country row is every country the Countries card publishes, clamped to two rows",
-  filterChips(2).length === (liveFilters?.countries?.length ?? 0) && filterChips(2).length > 100 &&
-    filterRowNode(2).querySelector(".filter-options")?.classList.contains("clamped") &&
-    Boolean(filterRowNode(2).querySelector(".chip-more")),
-  `${filterChips(2).length} countries of ${liveFilters?.countries?.length}`);
-check("the OTT row is the Global OTT card's own six platforms",
-  filterChips(3).length === (liveFilters?.providers?.length ?? 0) && filterChips(3).includes("Netflix"),
-  filterChips(3).join(","));
-check("the Mood and Theme rows are the keywords those cards publish, clamped too",
-  filterChips(5).length === (liveFilters?.moods?.length ?? 0) &&
-    filterChips(6).length === (liveFilters?.themes?.length ?? 0) && filterChips(6).length > 50 &&
-    filterRowNode(6).querySelector(".filter-options")?.classList.contains("clamped"),
-  `${filterChips(5).length} moods, ${filterChips(6).length} themes`);
-check("a clamped row's control says how many choices it holds",
-  /More \(\d+\)/.test(text(filterRowNode(2).querySelector(".chip-more"))),
-  text(filterRowNode(2).querySelector(".chip-more")));
-check("a clamped row opens with its chevron",
+check("the Country row is every country the Countries card publishes, in a two-row window",
+  filterChips(1).length === (liveFilters?.countries?.length ?? 0) && filterChips(1).length > 100 &&
+    filterRowNode(1).querySelector(".filter-options")?.classList.contains("clamped"),
+  `${filterChips(1).length} countries of ${liveFilters?.countries?.length}`);
+check("the Genre row is the categories both rows have, in the same window",
+  filterChips(2).includes("Drama") && filterRowNode(2).querySelector(".filter-options")?.classList.contains("clamped"),
+  filterChips(2).slice(0, 8).join(","));
+// A long line now wears **the card tag line's own control** — up and down arrows that
+// step the window a row at a time — instead of a *More (N)* pill that expanded it in
+// place and pushed everything under it out of the panel.
+check("a long line carries the up/down arrows, not a More pill",
+  Boolean(filterRowNode(1).querySelector(".chip-arrow.up")) &&
+    Boolean(filterRowNode(1).querySelector(".chip-arrow.down")) &&
+    !filterRowNode(1).querySelector(".chip-more"),
+  `${filterRowNode(1).querySelectorAll(".chip-arrow").length} arrows`);
+check("both arrows are wired to step the window",
   (() => {
-    const more = filterRowNode(6).querySelector(".chip-more");
-    more.click();
-    const open = !filterRowNode(6).querySelector(".filter-options")?.classList.contains("clamped");
-    more.click();
-    return open && filterRowNode(6).querySelector(".filter-options")?.classList.contains("clamped");
-  })(), "the chevron did not toggle the row");
+    try {
+      filterRowNode(1).querySelector(".chip-arrow.down").click();
+      filterRowNode(1).querySelector(".chip-arrow.up").click();
+      return true;
+    } catch {
+      return false;
+    }
+  })(), "clicking an arrow threw");
 check("the time row offers years, decade buckets and Before",
-  filterChips(7).length > 12 && filterChips(7).includes("Before"),
-  `${filterChips(7).length} periods`);
+  filterChips(3).length > 12 && filterChips(3).includes("Before"),
+  `${filterChips(3).length} periods`);
 check("with no type chosen, only the categories both rows have are offered",
-  !filterChips(4).includes("Romance") && filterChips(4).includes("Drama"),
-  filterChips(4).slice(0, 8).join(","));
+  !filterChips(2).includes("Romance") && filterChips(2).includes("Drama"),
+  filterChips(2).slice(0, 8).join(","));
 
 // Picking a filter is a URL — so it is shareable, reloadable and undoable.
 $$("#search-filters .filter-chip").find((c) => text(c) === "Japan").click();
@@ -1092,20 +1100,14 @@ check("and the panel says it is active", $$("#search-filters .filter-chip.active
 await nav("#/search", 180);
 $("#search-filter-btn").click();
 await settle(140);
-$$("#search-filters .filter-chip").find((c) => text(c) === "Asia").click();
+$$("#search-filters .filter-chip").find((c) => text(c) === "Drama").click();
 await settle(320);
-check("picking a continent puts it in the URL too", window.location.hash.includes("continent=Asia"), window.location.hash);
-await nav("#/search", 180);
-$("#search-filter-btn").click();
-await settle(140);
-$$("#search-filters .filter-chip").find((c) => text(c) === "Netflix").click();
-await settle(320);
-check("and so does picking an OTT service", window.location.hash.includes("provider=8"), window.location.hash);
+check("picking a genre puts it in the URL too", window.location.hash.includes("category=Drama"), window.location.hash);
 await nav("#/search?type=series", 200);
 check("with TV Series chosen the genre row offers the TV genres",
   // +1 for the "All Genres" chip at the head of the row.
-  filterChips(4).length === (liveFilters?.categories?.series?.length ?? 0) + 1 && filterChips(4).includes("Drama"),
-  filterChips(4).join(","));
+  filterChips(2).length === (liveFilters?.categories?.series?.length ?? 0) + 1 && filterChips(2).includes("Drama"),
+  filterChips(2).join(","));
 await nav("#/search?type=movie&category=Action&period=before&sort=rating", 700);
 check("a filtered browse asks the server for it",
   requested.some((u) => u.includes("/search.json?") && u.includes("category=Action") && u.includes("sort=rating")),
