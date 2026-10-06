@@ -1039,8 +1039,16 @@ function parseHash() {
     return { view: "title", type: decodeURIComponent(type || "movie"), id: decodeURIComponent(id || "") };
   }
   if (hash.startsWith("l/")) {
-    const [kind, id] = hash.slice(2).split("/");
-    return { view: "list", kind: decodeURIComponent(kind || "person"), id: decodeURIComponent(id || ""), type: query.get("type") || "" };
+    // Three segments, not two: a season's list is `l/season/<show>/<season>`, and
+    // reading only two dropped the season number — every season then opened season 1.
+    const [kind, id, extra] = hash.slice(2).split("/");
+    return {
+      view: "list",
+      kind: decodeURIComponent(kind || "person"),
+      id: decodeURIComponent(id || ""),
+      extra: decodeURIComponent(extra || ""),
+      type: query.get("type") || "",
+    };
   }
   if (hash.startsWith("channel/")) return { view: "channel", id: decodeURIComponent(hash.slice(8)) };
   if (hash === "guide") return { view: "guide" };
@@ -3088,11 +3096,13 @@ async function renderTitle(type, id) {
 }
 
 /** One name's own catalog, as a grid — a person's credits, a studio, a genre. */
-async function renderList(kind, id, type) {
+async function renderList(kind, id, type, extra = "") {
   const media = type === "series" ? "series" : "movie";
   let metas = [];
+  // `extra` is a season's number: `/list/season/<show>/<n>.json`.
+  const path = `/list/${kind}/${encodeURIComponent(id)}${extra ? `/${encodeURIComponent(extra)}` : ""}.json${listQuery(media)}`;
   try {
-    ({ metas = [] } = await get(`/list/${kind}/${encodeURIComponent(id)}.json${listQuery(media)}`));
+    ({ metas = [] } = await get(path));
   } catch (err) {
     return [el("div", { class: "empty-panel" }, el("p", { text: `Could not load this list — ${err.message}` }))];
   }
@@ -4260,7 +4270,7 @@ let lastRoute = "";
 
 async function render() {
   const parsed = parseHash();
-  const { view, key, id, name, group, type, kind } = parsed;
+  const { view, key, id, name, group, type, kind, extra } = parsed;
   const browsing = ["home", "card", "explore"].includes(view);
 
   // A screen you are **returning to** is put back where you left it, and a screen
@@ -4287,7 +4297,7 @@ async function render() {
   else if (view === "category") nodes = renderLiveCategory(group);
   else if (view === "channel") nodes = renderChannel(id);
   else if (view === "title") nodes = await renderTitle(type, id);
-  else if (view === "list") nodes = await renderList(kind, id, type);
+  else if (view === "list") nodes = await renderList(kind, id, type, extra);
   else if (view === "profiles") nodes = renderProfiles();
   else if (view === "card") nodes = renderCard(key);
   else if (view === "explore") nodes = renderExplore(key, id);
@@ -5864,7 +5874,9 @@ async function boot() {
   if (!hash || hash === "#/" || hash === "#") {
     location.hash = "#/profiles";
   }
-  render();
+  // `render` is awaited: the boot screen must not fade out over a page that has
+  // not been drawn yet (the title and list screens fetch before they render).
+  await render();
   endBoot();
 }
 
