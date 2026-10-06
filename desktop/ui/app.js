@@ -3873,25 +3873,33 @@ function liveRowSwitch() {
 }
 
 /** The live source, as the app keeps it (the server keeps its own masked copy). */
-const liveSource = () => ({
-  // `dth` is the premium/DTH/operator catalogue — the profile's own source. `m3u`
-  // and `xtream` are your own box's export.
-  mode: "dth",
-  m3u: "",
-  host: "",
-  username: "",
-  password: "",
-  epg: "",
-  refreshMinutes: 0,
-  // Which of the catalogue's providers this profile is drawn from. Empty means
-  // "not picked yet", and the app says so rather than showing an empty profile.
-  providers: [],
-  // Which countries of the catalogue this profile is scoped to. `allCountries`
-  // means every country the catalogue covers; a picked list means just those.
-  countries: [],
-  allCountries: false,
-  ...state.liveSource,
-});
+function liveSource() {
+  const live = {
+    // `dth` is the premium/DTH/operator catalogue — the profile's own source. `m3u`
+    // and `xtream` are your own box's export.
+    mode: "dth",
+    m3u: "",
+    host: "",
+    username: "",
+    password: "",
+    epg: "",
+    refreshMinutes: 0,
+    // Which of the catalogue's providers this profile is drawn from. Empty means
+    // "not picked yet", and the app says so rather than showing an empty profile.
+    providers: [],
+    // Which countries of the catalogue this profile is scoped to. `allCountries`
+    // means every country the catalogue covers; a picked list means just those.
+    countries: [],
+    allCountries: false,
+    ...state.liveSource,
+  };
+  // A stored mode from before the catalogue replaced the public directory says
+  // "demo", which is not a source any more — land on the catalogue rather than on a
+  // pane with nothing selected.
+  if (!["dth", "m3u", "xtream"].includes(live.mode)) live.mode = "dth";
+  if (!Array.isArray(live.providers)) live.providers = [];
+  return live;
+}
 
 /**
  * The countries Live TV is scoped to, as the `countries=` parameter.

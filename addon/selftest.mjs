@@ -791,9 +791,9 @@ check("an empty title search is a no-op, not a crash", (await call("/search.json
 
 // --- Live TV & Sports ---------------------------------------------------------
 // The channel and guide parsers are the parts of that profile a test can pin
-// without a live playlist: an M3U from anywhere, and an XMLTV document. The demo
-// source itself is exercised end to end by `scripts/ui-smoke.mjs` against the
-// running server.
+// without a live playlist: an M3U from anywhere, and an XMLTV document. The
+// premium/DTH source itself is exercised end to end by `scripts/ui-smoke.mjs`
+// against the running server.
 const { parseM3U, parseXMLTV, xmltvTime } = await import("./live.mjs");
 const m3u = parseM3U(
   [

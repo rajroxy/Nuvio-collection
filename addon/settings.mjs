@@ -45,17 +45,20 @@ const DEFAULTS = {
   // every row. "tvdb" therefore re-sources the *content* of every catalog from
   // TVDB and needs the TVDB provider enabled with a key, or it falls back.
   content: { source: "tmdb" },
-  // Live TV & Sports: where the channels and the guide come from. "demo" is the
-  // built-in public directory, "m3u" is your own playlist URL/file, "xtream" is
-  // an Xtream Codes login. `epg` is an XMLTV URL — with it the Guide draws real
-  // programme blocks, without it the lineup is still there and the Guide says so.
+  // Live TV & Sports: where the lineup and the guide come from. "dth" is the
+  // **premium/DTH provider catalogue** shipped with the app ("m3u" is your own
+  // playlist URL/file, "xtream" is an Xtream Codes login). `providers` is which of
+  // the catalogue's operators this profile is drawn from, and `epg` is an XMLTV URL
+  // — with it (or a provider's own public feed) the Guide draws real programme
+  // blocks; without it the lineup is still there and the Guide says so.
   live: {
-    mode: "demo",
+    mode: "dth",
     m3u: "",
     host: "",
     username: "",
     password: "",
     epg: "",
+    providers: [],
     // 0 → follow the content refresh interval above.
     refreshMinutes: 0,
   },
@@ -150,7 +153,8 @@ export function publicSettings() {
     // The live source is reported as *what is set*, never as the values: a
     // playlist URL can carry a token and a password is a password.
     live: {
-      mode: ["m3u", "xtream", "demo"].includes(s.live?.mode) ? s.live.mode : "demo",
+      mode: ["dth", "m3u", "xtream"].includes(s.live?.mode) ? s.live.mode : "dth",
+      providers: Array.isArray(s.live?.providers) ? s.live.providers : [],
       hasM3u: Boolean(s.live?.m3u),
       hasLogin: Boolean(s.live?.host && s.live?.username),
       hasEpg: Boolean(s.live?.epg),
