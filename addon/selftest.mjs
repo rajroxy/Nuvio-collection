@@ -101,7 +101,7 @@ const { handleAddon, buildManifest, catalogMetas } = await import("./index.mjs")
 // request does: through `catalogDefs()` for the country currently configured.
 const { catalogDefs } = await import("./catalogs.mjs");
 const CATALOG_DEFS = catalogDefs();
-const { COUNTRIES, PLATFORMS, COLLECTIONS, MOVIE_GENRES, SHOW_GENRES, collectionsFor, localServices, DEFAULT_COUNTRY, OTT_REGIONS } = await import("../scripts/collections.mjs");
+const { COUNTRIES, PLATFORMS, GLOBAL_OTT, COLLECTIONS, MOVIE_GENRES, SHOW_GENRES, collectionsFor, localServices, regionName, DEFAULT_COUNTRY, OTT_REGIONS } = await import("../scripts/collections.mjs");
 
 function fakeRes() {
   return {
@@ -265,9 +265,27 @@ check(
   })(),
   localServices("US", "movie").map((s) => s.name).join(","),
 );
+// Global OTT publishes exactly six platforms — the six it was built with. A platform
+// the probe verifies later is a *fact* (it lives in PLATFORMS) but not a row, so the
+// card cannot grow a seventh on its own.
 check(
-  "every global platform is present in all three OTT cards",
-  PLATFORMS.every(([label]) => namesIn("global-ott-top-10").includes(`${label} ◆ Top 10`) && namesIn("global-ott-popular").includes(`Popular ${label}`) && namesIn("global-ott").includes(label)),
+  "the three Global OTT cards carry exactly the six platforms, and no more",
+  GLOBAL_OTT.length === 6 &&
+    GLOBAL_OTT.every(([label]) => namesIn("global-ott-top-10").includes(`${label} ◆ Top 10`) && namesIn("global-ott-popular").includes(`Popular ${label}`) && namesIn("global-ott").includes(label)) &&
+    ["global-ott", "global-ott-popular", "global-ott-top-10"].every((key) => namesIn(key).length === 6 && namesIn(key, "series").length === 6),
+  `${namesIn("global-ott").length} global rows: ${namesIn("global-ott").join(", ")}`,
+);
+check(
+  "a platform verified later stays a fact, not a global row",
+  PLATFORMS.filter(([label]) => !GLOBAL_OTT.some(([l]) => l === label)).every(([label]) => !namesIn("global-ott").includes(label)),
+  PLATFORMS.map(([l]) => l).join(", "),
+);
+// The Regional OTT cards read their region out of the regional OTT data itself — its
+// own labels and codes — rather than through the Countries card's list.
+check(
+  "regional OTT resolves its region from the regional OTT data, not the Countries list",
+  OTT_REGIONS.length > 0 && OTT_REGIONS.every(([name, code]) => regionName(code) === name),
+  `${OTT_REGIONS.length} regions, e.g. ${OTT_REGIONS.slice(0, 3).map(([n, c]) => `${n} (${c})`).join(", ")}`,
 );
 check("the new Popular Global OTT card exists for both rows", namesIn("global-ott-popular").length > 0 && namesIn("global-ott-popular", "series").length > 0);
 check(

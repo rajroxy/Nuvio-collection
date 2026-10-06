@@ -90,31 +90,56 @@ export const COUNTRIES = [
   ["Austria", "AT"], ["Bulgaria", "BG"], ["Serbia", "RS"], ["Croatia", "HR"],
 ];
 
-// Hulu is a US service, so it is deliberately not in the global platform set.
+// The three Global OTT cards publish **six** platforms: the ones they were built
+// with. Hulu is a US service and was never one of them.
 //
-// Crunchyroll and Rakuten Viki are the two Asian-catalogue services: they are
-// verified local services in nearly every region, and they belong in the
-// **Regional OTT** cards (where they are added for every country, see
-// `WORLDWIDE` below), not doubled up in the Global OTT set.
-const GLOBAL_EXCLUDE = new Set(["Hulu", "Crunchyroll", "Viki"]);
+// A platform the probe verifies later stays in `PLATFORMS` — the fact list the probe
+// writes and the selftest checks — but does **not** become a seventh global row, so
+// the cards keep the composition they were designed around.
+export const GLOBAL_PLATFORMS = ["Netflix", "Prime Video", "Disney+", "Max", "Apple TV+", "Paramount+"];
 
-/** The global OTT platforms — [label, TMDB provider id], all verified. */
+/** Those six, resolved against the verified facts — [label, TMDB provider id]. */
+export const GLOBAL_OTT = GLOBAL_PLATFORMS.map((label) => {
+  const hit = VERIFIED.platforms.find((p) => p.id && p.label === label);
+  return hit ? [hit.label, hit.id] : null;
+}).filter(Boolean);
+
+// Crunchyroll and Rakuten Viki are the two Asian-catalogue services, and they belong
+// to the **Regional OTT** rows (added for every country, see `WORLDWIDE` below)
+// rather than to the Global OTT set — one service, one card family, never both.
+const ASIAN_ONLY = new Set(["Crunchyroll", "Viki"]);
+
+/**
+ * Every global platform the facts hold — [label, TMDB provider id].
+ *
+ * `probe-tmdb.mjs` verifies these and `probe-platforms.mjs` appends newly verified
+ * ones. The *cards* draw from `GLOBAL_OTT`, not from this list.
+ */
 export const PLATFORMS = VERIFIED.platforms
-  .filter((p) => p.id && !GLOBAL_EXCLUDE.has(p.label))
+  .filter((p) => p.id && !ASIAN_ONLY.has(p.label))
   .map((p) => [p.label, p.id]);
 
 export const DECADES = ALL_DECADES;
 
 /** Up to `LOCAL_LIMIT` local OTT services per region, verified to return titles. */
 export const LOCAL_LIMIT = 3;
-const localFor = (regionName, type) => (VERIFIED.regions[regionName]?.[type] ?? []).slice(0, LOCAL_LIMIT);
+const localFor = (region, type) => (VERIFIED.regions[region]?.[type] ?? []).slice(0, LOCAL_LIMIT);
 
-/** The country name behind an ISO code — the region setting stores the code. */
-export const countryName = (code) => {
-  const upper = String(code || "").toUpperCase();
-  const hit = COUNTRIES.find(([, c]) => c === upper);
-  return hit ? hit[0] : "";
-};
+/**
+ * The regional OTT data's own region labels, by ISO code.
+ *
+ * `tmdb-verified.json` records every region under its name *and* carries the code on
+ * the entry itself, so the Regional OTT cards resolve a code straight out of the
+ * regional OTT data. They used to resolve it through the Countries card's label list,
+ * which made one card family depend on another card's list — and a region the
+ * regional OTT data held but that list did not would have had no rows at all.
+ */
+const REGION_NAMES = new Map(
+  Object.entries(VERIFIED.regions).map(([name, entry]) => [String(entry.code || "").toUpperCase(), name]),
+);
+
+/** The regional OTT data's name for an ISO code ("" when it holds none). */
+export const regionName = (code) => REGION_NAMES.get(String(code || "").toUpperCase()) || "";
 
 /**
  * Services that belong in **every** region's Regional OTT card.
@@ -135,13 +160,19 @@ const WORLDWIDE = (VERIFIED.platforms || [])
 
 /** The verified local services for a country, plus the worldwide ones. */
 export const localServices = (code, type) => {
-  const local = localFor(countryName(code), type);
+  const local = localFor(regionName(code), type);
   const seen = new Set(local.map((s) => s.id));
   return [...local, ...WORLDWIDE.filter((s) => !seen.has(s.id))];
 };
 
-/** The regions that actually have a verified local OTT service. */
-export const OTT_REGIONS = COUNTRIES.filter(([name]) => localFor(name, "movie").length || localFor(name, "tv").length);
+/**
+ * The regions the regional OTT data actually holds services for — its own list, not
+ * the Countries card's, so the Regional OTT cards follow the regional OTT labels.
+ */
+export const OTT_REGIONS = Object.entries(VERIFIED.regions)
+  .filter(([, entry]) => entry.movie?.length || entry.tv?.length)
+  .map(([name, entry]) => [name, String(entry.code || "").toUpperCase()])
+  .sort((a, b) => a[0].localeCompare(b[0]));
 
 /** The country the collection set is built for unless Settings picks another. */
 export const DEFAULT_COUNTRY = (process.env.NUVIO_REGION || "US").toUpperCase();
@@ -187,7 +218,8 @@ const countriesFor = (type) =>
   });
 
 /**
- * Global OTT rows: Top 10, Popular, then everything — for every platform.
+ * Global OTT rows: Top 10, Popular, then everything — for the six `GLOBAL_OTT`
+ * platforms.
  *
  * Only the ◆ Top 10 rows are capped. `Popular`/`everything` used to carry a
  * `take` of 30/40, which made an OTT card the one place in the app whose rows
@@ -195,9 +227,9 @@ const countriesFor = (type) =>
  * reported "OTT cards don't scroll" bug. They are uncapped now.
  */
 const globalOtt = {
-  top10: (take) => PLATFORMS.map(([label, id]) => provider(`${label} ◆ Top 10`, id, null, take)),
-  popular: () => PLATFORMS.map(([label, id]) => provider(`Popular ${label}`, id, null)),
-  all: () => PLATFORMS.map(([label, id]) => provider(label, id, null)),
+  top10: (take) => GLOBAL_OTT.map(([label, id]) => provider(`${label} ◆ Top 10`, id, null, take)),
+  popular: () => GLOBAL_OTT.map(([label, id]) => provider(`Popular ${label}`, id, null)),
+  all: () => GLOBAL_OTT.map(([label, id]) => provider(label, id, null)),
 };
 
 /**

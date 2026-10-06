@@ -38,7 +38,10 @@ scripts/
   probe-ott.mjs             every OTT row, and which filter empties one
   probe-ai.mjs              which AI provider answers, and which models it serves
   probe-platforms.mjs       adds newly verified global OTT platforms to the fact
-                            table (exact-name match, skips ids already recorded)
+                            table (exact-name match, skips ids already recorded).
+                            Those stay facts: the Global OTT cards publish the six
+                            in `GLOBAL_OTT`, so a newly verified platform is not
+                            published as a row until it is added there
   scan-rows.mjs             every published row, and how deep it can be scrolled
   audit-catalogs.mjs        asks TMDB for every row, reports the empty ones
   ui-smoke.mjs              runs the whole UI headless (jsdom) against the server
@@ -144,12 +147,12 @@ drawn on the cover:
 | Popular by ◆ Decade | `Popular in <decade>s` (both) |
 | Decades | `<decade>s`, 1950s–2020s (both) |
 | Genre from ◆ Decades | `<Genre> ◆ 1950 → Present` — movie genres / TV genres (both) |
-| Global OTT ◆ Top 10 | `<Platform> ◆ Top 10` — Netflix, Prime Video, Disney+, Max, Apple TV+, Paramount+ (both) |
+| Global OTT ◆ Top 10 | `<Platform> ◆ Top 10` — the six platforms the card carries: Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+ (both) |
 | Popular Global OTT | `Popular <Platform>` — that platform's most popular right now (both) |
 | Global OTT | `<Platform>` — everything on that platform (both) |
-| Regional OTT Top 10 | `<Service> ◆ Top 10` — **your country's** services, then **Crunchyroll** and **Viki** (both) |
+| Regional OTT Top 10 | `<Service> ◆ Top 10` — the region's own services from the regional OTT data, then **Crunchyroll** and **Viki** (both) |
 | Popular Regional OTT | `Popular <Service>` — the same set (both) |
-| Regional OTT | `<Service>` — everything on your country's own services, plus the two Asian-catalogue services (both) |
+| Regional OTT | `<Service>` — everything on that region's own services, plus the two Asian-catalogue services (both) |
 | Continental | continent names (both) |
 | Countries | 60 country names (movies) / 59 (shows — Ghana has no series on TMDB) |
 | Runtimes | `30+ mins … 120+ mins` (**movies**) / `4 · 6 · 8 · 10 Episodes` (**shows**) |
@@ -157,16 +160,24 @@ drawn on the cover:
 | Moods & Vibes | Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic (both) |
 | Themes & Tags | Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip (both) — **not Documentary**: that is a genre, not a theme |
 
-The three **Regional OTT** cards follow the **country** set in Settings: the rows
-are that country's own services, verified to return titles in `tmdb-verified.json`
-(US → Hulu · Peacock Premium · Pluto TV, IN → JioHotstar · Zee5 · aha, GB → BBC
-iPlayer · ITVX · Channel 4, …). They used to publish *every* region's services —
-107 rows per card, almost all of them unwatchable from where you are — so the
-cards are now title-only on the cover as well: the card is the same everywhere,
-and the services inside it are yours. A country with no verified service (Ghana)
-publishes an empty card rather than an invented one, and the Content pane says so
-before you pick it. Each regional row id carries its region
-(`nuvio-regional-ott--jiohotstar-in`), so two countries can never collide on one
+**Global OTT publishes six platforms and only those six** — Netflix · Prime Video ·
+Disney+ · Max · Apple TV+ · Paramount+. A platform the probe verifies later is kept
+as a fact in `PLATFORMS` (so the probes and the selftest still know about it) but is
+deliberately not published as a global row, so the card cannot quietly grow a
+seventh. Hulu is a US service and was never one of the six.
+
+The three **Regional OTT** cards follow the **regional OTT data**, not the
+**Countries** card's list: `tmdb-verified.json` records each region under its own
+name with its ISO code on the entry, and the rows and the region are read from that
+entry. `localServices(code, ·)` → `regionName(code)` → the region's services, so
+which region a card is for and which services it holds come from one place — a
+region the regional OTT data knows but the Countries list does not cannot end up
+with an empty card. The services are those verified to return titles (US → Hulu ·
+Peacock Premium · Pluto TV, IN → JioHotstar · Zee5 · aha, GB → BBC iPlayer · ITVX ·
+Channel 4, …), up to `LOCAL_LIMIT` per row type, followed by Crunchyroll and Viki.
+The cards are title-only on the cover: the card is the same everywhere and the
+services inside it are the region's. Each regional row id carries its region
+(`nuvio-regional-ott--jiohotstar-in`), so two regions can never collide on one
 catalog id.
 
 **Watchlist** is a real card with a real row. A shared addon cannot know your
@@ -251,7 +262,7 @@ TMDB and cached in memory for 30 minutes (`TMDB_CACHE_TTL_MS` to change it).
 | Env var | Default | Purpose |
 |---|---|---|
 | `TMDB_API_KEY` | — | **Required.** TMDB v3 key or v4 read token. Catalogs stay empty without it. |
-| `NUVIO_REGION` | `US` | Default for the **country** setting: the region the three Regional OTT cards and the global platform rows are scoped to. |
+| `NUVIO_REGION` | `US` | Default for the **country** setting: the region the three Regional OTT cards read their services from. The Global OTT rows are not region-scoped. |
 | `NUVIO_LANGUAGE` | `en-US` | Default for the **language** setting: the language every row is served in, and the primary subtitle language. |
 | `TMDB_CACHE_TTL_MS` | `1800000` | Catalog cache window. |
 
