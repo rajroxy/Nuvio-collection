@@ -791,17 +791,132 @@ function renderProfiles() {
   ];
 }
 
-/** The hero banner, reflecting the selected row (Movies or Shows). */
+/* --------------------------------------- artwork drawn from a card's contents */
+
+/**
+ * One draw per app launch.
+ *
+ * A card's artwork is made of real images of the titles the card actually holds, and
+ * which slice of them is drawn is decided once per launch from this value: the
+ * pictures stay put while the app runs, and a new launch draws again — the requested
+ * "all cards change on app start".
+ */
+const LAUNCH_SEED = Math.floor(Math.random() * 1e9);
+
+/**
+ * Up to `count` images from a card's first visible catalog.
+ *
+ * The generated cover stays the base layer, so the artwork is never blank — not
+ * before the row answers, not without a provider key — and the card's own titles are
+ * drawn over it, so the banner and every card show what is inside them. The images
+ * come from the catalog endpoint the rows already use; nothing extra is fetched, and
+ * a failure just leaves the cover showing.
+ */
+/** One draw per card per launch: a redraw reuses it instead of asking again. */
+const contentDrawn = new Map();
+
+/** Lay `count` pictures into a strip, from this launch's slice of the card. */
+function drawTiles(strip, art, count) {
+  const start = art.length > count ? LAUNCH_SEED % (art.length - count + 1) : 0;
+  strip.replaceChildren(
+    ...art.slice(start, start + count).map((m) =>
+      el("img", { class: "content-tile", src: m.poster || m.background, alt: "", loading: "lazy" }),
+    ),
+  );
+}
+
+function contentStrip(card, row, count) {
+  const strip = el("div", { class: "content-strip", "aria-hidden": "true" });
+  const key = `${card.key}:${row}`;
+  const drawn = contentDrawn.get(key);
+  if (drawn) {
+    drawTiles(strip, drawn, count);
+    return strip;
+  }
+  const cat = orderedCatalogs(card).filter(catalogVisible)[0];
+  if (!cat) return strip;
+  const fill = () =>
+    get(`/catalog/${row}/${encodeURIComponent(cat.id)}.json${catalogQuery()}`)
+      .then(({ metas = [] }) => {
+        const art = metas.filter((m) => m.poster || m.background);
+        if (!art.length) return;
+        contentDrawn.set(key, art);
+        drawTiles(strip, art, count);
+      })
+      .catch(() => {
+        /* the cover is the fallback */
+      });
+  // Only a card that is actually on screen asks for its pictures, so the twenty
+  // cards below the fold do not each make a catalog call the moment Home opens.
+  if (typeof window.IntersectionObserver === "function") {
+    const seen = new window.IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        seen.disconnect();
+        fill();
+      }
+    });
+    seen.observe(strip);
+  } else {
+    fill();
+  }
+  return strip;
+}
+
+/* ------------------------------------------------------------- hero rotation */
+
+/** How often the banner moves to another card. */
+const HERO_ROTATE_MS = 10_000;
+let heroTimer = null;
+let heroKey = null;
+
+/** The cards the banner may show: visible, and actually holding rows. */
+const heroCandidates = () => state.collections.filter((c) => cardVisible(c) && rowOf(c).catalogs.length);
+
+/** The card the banner shows — one pick at launch, a new one every ten seconds. */
+function heroCard() {
+  const cards = heroCandidates();
+  if (!cards.length) return null;
+  const hit = cards.find((c) => c.key === heroKey);
+  if (hit) return hit;
+  heroKey = cards[Math.floor(Math.random() * cards.length)].key;
+  return cards.find((c) => c.key === heroKey);
+}
+
+/**
+ * Move the banner to a different card every ten seconds, at random.
+ *
+ * The banner used to sit on one fixed collection. It now walks the set — a new card,
+ * so new artwork and new catalog labels, every ten seconds, never the one already on
+ * screen. Only Home has a banner, so the ticker runs there and stops on any other
+ * screen.
+ */
+function startHeroRotation() {
+  stopHeroRotation();
+  heroTimer = setInterval(() => {
+    const cards = heroCandidates();
+    const current = heroCard();
+    if (cards.length < 2 || !current) return;
+    const others = cards.filter((c) => c.key !== current.key);
+    heroKey = others[Math.floor(Math.random() * others.length)].key;
+    const banner = document.querySelector(".hero");
+    if (banner) banner.replaceWith(heroBlock());
+  }, HERO_ROTATE_MS);
+}
+
+function stopHeroRotation() {
+  if (heroTimer) clearInterval(heroTimer);
+  heroTimer = null;
+}
+
+/** The hero banner — which card it shows changes at random every ten seconds. */
 function heroBlock() {
-  const featured =
-    state.collections.find((c) => c.key === "discover-top-10") ||
-    state.collections.find((c) => rowOf(c).catalogs.length);
+  const featured = heroCard();
   if (!featured) return null;
   const row = rowOf(featured);
   return el(
     "section",
     { class: "hero" },
-    el("div", { class: "hero-art", style: `background-image:url("${row.cover}")` }),
+    el("div", { class: "hero-art", style: `background-image:url("${row.cover}")` }, contentStrip(featured, apiType(), 5)),
     el(
       "div",
       { class: "hero-body" },
@@ -832,19 +947,26 @@ function iconBox(c, row) {
   return el(
     "div",
     { class: "icon-box" },
+    // The artwork is the button; the card's own pictures are laid over it and never
+    // take a click, so entering a card still happens on its artwork alone.
     el(
-      "button",
-      {
-        class: "icon-art focusable",
-        type: "button",
-        title: `Open ${c.title}`,
-        "aria-label": `Open ${c.title}`,
-        onclick: () => {
-          setRow(row);
-          go(`#/c/${encodeURIComponent(c.key)}`);
+      "div",
+      { class: "icon-wrap" },
+      el(
+        "button",
+        {
+          class: "icon-art focusable",
+          type: "button",
+          title: `Open ${c.title}`,
+          "aria-label": `Open ${c.title}`,
+          onclick: () => {
+            setRow(row);
+            go(`#/c/${encodeURIComponent(c.key)}`);
+          },
         },
-      },
-      el("img", { src: r.cover, alt: c.title, loading: "lazy" }),
+        el("img", { src: r.cover, alt: c.title, loading: "lazy" }),
+      ),
+      contentStrip(c, row, 4),
     ),
     el(
       "span",
@@ -2668,6 +2790,11 @@ function render() {
   main.classList.add("view-in");
   renderTabs();
   window.scrollTo({ top: 0 });
+
+  // Only Home has a banner: the ten-second rotation runs there, and any other screen
+  // stops it rather than leaving a timer redrawing a banner that is not on screen.
+  if (view === "home") startHeroRotation();
+  else stopHeroRotation();
 }
 
 /* ------------------------------------------------------------ keyboard nav */

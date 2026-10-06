@@ -320,6 +320,23 @@ check("Movies is the default selection", $$(".row-switch .row-btn")[0]?.classLis
 check("the grid under the hero is the Movies grid", text($(".section-title")) === "Movies" && $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/movies/")));
 check("every tile image has a real cover src", $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/")));
 check("a tile is entered by its artwork only", $$(".icon-box .icon-art").length === $$(".icon-box").length && $$(".icon-box button").length === $$(".icon-box").length);
+// Every card (and the banner) draws pictures of what it holds over its cover, and the
+// overlay never becomes a second click target.
+check("every card lays its own contents over the cover",
+  $$(".icon-box").every((b) => Boolean(b.querySelector(".content-strip"))),
+  `${$$(".content-strip").length} strips`,
+);
+// jsdom does not compute pointer-events for a class rule, so read the stylesheet —
+// the overlay must never swallow the click that enters a card.
+check("and the overlay never takes the click that opens a card", /pointer-events:\s*none/.test(ruleFor(".content-strip")), ruleFor(".content-strip").trim().slice(0, 70));
+check("the banner lays its card's contents over the cover too", Boolean($(".hero-art .content-strip")));
+// The strips are filled from the catalog endpoint, so give the row a moment to answer.
+await settle(2500);
+check("and those pictures are real images of the card's titles",
+  $$(".content-strip .content-tile").length > 0 &&
+    $$(".content-strip .content-tile").every((i) => /^https?:/.test(i.getAttribute("src") || "")),
+  `${$$(".content-strip .content-tile").length} tile images`,
+);
 check("Watchlist is first and a divider precedes the rest",
   text($$(".icon-box .icon-name")[0]) === "Watchlist" && Boolean($(".icons .v-divider")),
   `first: ${text($$(".icon-box .icon-name")[0])}`);
@@ -345,6 +362,14 @@ $$(".row-switch .row-btn")[1].click();
 await settle(120);
 check("clicking Shows swaps the cards", text($(".section-title")) === "Shows" && $$(".icon-art img").every((i) => (i.getAttribute("src") || "").includes("/covers/shows/")));
 check("and swaps the hero banner too", ($(".hero-art")?.getAttribute("style") || "") !== heroArtBefore && ($(".hero-art")?.getAttribute("style") || "").includes("/covers/shows/"));
+// The banner moves on its own: a different card every ten seconds, at random. This
+// waits out one interval rather than trusting the timer to exist.
+const heroBefore = text($(".hero-title"));
+await settle(10_600);
+check("the banner moves to another card on its own within ten seconds",
+  Boolean(text($(".hero-title"))) && text($(".hero-title")) !== heroBefore,
+  `${heroBefore} → ${text($(".hero-title"))}`,
+);
 $$(".row-switch .row-btn")[0].click();
 await settle(120);
 check("clicking Movies swaps back", text($(".section-title")) === "Movies");
@@ -366,7 +391,10 @@ check("the rows are in the published order, not shuffled by a control",
       ?.movie.catalogs.map((x) => x.name).join(" | "),
   $$(".cat-row .cat-name").map(text).join(", "),
 );
-// Enter Explore the way a user does: the row's own button.
+// Enter Explore the way a user does: the row's own button — on the card that owns
+// the ◆ Top 10 rows, because the banner is no longer pinned to that one card (it
+// rotates), so the chip above can land on any collection.
+await nav("#/c/discover-top-10", 900);
 $$(".cat-row .btn.explore")[0].click();
 await settle(1200);
 check("a row's Explore opens that catalog", window.location.hash.startsWith("#/x/"), window.location.hash);

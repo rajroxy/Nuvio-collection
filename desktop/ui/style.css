@@ -281,6 +281,26 @@ body {
 }
 .icon-art img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 
+/* The card's own pictures, laid over its cover. The wrapper is only as tall as the
+   artwork, so the strip lines up with it, and it never takes the click that enters
+   the card. */
+.icon-wrap { position: relative; }
+.content-strip {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-content: end;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(4, 5, 8, 0.62), rgba(4, 5, 8, 0) 62%);
+  animation: content-in 0.5s ease both;
+}
+/* Nothing loaded (yet) → nothing drawn, so the cover reads on its own. */
+.content-strip:empty { display: none; }
+.content-tile { width: 100%; height: 46%; object-fit: cover; }
+@keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
+
 .icon-meta { display: block; padding: 12px 14px 14px; }
 .icon-name { display: block; font-size: 15px; font-weight: 700; }
 .icon-sub { display: block; margin-top: 3px; font-size: 11px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
@@ -371,7 +391,8 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
   overflow: hidden;
 }
 
-.hero-art { aspect-ratio: 16 / 9; border-radius: var(--radius); background: var(--panel-2) center/cover no-repeat; }
+.hero-art { position: relative; overflow: hidden; aspect-ratio: 16 / 9; border-radius: var(--radius); background: var(--panel-2) center/cover no-repeat; }
+.hero-art .content-tile { height: 42%; }
 .hero-body { min-width: 0; }
 
 .hero-kicker {
