@@ -311,6 +311,32 @@ body {
 .icon-box.card-spotlight .content-strip.backdrop { inset: 0; }
 /* A card that rises under the cursor is promising a door, and this one is a window. */
 .icon-box.card-spotlight:hover { transform: none; }
+/* **The still names itself.** The card's label underneath says Upcoming — the card —
+   so the picture carries the title, its year and its rating over a bottom gradient.
+   The strip takes no pointer events, and the caption is `aria-hidden`: it repeats
+   what sighted readers get from the picture, and a screen reader gets the card. */
+.icon-box.card-spotlight .content-strip.backdrop { justify-content: flex-start; }
+.spotlight-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 30px 16px 12px;
+  background: linear-gradient(0deg, rgba(3, 4, 6, 0.88), rgba(3, 4, 6, 0));
+  text-align: left;
+}
+.spotlight-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spotlight-meta { font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.72); }
 
 /* Only the artwork opens a collection — so the artwork is the button. */
 .icon-art {
@@ -324,7 +350,7 @@ body {
   -webkit-appearance: none;
   appearance: none;
 }
-.icon-art img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.icon-art img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; object-position: 50% 20%; }
 
 /* The card's own posters, *inside* the artwork.
 
@@ -351,6 +377,7 @@ body {
   min-width: 0;
   height: 100%;
   object-fit: cover;
+  object-position: 50% 20%;
   border-radius: 10px;
   /* The app's panel, never a black band: a picture that does not fill its box, or a
      slot with nothing in it, reads as the card's own surface. */
@@ -976,7 +1003,7 @@ button:focus-visible,
   border-radius: 20px;
 }
 
-.modal-hero { aspect-ratio: 16 / 7; background: var(--panel-2) center/cover no-repeat; }
+.modal-hero { aspect-ratio: 16 / 9; background: var(--panel-2) 50% 18%/cover no-repeat; }
 .modal-body { padding: 22px 28px 30px; }
 .modal-body h2 { margin: 0 0 6px; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
 .modal-meta { margin: 0 0 14px; font-size: 13px; color: var(--accent); font-weight: 700; letter-spacing: 0.08em; }
@@ -1486,7 +1513,7 @@ body { background: var(--ink); }
 
 /* The banner's one picture: a landscape shot filling the padded frame, cropped to
    the frame rather than stretched into it. */
-.hero-art .content-strip .content-tile { height: 100%; object-fit: cover; }
+.hero-art .content-strip .content-tile { height: 100%; object-fit: cover; object-position: 50% 20%; }
 
 /* ------------------------------------------- components, one shared language */
 
@@ -2003,14 +2030,25 @@ textarea:focus-visible {
    treatment: a rounded card at the page's own width, the wide shot filling it. */
 .title-hero {
   position: relative;
-  min-height: 52vh;
+  /* A compact banner, not a full page: 40vh leaves Play, the pins and the start of
+     Ratings on the first screen. The frame is wider than the 16:9 wide shot, so
+     `cover` must crop — and it crops from the bottom (see `object-position` on the
+     art below), never the heads. */
+  min-height: 40vh;
   margin: 0 0 28px;
   padding: 0;
   border-radius: 16px;
   overflow: hidden;
   background: linear-gradient(160deg, var(--panel-2), var(--panel));
 }
-.title-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* **The banner card is stretched down, not the picture.** The ask was height for the
+   frame — a taller card crops less off the top and bottom of a wide shot — and never
+   a stretched picture, so the art is `cover` again: it fills the frame at its own
+   shape with the sides always full. Posters keep their own plate
+   (`.title-hero-poster`), whole and uncropped. */
+/* Heads live in the top third of a wide shot, so any unavoidable crop takes from
+   the bottom, never the top. Center-cropping is what ate the heads. */
+.title-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; }
 /* **A poster-backed banner.** A 2:3 poster stretched across a 16:9 frame came out
    cropped and half-empty, so when a title has no wide shot the poster is drawn
    **whole** over a blurred copy of itself, which fills the frame without cutting the
@@ -2041,20 +2079,14 @@ textarea:focus-visible {
 }
 /* Play and the pins are the page's own first row now, not an overlay on the picture. */
 .title-body > .title-actions { margin-top: 2px; }
-/* The scrim is what keeps the name and the buttons readable over any artwork. */
-.title-hero-scrim {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgba(4, 5, 8, 0.92) 0%, rgba(4, 5, 8, 0.55) 55%, rgba(4, 5, 8, 0.25) 100%),
-    linear-gradient(0deg, rgba(4, 5, 8, 0.96) 0%, rgba(4, 5, 8, 0) 55%);
-}
+/* No scrim: nothing sits on the banner any more, so nothing needs darkening for. */
 .title-hero-inner {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 14px;
-  min-height: 52vh;
+  min-height: 40vh;
   padding: 30px 30px 34px;
   justify-content: flex-end;
 }

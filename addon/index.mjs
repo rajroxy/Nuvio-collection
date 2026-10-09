@@ -25,6 +25,7 @@ import {
   collectionsFor,
   continentsWithContent,
   countryVocab,
+  REMOVED_COUNTRY_CODES,
   keywordVocab,
   localServices,
   title as collectionTitle,
@@ -1112,12 +1113,24 @@ async function episodesMetas(media, bucket, skip, language, adult, size = PAGE_S
 /* --------------------------------------------------------- the For You deal */
 
 /**
- * How many titles the For You rows keep aside for the next row's draw.
+ * How many titles the For You rows keep aside.
  *
- * Three rows' worth: the card draws four together, so a window that holds more than
- * that stops being able to say which titles are genuinely fresh.
+ * One full open of the card: four rows of forty per row type. The memory holds the
+ * open in progress — and only that — because the rows are all requested at once: the
+ * second request is in flight before the first answer lands, so "what did the row
+ * above me show" cannot travel on the request. It travels here instead: every row
+ * reads and writes the same shared memory, and Node answers the requests one at a
+ * time, so row N always sees what rows 1..N-1 dealt.
+ *
+ * The memory is **per open of the card**, not per card for all time: the page sends an
+ * `open` nonce with every row request (see `forYouOpen` in the app), and the memory
+ * key carries it. That is what makes re-opens re-deal instead of echo — with one
+ * shared key, the second open would find the pools already memorized and top every row
+ * back up from the same titles, the "same titles every time I open it" report. A full
+ * open can be eight rows of forty (the empty-watchlist fallback), so the memory holds
+ * 400; old opens fall off the far end of the map (`> 40` keys are dropped).
  */
-const FOR_YOU_MEMORY = 150;
+const FOR_YOU_MEMORY = 400;
 /** The ids each For You card's rows have just handed out, per row type. */
 const forYouMemory = new Map();
 
@@ -1153,8 +1166,8 @@ function shuffleInPlace(list) {
  * it. The page knows what its sibling rows have already shown, so it sends those ids
  * here and they are dropped from the deal before it is handed over.
  */
-function dealForYou(entry, pool, media, def, skip, window, exclude) {
-  const memoryKey = `${media}:${def.key ?? ""}`;
+function dealForYou(entry, pool, media, def, skip, window, exclude, open) {
+  const memoryKey = `${media}:${def.key ?? ""}:${open || ""}`;
   // Grow the dealt order with whatever the pool added since the last request.
   if (!entry.order || entry.order.length < pool.length) {
     const added = [];
@@ -1162,21 +1175,43 @@ function dealForYou(entry, pool, media, def, skip, window, exclude) {
     entry.order = [...(entry.order || []), ...shuffleInPlace(added)];
   }
   if (skip === 0) {
-    // A fresh roll: a new order, and the rows' own titles at the back.
+    // A fresh roll: a new order, dealt **past** what the memory holds — the titles
+    // the card's other rows just dealt in this open (they wrote them here before this
+    // request was answered) and the last draws before that. Pushing them to the back
+    // was not enough: TMDB's recommendation lists overlap, so the same popular title
+    // opens several rows whatever the seed is, and "later in the order" still meant
+    // "on screen twice". Skipped titles leave no holes — a second pass over the
+    // order tops the window back up to full, so a row that has to pass over ten is
+    // still a row of forty.
     shuffleInPlace(entry.order);
     const recent = new Set(forYouMemory.get(memoryKey) || []);
-    entry.order.sort((a, b) => (recent.has(pool[a]?.id) ? 1 : 0) - (recent.has(pool[b]?.id) ? 1 : 0));
+    const skipped = (id) => recent.has(id) || (exclude?.size && exclude.has(String(id)));
+    const out = [];
+    for (const i of entry.order) {
+      if (out.length >= window) break;
+      const m = pool[i];
+      if (!m || skipped(m.id)) continue;
+      out.push(m);
+    }
+    if (out.length < window) {
+      const have = new Set(out.map((m) => m.id));
+      for (const i of entry.order) {
+        if (out.length >= window) break;
+        const m = pool[i];
+        if (!m || have.has(m.id)) continue;
+        out.push(m);
+      }
+    }
+    forYouMemory.set(
+      memoryKey,
+      [...out.map((m) => m.id), ...(forYouMemory.get(memoryKey) || [])].slice(0, FOR_YOU_MEMORY),
+    );
+    if (forYouMemory.size > 40) forYouMemory.delete(forYouMemory.keys().next().value);
+    return out;
   }
-  // **Dealt to a full window, skipping what the sibling rows showed.** The titles
-  // already on screen for this card are passed over rather than left as holes, so a
-  // row that has to skip five of them is still a row of twenty.
-  const out = [];
-  for (let i = skip; i < entry.order.length && out.length < window; i++) {
-    const m = pool[entry.order[i]];
-    if (!m) continue;
-    if (exclude?.size && exclude.has(String(m.id))) continue;
-    out.push(m);
-  }
+  // Paging inside one row walks its own order — the row's own earlier pages must
+  // not count against it, so the skip only applies to the opening window.
+  const out = entry.order.slice(skip, skip + window).map((i) => pool[i]).filter(Boolean);
   forYouMemory.set(
     memoryKey,
     [...out.map((m) => m.id), ...(forYouMemory.get(memoryKey) || [])].slice(0, FOR_YOU_MEMORY),
@@ -1236,7 +1271,9 @@ export async function catalogMetas(media, def, skip, opts = {}) {
         .filter(Boolean)
         .slice(0, 500),
     );
-    return stripAdult(dealForYou(entry, pool, media, def, skip, window, exclude), Boolean(opts.adult));
+    // The card's own open-nonce (see `forYouOpen` in the app): one open, one memory.
+    const open = String(opts.open || "").replace(/[^a-z0-9]/gi, "").slice(0, 12);
+    return stripAdult(dealForYou(entry, pool, media, def, skip, window, exclude, open), Boolean(opts.adult));
   }
   return stripAdult(pool.slice(skip, skip + window), Boolean(opts.adult));
 }
@@ -1297,7 +1334,10 @@ const LANGUAGES = [
 function appOptions() {
   return {
     languages: LANGUAGES.map(([code, label]) => ({ code, label })),
-    countries: COUNTRIES.map(([name, code]) => ({
+    // A country published nowhere is not offered as a choice either (see
+    // `REMOVED_COUNTRY_CODES`): a territory with no rows, no chips and no service
+    // rows would otherwise still sit in the picker promising all three.
+    countries: COUNTRIES.filter(([, code]) => !REMOVED_COUNTRY_CODES.has(code)).map(([name, code]) => ({
       code,
       name,
       services: localServices(code, "movie").length + localServices(code, "tv").length,
@@ -1849,11 +1889,15 @@ export async function handleAddon(req, res, pathname, origin) {
   // the pool key: it changes which *slice* of the pool this request gets, not which
   // pool the row is.
   const exclude = params.get("exclude") || "";
+  // **The card's open-nonce** (`?open=`): every row of one open of the For You card
+  // carries the same short token, so the shared deal memory is per open and a second
+  // open re-deals instead of echoing the first.
+  const open = params.get("open") || "";
 
   try {
     const metas = parsed.shuffle
       ? await catalogShuffle(parsed.type, parsed.def, parsed.shuffle, { adult, language, sort })
-      : await catalogMetas(parsed.type, parsed.def, parsed.skip, { adult, language, sort, exclude, count: Number(params.get("count")) || 0 });
+      : await catalogMetas(parsed.type, parsed.def, parsed.skip, { adult, language, sort, exclude, open, count: Number(params.get("count")) || 0 });
     // Better posters first (it may replace `poster`), then the chosen content
     // source (which owns the poster when it is TVDB), then extra metadata.
     await applyPosters(metas);

@@ -218,15 +218,15 @@ this bar as well; with the catalog now up here it was the same two words twice, 
 the line — and the switcher that hung off it — went with the duplication. A **title
 page** lost its big `h1` for the same reason: the name is in the bar.
 
-**The title page's banner is artwork and nothing else.** With the name gone and **Play**
-and the pins moved down onto the page, the banner holds one picture. It is the title's
-own **wide shot** when it has one. When it has only a **poster**, the poster is drawn **as
-a poster**: whole, at its own shape, with its own rounded edge and shadow, standing
-inside the frame on a **much darker and softer wash** of itself. Two earlier attempts
-are why that is the rule — a poster stretched `cover` across the 16:9 frame came out
-cropped, and a poster laid in as a `contain` strip at the right edge came out as a sharp
-slice of artwork beside a blurry smear. Both read as "the poster does not fit". **Play
-and the pins are the page's first row**, under the banner and **above the ratings**.
+**The title page's banner is artwork and nothing else, in a taller card.** With the name
+gone and **Play** and the pins moved down onto the page, the banner holds one picture — and the card itself is **compact** (`min-height: 40vh`, so Play, the pins and Ratings fit the first screen), cropping from the bottom instead of the top — so a wide shot loses
+less off its top and bottom instead of showing only its middle band. The picture is
+never stretched: the art stays `cover`, at its own shape, and a title with no wide
+shot keeps its poster **as a poster** — whole, rounded, shadowed, on a dark wash.
+(Stretching the picture was tried and reverted: it slimmed every face in the frame.)
+There is **no scrim**: it darkened the picture for a name and buttons that moved off
+it, so every banner read as murky — artwork and nothing else means nothing dimming it.
+**Play and the pins are the page's first row**, under the banner and **above the ratings**.
 
 ## Torrents
 
@@ -351,7 +351,10 @@ manifest marks `spotlight`): the **same 16:9 frame every card has**, so it sits 
 same row** as the Watchlist and the Custom card, but the frame holds **one still**
 instead of a wall of four posters, and that still **changes every ten seconds** the way
 the hero banner's does (one of its own titles each time, never the one on screen, and
-it holds still while the cursor is over it — see `startSpotlight`). **Nothing in it is
+it holds still while the cursor is over it — see `startSpotlight`). The still **names
+itself**: the title, its year and its rating ride over a bottom gradient on the picture
+(`drawSpotlight`), because the label underneath names the *card* and opening the card
+to learn the title defeats a card that is not a door. **Nothing in it is
 clickable**: there is no artwork button, so it is not a focus stop, it takes no hover
 lift, and a title rotating through it is a glance rather than a link.
 **Airing This Week** is no longer one of the banner's
@@ -376,13 +379,18 @@ back — an ordinary catalog row keeps its `max-age` and is not re-fetched point
 
 **The For You rows are dealt, not walked.** Its rows are one title's own recommendations
 each (`More Like …`), and TMDB's recommendation lists overlap — a film stays popular
-whatever you seed with — so the card had a habit of showing the same title in two of its
-rows. Three things stop it now: the order is **shuffled on every open**; the titles
-handed out recently are remembered and pushed to the back; and each row is told what the
-card's **other rows have already put on screen in that open** (`?exclude=` on the catalog
-URL — see `forYouServed` in `ui/app.js` and `dealForYou` in `addon/index.mjs`), so a title
-cannot appear twice on the page. What it passes over is skipped rather than left as a
-hole, so a row that has to skip several is still a full row.
+whatever you seed with — so the card showed the same title in two of its rows. Three
+things stop it now: the order is **shuffled on every open**; every row of one open
+carries the same **open-nonce** (`?open=`, minted per open in `renderCard`) and reads
+and writes the **one shared memory for that open**, which the deal **skips** rather than
+pushing to the back — Node answers the card's simultaneous requests one at a time, so
+each row sees what the rows above it dealt (see `dealForYou` in `addon/index.mjs`). A
+second open mints a new nonce and re-deals instead of echoing the first: two opens deal
+160 distinct titles each with only the genuinely shared titles in common. What a row
+passes over is skipped rather than left as a hole — a second pass tops the window back
+up — so a row that has to skip ten is still a full row. Every card page keeps its **chip
+line**, the For You card included: it was dropped once as unasked duplication and put
+back — the line is how a card's rows are named in one place.
 
 **Catalog labels are clickable** — in the hero banner and on a collection page each
 catalog name is a chip that opens that catalog inside the card.

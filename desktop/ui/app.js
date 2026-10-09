@@ -884,6 +884,7 @@ async function fetchCatalog(catalog, skip = 0, count = 0) {
   if (catalog.kind === "recommend") {
     const exclude = forYouExclude(catalog.id);
     if (exclude) params.set("exclude", exclude);
+    if (forYouOpen) params.set("open", forYouOpen);
   }
   if (stateful) params.set("_", String(Date.now()));
   const query = params.toString();
@@ -905,6 +906,17 @@ const forYouServed = new Map();
 function clearForYouServed() {
   forYouServed.clear();
 }
+
+/**
+ * The current open of the For You card, as a short nonce.
+ *
+ * Every row of one open carries it (`?open=`), so the server's shared deal memory is
+ * per open: a second open re-deals instead of echoing the first. Without it the rows
+ * of an open share one memory with every open before it, and once the pools are
+ * memorized every row tops back up from the same titles — the same titles, every
+ * time, on every row.
+ */
+let forYouOpen = "";
 
 /** The ids the *other* rows of this card have shown, as the server takes them. */
 function forYouExclude(ownId) {
@@ -1938,11 +1950,26 @@ async function startSpotlight(strip, card, row) {
 }
 
 /** Put the current title's landscape picture in the card's frame. */
+/**
+ * The still carries its own caption — the title, its year and its rating, over a
+ * bottom gradient — because the card's label underneath names the *card* (Upcoming),
+ * not what is on the picture, and opening the card to learn the title defeats a card
+ * that is not a door.
+ */
 function drawSpotlight() {
   const strip = spotlightStrip;
   if (!strip || !strip.isConnected || !spotlightList.length) return;
   const m = spotlightList[spotlightAt % spotlightList.length];
-  strip.replaceChildren(el("img", { class: "content-tile", src: heroImage(m), alt: "", loading: "lazy" }));
+  const meta = [m.releaseInfo, m.imdbRating ? `★ ${m.imdbRating}` : ""].filter(Boolean).join(" · ");
+  strip.replaceChildren(
+    el("img", { class: "content-tile", src: heroImage(m), alt: "", loading: "lazy" }),
+    el(
+      "div",
+      { class: "spotlight-caption", "aria-hidden": "true" },
+      el("span", { class: "spotlight-title", text: m.name || "" }),
+      meta ? el("span", { class: "spotlight-meta", text: meta }) : null,
+    ),
+  );
   // The same marker a card's strip carries: `filled` means "this is the picture",
   // and the frame under it is the app's own flat panel until then.
   strip.classList.add("filled");
@@ -2232,6 +2259,8 @@ async function renderCard(key) {
     // order each time, so the wall it wears on Home is dropped here: coming back
     // draws four new picks rather than the four the app drew at launch — and what
     // the rows showed last time is forgotten too, so the new deal starts clean.
+    // The open-nonce goes with it: this open's rows share one server memory.
+    forYouOpen = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     forgetCardArt({ key });
     clearForYouServed();
   }
@@ -2240,7 +2269,10 @@ async function renderCard(key) {
   // card reads exactly as Home does (and the chip line cannot link to it).
   const catalogs = orderedCatalogs(c).filter(catalogVisible);
   // The tags the header draws, in the card's own order — the chips are all the page
-  // needs up there now that the name lives in the top bar.
+  // needs up there now that the name lives in the top bar. Every card keeps them,
+  // the For You card included: they were dropped once as "duplicating the headings"
+  // and that was wrong — nobody asked for it, and the line is how a card's rows are
+  // named in one place.
   const chips = row.catalogs.filter(catalogVisible);
 
   // Name and tags first, the artwork card second — the same reading order as the
@@ -3573,7 +3605,9 @@ async function renderTitle(type, id) {
               el("img", { src: poster, alt: "", loading: "eager" }),
             )
           : null,
-      el("div", { class: "title-hero-scrim", "aria-hidden": "true" }),
+      // **No scrim.** It is a leftover from when the name and the buttons sat on the
+      // picture; the banner is artwork and nothing else now, so a gradient darkening it
+      // for text that is no longer there only made every banner read as murky.
     ),
 
     el(
@@ -7670,7 +7704,10 @@ async function boot() {
   setupInput();
 
   try {
-    state.collections = await get("/collections.json");
+    // A cache-buster, like `refreshCollections`: For You's rows are rebuilt per
+    // request, and without one the browser can hand back the list it already has —
+    // the same rows after every reload.
+    state.collections = await get(`/collections.json?_=${Date.now()}`);
   } catch (err) {
     document.getElementById("main").replaceChildren(
       el("p", { class: "empty", text: `Could not reach the catalog server: ${err.message}` }),
@@ -7686,7 +7723,10 @@ async function boot() {
   // the manifest in hand, `rowOf` drops them before anything is drawn, so a screen
   // can only ever offer rows that exist.
   try {
-    const manifest = await get("/manifest.json");
+    // Cache-busted with the cards above: the manifest carries For You's row ids,
+    // which are re-rolled per request, so a cached copy would reference rows that
+    // no longer resolve.
+    const manifest = await get(`/manifest.json?_=${Date.now()}`);
     const ids = (manifest?.catalogs || []).map((c) => c.id).filter(Boolean);
     if (ids.length) state.publishedCatalogs = new Set(ids);
   } catch {

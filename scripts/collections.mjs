@@ -81,23 +81,92 @@ export const CONTINENTS = {
  * States. That is not a quality judgment this file gets to make, and "there is less of
  * it" is not "there is none of it".
  *
- * So the rule is now the smallest true one: **if TMDB has any title for a country on a
- * row type, that country gets that row.** It is still asked **per type** — most
- * countries have films and no shows, and that must not cost them their films — and the
- * only countries left out are the ones TMDB genuinely has nothing for, which is a fact
- * about the source and not a choice: 36 territories (Anguilla, Vanuatu, San Marino and
- * the like) return zero films and zero shows, and a row for one of those would be an
- * empty screen with a country's name on it.
+ * So the rule was the smallest true one: **if TMDB has any title for a country on a
+ * row type, that country gets that row** — until the user asked for the opposite:
+ * countries with **fewer than fifty titles** on a row type are out, `MIN_COUNTRY_TITLES
+ * = 50`, still asked **per type**. This cuts real catalogs, and that is the point of
+ * writing it down: Pakistan's 38-film row goes, Qatar (41 films / 2 shows) goes
+ * entirely, Sri Lanka (30/3), Nepal (20 films), Azerbaijan (16), Bermuda (11),
+ * Uzbekistan (7), Indonesia's 21-show row (its 592 films stay), Bangladesh's 11-show
+ * row (its 132 films stay), Thailand keeps 629/433 and Egypt 724/117. The 29 named
+ * removals (`REMOVED_COUNTRY_NAMES`) still apply on top, and the 36 territories TMDB
+ * returns nothing for were never published.
  *
  * `countryHasContent` is what everything reads — the Countries card's rows, the search
  * panel's country chips, the cross-country shuffle pool and the continent rows — so no
- * screen can offer a country a different screen would not.
+ * screen can offer a country another screen does not.
  */
-export const MIN_COUNTRY_TITLES = 1;
+export const MIN_COUNTRY_TITLES = 50;
+
+/**
+ * **Published nowhere: the places the user asked out.**
+ *
+ * Three sets, sitting in the one function every surface reads — so a name here
+ * disappears from the Countries card's rows, the search panel's country chips,
+ * the cross-country shuffle pool and the continent rows, and from the Regional OTT
+ * cards too (a regional service row stays only while its country is on the Countries
+ * card — see `REGIONAL_SERVICES`, which already filters on this).
+ *
+ * 1. **Uninhabited territories** — Antarctica, the French Southern Territories, South
+ *    Georgia and the South Sandwich Islands, Svalbard & Jan Mayen. (Bouvet, Heard &
+ *    McDonald, the US Minor Outlying Islands, Pitcairn and the rest of that family
+ *    return nothing at all, so they were never published.)
+ * 2. **One-title rows** — American Samoa, Belize, "Guadaloupe" (TMDB's spelling for
+ *    Guadeloupe), Guyana, Kiribati, Mayotte, Nauru, Niue, Norfolk Island, Oman,
+ *    Tokelau, Tonga, the Turks and Caicos Islands, Tuvalu and the US Virgin Islands,
+ *    each of which holds a single title in TMDB's list — a row that can never be more
+ *    than one poster — **plus Brunei Darussalam (2 films), Myanmar (5) and Timor-Leste
+ *    (1)**, named directly by the user for removal.
+ * 3. **Administered territories** — Bermuda, the Falkland Islands, the Faeroe Islands,
+ *    French Polynesia, Gibraltar, Greenland, Guam, Martinique and Réunion: places
+ *    administered from elsewhere rather than countries of their own.
+ * 4. **States that no longer exist** — the Soviet Union (2,350 films), Yugoslavia
+ *    (651), Czechoslovakia (648), East Germany (139), Serbia and Montenegro and the
+ *    Netherlands Antilles. This hides thousands of old films filed under dead states;
+ *    that is the trade the user asked for, stated here so it can be undone by deleting
+ *    six names. Their regions hold no streaming services, so no Regional OTT row goes
+ *    with them — the services all survive, only the six dead-state rows do not.
+ *
+ * This is a **named list, not a size rule**: Pakistan (38 films / 14 shows),
+ * Bangladesh (132/11), Malta, Luxembourg, Iceland, Greenland's neighbours that *are*
+ * countries — none of those are touched, whatever their counts.
+ */
+/**
+ * **Kept by name, whatever the numbers say.**
+ *
+ * Pakistan and Bangladesh are published on **both** rows — films and shows — even
+ * where the fifty-title floor would take them (Pakistan's 38 films, its 14 shows,
+ * Bangladesh's 11 shows). The user asked for the under-fifty rule *and* for these two
+ * countries to stay; both instructions stand, so the two names are exempted here
+ * rather than argued with. Everything else under fifty is out.
+ */
+const KEPT_COUNTRY_NAMES = new Set([
+  "Pakistan", "Bangladesh",
+  // **Southeast Asia stays, except the three the user named.** The fifty-title floor
+  // cut real ASEAN countries whose TMDB coverage is thin, and the user said these
+  // were never "less known" — so Cambodia (16 films), Laos (10), Vietnam (117/9),
+  // Indonesia (592/21), Malaysia (145/11), Singapore (149/22), the Philippines (800/74)
+  // and Thailand (629/433) publish wherever they have anything. Brunei Darussalam (2),
+  // Myanmar (5) and Timor-Leste (1) are explicitly out — see the removed lists below.
+  "Cambodia", "Indonesia", "Lao People's Democratic Republic", "Malaysia", "Philippines", "Singapore", "Thailand", "Vietnam",
+]);
+
+const REMOVED_COUNTRY_NAMES = new Set([
+  "Antarctica", "French Southern Territories", "South Georgia and the South Sandwich Islands", "Svalbard & Jan Mayen Islands",
+  "American Samoa", "Belize", "Guadaloupe", "Guyana", "Kiribati", "Mayotte", "Nauru", "Niue", "Norfolk Island", "Oman", "Tokelau", "Tonga", "Turks and Caicos Islands", "Tuvalu", "US Virgin Islands",
+  // Named removals the user asked for directly: Brunei Darussalam (2 films), Myanmar
+  // (5) and Timor-Leste (1) — thin catalogs the user does not want rows for.
+  "Brunei Darussalam", "Myanmar", "Timor-Leste",
+  "Bermuda", "Falkland Islands", "Faeroe Islands", "French Polynesia", "Gibraltar", "Greenland", "Guam", "Martinique", "Reunion",
+  "Soviet Union", "Yugoslavia", "Czechoslovakia", "East Germany", "Serbia and Montenegro", "Netherlands Antilles",
+]);
 
 /** Does this country clear the floor on this row ("movie" or "show")? */
 export const countryHasContent = (name, type) => {
   const c = VERIFIED.countries?.[name];
+  // A kept name wins over every rule, including the removed list.
+  if (KEPT_COUNTRY_NAMES.has(name)) return ((type === "show" ? c?.tvCount : c?.movieCount) || 0) > 0;
+  if (REMOVED_COUNTRY_NAMES.has(name)) return false;
   return ((type === "show" ? c?.tvCount : c?.movieCount) || 0) >= MIN_COUNTRY_TITLES;
 };
 
@@ -157,9 +226,11 @@ export const COUNTRIES = [
   ["Bolivia", "BO"], ["Paraguay", "PY"], ["Costa Rica", "CR"], ["Panama", "PA"],
   ["Dominican Republic", "DO"], ["Puerto Rico", "PR"], ["Guatemala", "GT"], ["Cuba", "CU"],
   ["Tunisia", "TN"], ["Algeria", "DZ"], ["Senegal", "SN"],
-  // Added: everything else TMDB lists. Territories and historical countries are
-  // kept too — TMDB carries titles for them (Soviet Union, Czechoslovakia, East
-  // Germany), so they are rows like any other when they have something in them.
+  // Added: everything else TMDB lists. Territories stay listed here (the list is
+  // geography, not publishing), but the historical countries do not publish: the
+  // Soviet Union, Yugoslavia, Czechoslovakia, East Germany, Serbia and Montenegro
+  // and the Netherlands Antilles are in `REMOVED_COUNTRY_NAMES` — states that no
+  // longer exist are not countries, however many titles TMDB files under them.
   ["Afghanistan", "AF"], ["American Samoa", "AS"], ["Andorra", "AD"], ["Angola", "AO"],
   ["Anguilla", "AI"], ["Antarctica", "AQ"], ["Antigua and Barbuda", "AG"], ["Armenia", "AM"],
   ["Aruba", "AW"], ["Azerbaijan", "AZ"], ["Bahamas", "BS"], ["Bahrain", "BH"],
@@ -200,6 +271,13 @@ export const COUNTRIES = [
   ["Vanuatu", "VU"], ["Wallis and Futuna Islands", "WF"], ["Western Sahara", "EH"], ["Yemen", "YE"],
   ["Yugoslavia", "YU"], ["Zaire", "ZR"], ["Zambia", "ZM"], ["Zimbabwe", "ZW"],
 ];
+
+/** The ISO codes of the removed countries (see `REMOVED_COUNTRY_NAMES`) — the
+ * settings picker and anything else that lists countries by code instead of by
+ * row, so a place published nowhere is not offered as a choice anywhere. */
+export const REMOVED_COUNTRY_CODES = new Set(
+  COUNTRIES.filter(([name]) => REMOVED_COUNTRY_NAMES.has(name)).map(([, code]) => code),
+);
 
 // The Global OTT cards publish **six** platforms: the ones they were built
 // with. Hulu is a US service and was never one of them.

@@ -432,6 +432,19 @@ const defsCache = new Map();
  * **For You** rows are rebuilt on every call: a title you just watched has to get
  * its own row without restarting the server.
  */
+/**
+ * Seed ids the last For You rolls dealt, per card and row type.
+ *
+ * Every roll drew its four seeds from one pool (your titles plus the week's
+ * trending titles, cached for half an hour) with no memory between rolls, so
+ * consecutive opens kept dealing the same names back — one title on every open.
+ * The last two rolls' seeds are held aside now and only replayed when the pool
+ * runs dry, so the next open is different rows, not the same ones reshuffled.
+ */
+const recentForYouSeeds = new Map();
+/** Two rolls' worth of seeds per card and row type. */
+const FOR_YOU_SEED_MEMORY = FOR_YOU_ROWS_PER_TYPE * 2;
+
 export function catalogDefs(code = activeCountry()) {
   const key = String(code || "US").toUpperCase();
   if (!defsCache.has(key)) defsCache.set(key, buildCatalogDefs(collectionsFor(key)));
@@ -466,19 +479,44 @@ export function catalogDefs(code = activeCountry()) {
           ...recommendSeeds(type).map((seed) => ({ seed })),
           ...trendingSeeds[type].seeds.map((seed) => ({ seed })),
         ];
+        const memKey = `${c.key}:${type}`;
+        const remembered = new Set(recentForYouSeeds.get(memKey) || []);
+        const held = [];
         const used = new Set();
-        while (mine.length < FOR_YOU_ROWS_PER_TYPE && pool.length) {
-          const [pick] = pool.splice(Math.floor(Math.random() * pool.length), 1);
-          if (used.has(pick.seed.id)) continue;
-          used.add(pick.seed.id);
-          mine.push({
-            id: `${CATALOG_ID_PREFIX}${c.key}--${type}--${pick.seed.id}`,
-            type,
-            key: c.key,
-            entry: { kind: "recommend", seed: pick.seed },
-            name: `More Like ${pick.seed.name}`,
-          });
+        const deal = (replay) => {
+          while (mine.length < FOR_YOU_ROWS_PER_TYPE && pool.length) {
+            const [pick] = pool.splice(Math.floor(Math.random() * pool.length), 1);
+            if (used.has(pick.seed.id)) continue;
+            if (!replay && remembered.has(pick.seed.id)) {
+              held.push(pick);
+              continue;
+            }
+            used.add(pick.seed.id);
+            mine.push({
+              id: `${CATALOG_ID_PREFIX}${c.key}--${type}--${pick.seed.id}`,
+              type,
+              key: c.key,
+              entry: { kind: "recommend", seed: pick.seed },
+              name: `More Like ${pick.seed.name}`,
+            });
+          }
+        };
+        deal(false);
+        // Small pool, or everything remembered: replay the held seeds rather than
+        // leaving the card short. A title can only repeat here when there was
+        // nothing fresh left to deal.
+        if (mine.length < FOR_YOU_ROWS_PER_TYPE && held.length) {
+          pool.push(...held);
+          deal(true);
         }
+        recentForYouSeeds.set(
+          memKey,
+          [
+            ...mine.map((r) => r.entry.seed?.id).filter(Boolean),
+            ...(recentForYouSeeds.get(memKey) || []),
+          ].slice(0, FOR_YOU_SEED_MEMORY),
+        );
+        if (recentForYouSeeds.size > 40) recentForYouSeeds.delete(recentForYouSeeds.keys().next().value);
         // Still short (no TMDB answer yet, or no watchlist and no trending): the
         // standing rows, which are named as "more like" rows too.
         const roster = FALLBACK_ROWS[type === "movie" ? "movie" : "series"];

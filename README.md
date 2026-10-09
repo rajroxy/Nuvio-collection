@@ -160,7 +160,7 @@ drawn on the cover:
 | Regional OTT Top 10 | `<Service> ◆ Top 10` — **every region's** regional OTT services (128 rows), then **Crunchyroll** and **Viki** (both) |
 | Regional OTT | `<Service>` — everything on each of those services, plus the two Asian-catalogue services (both) |
 | Continental | continent names (both) |
-| Countries | **every country TMDB has anything for** — 214 publish a movies row and 97 a shows row, of 251 known; the 36 left out are the territories TMDB itself returns nothing for |
+| Countries | **countries with 50+ titles on a row type, less the places asked out** — 79 publish a movies row and 45 a shows row, of 251 known; out are the rows under fifty, the 36 territories TMDB returns nothing for, **and 37 named removals** (below). **Pakistan, Bangladesh and Southeast Asia (less Brunei, Myanmar, Timor-Leste) are exempt by name** and publish wherever they have anything |
 | Runtimes | `30+ mins … 120+ mins` (**movies**) / `4 · 6 · 8 · 10 Episodes` (**shows**) |
 | Based on the | Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories (both) |
 | Moods & Vibes | 75 moods: Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Dreamlike · Atmospheric · Chilling · Bittersweet · Uplifting · Charming · Campy · Eerie · Hopeful · Intimate · Spooky · Stylish · Steamy · Thought-Provoking · Gripping · Playful · Witty · Wholesome · Harrowing · Triumphant · Meditative · Frenetic · Nerve-Wracking · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Bright · Kitschy · Cynical · Sleek · Sultry |
@@ -177,12 +177,24 @@ TMDB's *coverage* of a country into a verdict on the country. Pakistan (38 films
 shows), Bangladesh (132/11), Sri Lanka (30/3), Nepal (20 films), Uzbekistan (7),
 Qatar (41/2) and Tonga (1 show) all had rows and lost them. They are all back. The
 question is asked **per row type**, so most countries have films and no shows and keep
-their films row; the only countries left out are the 36 TMDB genuinely returns nothing
-for (Anguilla, Vanuatu, San Marino, the Maldives, and the like) — a row for one of
-those would be an empty screen with a country's name on it. `countryHasContent()` is
-read by **everything that offers a country** — the Countries card's rows, the search
-panel's country chips, the cross-country shuffle pool and the continent rows — so no
-screen can offer a country another screen does not.
+their films row; the only countries left out besides the named removals are the 36
+TMDB genuinely returns nothing for (Anguilla, Vanuatu, San Marino, the Maldives, and
+the like) — a row for one of those would be an empty screen with a country's name on
+it.
+
+**Twenty-nine places are removed by name** (`REMOVED_COUNTRY_NAMES` in
+`scripts/collections.mjs`) — the sets the user picked: the **uninhabited territories**
+(Antarctica, the French Southern Territories, South Georgia, Svalbard & Jan Mayen),
+the **one-title rows** (American Samoa, Belize, "Guadaloupe", Guyana, Kiribati,
+Mayotte, Nauru, Niue, Norfolk Island, Oman, Timor-Leste, Tokelau, Tonga, the Turks
+and Caicos, Tuvalu, the US Virgin Islands) and the **administered territories**
+(Bermuda, the Falklands, the Faeroes, French Polynesia, Gibraltar, Greenland, Guam,
+Martinique, Réunion). It is a **list, not a size rule** — Pakistan (38/14), Bangladesh
+(132/11), Vietnam (117/9) and every other country stay whatever their counts — and one
+function enforces it everywhere a country can appear: the Countries card's rows, the
+search panel's country chips, the cross-country shuffle pool, the continent rows, the
+settings country picker, **and the Regional OTT cards** (a service row stays only while
+its region's country is published).
 
 **Global OTT publishes six platforms and only those six** — Netflix · Prime Video ·
 Disney+ · Max · Apple TV+ · Paramount+. A platform the probe verifies later is kept
