@@ -55,6 +55,18 @@ export function hasKey() {
 }
 
 /**
+ * **Drop every cached TMDB response.**
+ *
+ * A provider's answer is cached for the session, so turning enrichment on or off
+ * changed nothing on screen: the rows were still the rows read before the switch. The
+ * settings route calls this whenever enrichment, posters or providers change, and the
+ * next request rebuilds from TMDB with the new answer.
+ */
+export function clearTmdbCache() {
+  cache.clear();
+}
+
+/**
  * The content language rides on every request that returns titles, so changing
  * it in Settings localises every row at once. The genre *list* is excluded: genre
  * names are resolved to TMDB ids by their English names, and a localised list

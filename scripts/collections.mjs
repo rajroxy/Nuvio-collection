@@ -68,6 +68,59 @@ export const CONTINENTS = {
   Oceania: ["AU", "NZ"],
 };
 
+/**
+ * **A country is published when it has anything at all. There is no size rule.**
+ *
+ * There used to be a floor here, and it was wrong twice over. First it was compared
+ * against a table that held **one page's worth** of each country (20 at most), so eleven
+ * films and seven thousand looked identical and the number meant nothing. Then, measured
+ * properly, a floor of ten turned TMDB's own coverage of a country into a verdict on that
+ * country: Pakistan (38 films, 14 shows), Bangladesh (132/11), Sri Lanka (30/3),
+ * Uzbekistan (7), Tonga (1 show) and dozens more were unpublished — no row, no chip, no
+ * way in — because TMDB returns fewer titles for them than it does for the United
+ * States. That is not a quality judgment this file gets to make, and "there is less of
+ * it" is not "there is none of it".
+ *
+ * So the rule is now the smallest true one: **if TMDB has any title for a country on a
+ * row type, that country gets that row.** It is still asked **per type** — most
+ * countries have films and no shows, and that must not cost them their films — and the
+ * only countries left out are the ones TMDB genuinely has nothing for, which is a fact
+ * about the source and not a choice: 36 territories (Anguilla, Vanuatu, San Marino and
+ * the like) return zero films and zero shows, and a row for one of those would be an
+ * empty screen with a country's name on it.
+ *
+ * `countryHasContent` is what everything reads — the Countries card's rows, the search
+ * panel's country chips, the cross-country shuffle pool and the continent rows — so no
+ * screen can offer a country a different screen would not.
+ */
+export const MIN_COUNTRY_TITLES = 1;
+
+/** Does this country clear the floor on this row ("movie" or "show")? */
+export const countryHasContent = (name, type) => {
+  const c = VERIFIED.countries?.[name];
+  return ((type === "show" ? c?.tvCount : c?.movieCount) || 0) >= MIN_COUNTRY_TITLES;
+};
+
+/** The same question asked of an ISO code — an unknown code is kept, not dropped. */
+const codeHasContent = (code) => {
+  const want = String(code || "").toUpperCase();
+  const row = COUNTRIES.find(([, c]) => c === want);
+  if (!row) return true;
+  return countryHasContent(row[0], "movie") || countryHasContent(row[0], "show");
+};
+
+/**
+ * Every continent, each with the countries of it that clear the floor.
+ *
+ * The continents themselves are not dropped — a continent is a large enough query on its
+ * own — only the thin countries inside their lists are, and a continent left with none
+ * would go rather than be published as a row that can only come back empty.
+ */
+export const continentsWithContent = () =>
+  Object.entries(CONTINENTS)
+    .map(([name, codes]) => [name, codes.filter(codeHasContent)])
+    .filter(([, codes]) => codes.length);
+
 // The Countries card's list — **every** country and territory TMDB knows, taken
 // from its own `/configuration/countries`, with a handful renamed where TMDB uses
 // the same name twice (the two Congos) or a historical one.
@@ -148,7 +201,7 @@ export const COUNTRIES = [
   ["Yugoslavia", "YU"], ["Zaire", "ZR"], ["Zambia", "ZM"], ["Zimbabwe", "ZW"],
 ];
 
-// The three Global OTT cards publish **six** platforms: the ones they were built
+// The Global OTT cards publish **six** platforms: the ones they were built
 // with. Hulu is a US service and was never one of them.
 //
 // A platform the probe verifies later stays in `PLATFORMS` — the fact list the probe
@@ -236,7 +289,7 @@ export const OTT_REGIONS = Object.entries(VERIFIED.regions)
  * Every regional OTT service the facts hold — one entry per provider id, in name
  * order, each carrying the region it was verified in.
  *
- * This is what the three Regional OTT cards publish: the regional OTT data itself
+ * This is what the Regional OTT cards publish: the regional OTT data itself
  * (78 services), not one country's slice of it (five rows). Two regions listing the
  * same service — Tubi TV is verified in more than one — is one row, scoped to a
  * region where it really resolves, so the catalog it opens is a real one rather than
@@ -255,7 +308,15 @@ export const REGIONAL_SERVICES = (type) => {
   }
   const list = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   const seen = new Set(list.map((s) => s.id));
-  return [...list, ...WORLDWIDE.filter((s) => !seen.has(s.id))];
+  // **A regional row stays only while its country is on the Countries card.** The two
+  // cards are the same fact read twice — "where titles come from" — so a service from a
+  // country too thin to be a country row is not published as a service row either: it
+  // was a route into the same near-empty list, under a brand name. The two worldwide
+  // services carry no region and are kept (`codeHasContent` keeps an unknown code too,
+  // so a region the country table does not list is not silently deleted).
+  const kept = list.filter((svc) => codeHasContent(svc.region));
+  const keptIds = new Set(kept.map((s) => s.id));
+  return [...kept, ...WORLDWIDE.filter((s) => !seen.has(s.id) && !keptIds.has(s.id))];
 };
 
 /** The country the collection set is built for unless Settings picks another. */
@@ -338,25 +399,26 @@ const keywordPick = (group, names, type, take) =>
     .filter((name) => (type === "movie" ? KW[group][name].movieCount : KW[group][name].tvCount) > 0)
     .map((name) => keyword(name, KW[group][name].id, take));
 
-/** Countries that actually have titles for this row (Ghana has films, no series). */
-const countriesFor = (type) =>
-  COUNTRIES.filter(([name]) => {
-    const c = VERIFIED.countries[name];
-    return (type === "movie" ? c?.movieCount : c?.tvCount) > 0;
-  });
+/**
+ * The rows the **Countries card** publishes: every country that clears the content floor
+ * on this row (Ghana has films and no series, so it is a Movies row and not a Shows one).
+ */
+const countriesFor = (type) => COUNTRIES.filter(([name]) => countryHasContent(name, type));
 
 /**
- * Global OTT rows: Top 10, Popular, then everything — for the six `GLOBAL_OTT`
- * platforms.
+ * Global OTT rows: Top 10, then everything — for the six `GLOBAL_OTT` platforms.
  *
- * Only the ◆ Top 10 rows are capped. `Popular`/`everything` used to carry a
- * `take` of 30/40, which made an OTT card the one place in the app whose rows
- * stopped after a couple of screens while every other card kept scrolling — the
- * reported "OTT cards don't scroll" bug. They are uncapped now.
+ * Only the ◆ Top 10 rows are capped; the `all` rows are uncapped, because a
+ * `take` of 30/40 made an OTT card the one place in the app whose rows stopped
+ * after a couple of screens while every other card kept scrolling — the reported
+ * "OTT cards don't scroll" bug.
+ *
+ * **The `Popular <platform>` card is gone.** It was the same six platforms read in
+ * popularity order, one press away from the cards that already hold them, and it
+ * was the card that kept coming back with the same handful of names.
  */
 const globalOtt = {
   top10: (take) => GLOBAL_OTT.map(([label, id]) => provider(`${label} ◆ Top 10`, id, null, take)),
-  popular: () => GLOBAL_OTT.map(([label, id]) => provider(`Popular ${label}`, id, null)),
   // Each platform, then that platform's own studio's originals — the row the
   // request asked for, directly after the platform's row.
   all: () =>
@@ -368,7 +430,7 @@ const globalOtt = {
 };
 
 /**
- * Regional OTT rows for **one** country — the country you are in.
+ * Regional OTT rows for **one** region's services.
  *
  * These cards used to publish every region's services (107 rows per card, most of
  * them unwatchable from where you are). The country setting picks one, so a card
@@ -388,7 +450,6 @@ function regionalOtt(kind) {
       // from the region it was verified in instead of one country's five.
       const region = svc.region || null;
       if (kind === "top10") return provider(`${label(svc)} ◆ Top 10`, svc.id, region, TOP10);
-      if (kind === "popular") return provider(`Popular ${label(svc)}`, svc.id, region);
       return provider(label(svc), svc.id, region);
     });
   };
@@ -398,7 +459,7 @@ function regionalOtt(kind) {
 const TOP10 = 10;
 // The Discover card publishes 25 titles per row rather than 10, so it is the one
 // "top of the pile" card that is worth scrolling. Its card key stays
-// `discover-top-10` — that is the cover's filename and the divider anchor.
+// `discover-top-10` — that is the cover's filename.
 const TOP25 = 25;
 const both = (list) => ({ movie: list, show: list.map((e) => ({ ...e })) });
 const forBoth = (build) => ({ movie: build(MOVIE_GENRES), show: build(SHOW_GENRES) });
@@ -435,18 +496,21 @@ const discoverRow = (suffix = "", take) => [
  * long it is, what it was made from) rather than down with the keyword cards.
  */
 const CARD_ORDER = [
-  "watchlist",
   "on-the-board",
   "for-you",
   "discover-top-10",
   "discover",
   "popular-by-genre",
   "top-rated-by-genre",
+  // **Genres in or from decades sits in front of Genres.** The two are the same list
+  // read two ways — every genre, and every genre since 1950 — so the narrower one
+  // comes first and the plain list follows it, instead of being separated by the
+  // decades cards.
+  "genre-from-decades",
   "genres",
   "popular-by-decade",
   "top-rated-by-decade",
   "decades",
-  "genre-from-decades",
   "continental",
   "countries",
   "runtimes",
@@ -454,11 +518,14 @@ const CARD_ORDER = [
   "moods-and-vibes",
   "themes-and-tags",
   "global-ott-top-10",
-  "global-ott-popular",
   "global-ott",
   "regional-ott-top-10",
-  "regional-ott-popular",
   "regional-ott",
+  // **Your own cards sit at the bottom, in the order you use them**: your list, then
+  // what is on its way, then the rows you filled yourself. Watchlist was first for a
+  // long time, which put a list that is usually short in front of the whole app.
+  "watchlist",
+  "upcoming",
   "custom",
 ];
 
@@ -510,14 +577,37 @@ const buildCollections = () => {
     // (Now Playing / On the Air) on its left-hand side, so the card is kept for the
     // banner to source but is not drawn in the grid.
     hidden: true,
+    // **Airing This Week is gone from the banner.** It was a second "what is on now"
+    // row beside On the Air, and on the banner it read as noise — what is on the air
+    // already answers "what can I watch now?", and what is coming is the **Upcoming**
+    // card's job (below).
     catalogs: {
       movie: [preset("Now Playing", "now_playing")],
       show: [
         preset("Airing Today", "airing_today"),
-        preset("Airing This Week", "airing_this_week"),
         preset("On the Air", "on_the_air"),
       ],
     },
+  },
+  {
+    key: "upcoming",
+    lines: ["Upcoming"],
+    scene: "on-the-board",
+    // **A window on what is coming, not a shelf of four.** The app draws this card as a
+    // **spotlight**: its frame holds **one** still, and that still changes every ten
+    // seconds the way the hero banner's does — the next few things to arrive, shown one
+    // at a time. A wall of posters said nothing a row does not say better; one picture at
+    // a time reads as "this is what is next".
+    //
+    // It is **not a door**: there is no button in the frame and clicking it goes
+    // nowhere, because it is a glance at what is coming rather than a catalog to walk
+    // through. It sits **between your Watchlist and your Custom row**, in the same row
+    // as both, so the three of them are your own corner of the page.
+    spotlight: true,
+    // **What is on its way, under your own list.** One row per row type: what is
+    // coming to cinemas, and what airs next — sorted by the date it arrives, so the
+    // nearest thing is the first thing, not the most popular thing.
+    catalogs: both([preset("Upcoming", "upcoming")]),
   },
   {
     key: "discover",
@@ -529,6 +619,10 @@ const buildCollections = () => {
     key: "popular-by-genre",
     lines: ["Popular by", "◆ Genre"],
     scene: "popular-by-genre",
+    // **Not a card on Home any more** (the same switch `on-the-board` uses). The entries
+    // stay defined — the covers, the catalogue ids and the checks that name them are all
+    // still true — they are simply not drawn in the grid.
+    hidden: true,
     catalogs: forBoth((list) => list.map((g) => genre(`Popular in ${g}`, g, "popular"))),
   },
   {
@@ -551,18 +645,21 @@ const buildCollections = () => {
     // The cover generator paints one scene per `scene` name; a new card reuses an
     // existing painter rather than shipping with no artwork.
     scene: "popular-by-genre",
+    hidden: true,
     catalogs: forBoth((list) => list.map((g) => genre(`Top Rated in ${g}`, g, "top_rated"))),
   },
   {
     key: "popular-by-decade",
     lines: ["Popular by", "◆ Decade"],
     scene: "popular-by-decade",
+    hidden: true,
     catalogs: both(ALL_DECADES.map((d) => decade(`Popular in ${d}s`, d, "popular"))),
   },
   {
     key: "top-rated-by-decade",
     lines: ["Top Rated", "◆ Decade"],
     scene: "popular-by-decade",
+    hidden: true,
     catalogs: both(ALL_DECADES.map((d) => decade(`Top Rated in ${d}s`, d, "top_rated"))),
   },
   {
@@ -584,18 +681,12 @@ const buildCollections = () => {
     },
   },
 
-  // Global OTT — Top 10, then Popular, then everything, for each platform.
+  // Global OTT — Top 10, then everything, for each platform.
   {
     key: "global-ott-top-10",
     lines: ["Global OTT", "◆ Top 10"],
     scene: "global-ott-top-10",
     catalogs: both(globalOtt.top10(TOP10)),
-  },
-  {
-    key: "global-ott-popular",
-    lines: ["Popular", "Global OTT"],
-    scene: "global-ott",
-    catalogs: both(globalOtt.popular()),
   },
   {
     key: "global-ott",
@@ -604,24 +695,17 @@ const buildCollections = () => {
     catalogs: both(globalOtt.all()),
   },
 
-  // Regional OTT — every region's own services: Top 10, Popular, then everything.
-  // The rows are the regional OTT data itself, one per service, each scoped to a
-  // region where it resolves, so the card is the same everywhere and does not shrink
-  // to one country's handful. Covers stay title-only: drawing service names would be
-  // wrong for every region the card now covers.
+  // Regional OTT — every region's own services: Top 10, then everything. The rows
+  // are the regional OTT data itself, one per service, each scoped to a region where
+  // it resolves, so the card is the same everywhere and does not shrink to one
+  // country's handful. Covers stay title-only: drawing service names would be wrong
+  // for every region the card now covers.
   {
     key: "regional-ott-top-10",
     lines: ["Regional OTT", "◆ Top 10"],
     scene: "regional-ott-top-10",
     titleOnly: true,
     catalogs: regionalOtt("top10"),
-  },
-  {
-    key: "regional-ott-popular",
-    lines: ["Popular", "Regional OTT"],
-    scene: "regional-ott",
-    titleOnly: true,
-    catalogs: regionalOtt("popular"),
   },
   {
     key: "regional-ott",
@@ -635,7 +719,10 @@ const buildCollections = () => {
     key: "continental",
     lines: ["Continental"],
     scene: "continental",
-    catalogs: both(Object.entries(CONTINENTS).map(([name, codes]) => continent(name, codes))),
+    // **Every continent, with its thin countries dropped.** The continent is the row, and
+    // a continent is a large enough query that no country list is needed to hold it up —
+    // so the rows stay six and it is the codes inside each one that narrow.
+    catalogs: both(continentsWithContent().map(([name, codes]) => continent(name, codes))),
   },
   {
     key: "countries",
@@ -720,8 +807,10 @@ const ordered = (cards) => {
   const sorted = [...cards].sort((a, b) => rank(a) - rank(b));
   // The rule sits before the **first card after Watchlist that Home actually
   // draws**: a hidden card (the banner's own source) cannot carry it, or the rule
-  // would disappear along with the card it was attached to.
-  const firstDrawn = sorted.findIndex((c, i) => i > 0 && !c.hidden);
+  // would disappear along with the card it was attached to. Watchlist is no longer
+  // first, so the rule is asked for relative to *its* place rather than to the top.
+  const watch = sorted.findIndex((c) => c.key === "watchlist");
+  const firstDrawn = sorted.findIndex((c, i) => i > (watch === -1 ? 0 : watch) && !c.hidden);
   return sorted.map((c, i) => ({ ...c, divider: i === firstDrawn }));
 };
 
@@ -733,7 +822,7 @@ export const COLLECTIONS = buildCollectionsOrdered();
 /**
  * The card set, in the published order.
  *
- * It no longer varies by country: the three Regional OTT cards publish the regional
+ * It no longer varies by country: the Regional OTT cards publish the regional
  * OTT data itself, each row carrying its own region, so there is one card set for
  * every country. The country argument is still accepted — the addon uses it as its
  * per-country defs cache key — and deliberately ignored; what a request still scopes
@@ -778,13 +867,19 @@ export const keywordVocab = (group) =>
  * can never produce an empty screen.
  */
 export const countryVocab = () =>
-  COUNTRIES.filter(([name]) => {
-    const c = VERIFIED.countries?.[name];
-    return (c?.movieCount || 0) > 0 || (c?.tvCount || 0) > 0;
-  }).map(([name, code]) => [code, name]);
+  COUNTRIES.filter(([name]) => countryHasContent(name, "movie") || countryHasContent(name, "show")).map(
+    ([name, code]) => [code, name],
+  );
 
-/** The card that should be preceded by a vertical divider in the app. */
-export const DIVIDER_BEFORE = "discover-top-10";
+/**
+ * The card the vertical divider is drawn before, in the published order.
+ *
+ * It is not a constant any more: the rule belongs to the **first card after your
+ * Watchlist**, so it follows the Watchlist when the order moves — which is exactly
+ * what happened when your list went to the bottom of the page. Derived from
+ * `COLLECTIONS`, so it cannot drift from the flag the app actually reads.
+ */
+export const DIVIDER_BEFORE = COLLECTIONS.find((c) => c.divider)?.key ?? "";
 
 /** The subtitle string drawn on the cover (empty for a title-only card). */
 export const subtitleOf = (cat, row) => (cat.titleOnly ? "" : catalogLabels(cat, row).join(" · "));

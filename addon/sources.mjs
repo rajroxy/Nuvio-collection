@@ -88,7 +88,29 @@ async function cloudStreamRepo(url) {
  */
 async function addonManifest(url) {
   const clean = String(url || "").replace(/^stremio:\/\//i, "https://").replace(/\/+$/, "");
-  const candidates = clean.endsWith("/manifest.json") ? [clean] : [`${clean}/manifest.json`];
+  // **Where a manifest can live.** One guess made a real add-on look unreachable: the
+  // box took a website address, appended `/manifest.json`, and the add-on's own path
+  // is a different one — so a working URL answered "not reachable". Every path a
+  // Stremio add-on is published at is tried now, plus the site root of a deep link,
+  // and the error the caller sees is the status of the last one rather than a blank
+  // failure.
+  const candidates = [];
+  const add = (u) => { if (u && !candidates.includes(u)) candidates.push(u); };
+  if (/\.json(\?|#|$)/i.test(clean)) {
+    add(clean);
+  } else {
+    add(`${clean}/manifest.json`);
+    add(`${clean}/.well-known/stremio/manifest.json`);
+    try {
+      const u = new URL(clean);
+      const root = `${u.origin}${u.pathname.replace(/\/[^/]*$/, "")}`.replace(/\/+$/, "");
+      if (root && root !== clean) add(`${root}/manifest.json`);
+    } catch {
+      /* not a URL we can take apart — the two paths above are what is left */
+    }
+    // The bare address last: a host can serve a manifest at its own root.
+    add(clean);
+  }
   let lastErr = null;
   for (const candidate of candidates) {
     try {
@@ -117,7 +139,9 @@ async function addonManifest(url) {
       lastErr = err;
     }
   }
-  throw lastErr || new Error("not reachable");
+  // The status **and** the address that produced it, so a failure names what was
+  // tried instead of leaving the reader guessing which file was missing.
+  throw new Error(lastErr ? `${lastErr.message} (${candidates[candidates.length - 1]})` : "not reachable");
 }
 
 const ADDON_KINDS = new Set(["stremio", "nuvio"]);
@@ -136,7 +160,16 @@ export async function inspectSource(type, url) {
       if (scrapers.length) {
         return { ok: true, kind: "plugin", name, providers, scrapers, message: `${scrapers.length} scrapers` };
       }
-      return { ok: true, kind: "addon", name, providers, resources, message: `${providers.length} catalogs` };
+      // **What it serves, counted.** A catalog-only line ("0 catalogs") could not
+      // tell a stream-only add-on from a broken one, so the resources it declares
+      // are counted alongside the catalogs it names.
+      const supports = [
+        resources.includes("stream") ? "streams" : "",
+        resources.includes("meta") ? "metadata" : "",
+        resources.includes("subtitles") ? "subtitles" : "",
+      ].filter(Boolean);
+      const message = `${providers.length} catalog${providers.length === 1 ? "" : "s"}${supports.length ? ` · ${supports.join(", ")}` : ""}`;
+      return { ok: true, kind: "addon", name, providers, resources, supports, message };
     }
     // A Nuvio plugin publishes `scrapers` in its own `manifest.json`. That is the
     // modern layout and it is tried first; the older CloudStream-style `repo.json`

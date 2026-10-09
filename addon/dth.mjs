@@ -43,6 +43,7 @@
 import { COUNTRIES } from "../scripts/collections.mjs";
 
 const p = (id, name, country, kind, epg = "", guide = "") => ({ id, name, country, kind, epg, guide });
+const ch = (name, country, group, tvgId) => ({ name, country, group, tvgId });
 
 /**
  * The catalogue. Grouped by region, then by country, so the picker reads the way a
@@ -355,6 +356,34 @@ export const DTH_PROVIDERS = [
   p("onen-z", "One NZ TV", "NZ", "cable", "", "https://one.nz/"),
 ];
 
+/**
+ * The order a country is read in when the whole table is being read.
+ *
+ * One load reads a bounded number of guides and keeps them, and the **next** load
+ * continues where it stopped — so the order decides which countries are there first,
+ * and alphabetical order is the wrong answer: it opens on Afghanistan and reaches
+ * America, Britain and India many loads later. The largest television markets come
+ * first (the ones with the most premium channels and the biggest lineups), then the
+ * rest of the table alphabetically.
+ */
+const COUNTRY_PRIORITY = [
+  "US", "GB", "IN", "CA", "AU", "DE", "FR", "IT", "ES", "BR",
+  "MX", "JP", "KR", "CN", "RU", "TR", "PL", "NL", "BE", "CH",
+  "AT", "IE", "SE", "NO", "DK", "FI", "PT", "GR", "CZ", "HU",
+  "RO", "BG", "HR", "RS", "SK", "SI", "UA", "ZA", "AR", "CO",
+  "CL", "PE", "SA", "AE", "IL", "EG", "PK", "BD", "LK", "NP",
+  "ID", "MY", "SG", "TH", "PH", "VN", "HK", "TW", "NZ",
+];
+const PRIORITY_AT = new Map(COUNTRY_PRIORITY.map((code, i) => [code, i]));
+
+/** The codes in reading order: the big markets first, then alphabetically. */
+export const orderCountries = (codes = []) =>
+  [...new Set(codes.map((c) => String(c || "").toUpperCase()).filter(Boolean))].sort((a, b) => {
+    const pa = PRIORITY_AT.has(a) ? PRIORITY_AT.get(a) : Infinity;
+    const pb = PRIORITY_AT.has(b) ? PRIORITY_AT.get(b) : Infinity;
+    return pa - pb || a.localeCompare(b);
+  });
+
 /** The kinds, as the picker spells them. */
 export const KIND_LABEL = {
   dth: "DTH satellite",
@@ -362,6 +391,78 @@ export const KIND_LABEL = {
   premium: "Premium channels",
   ott: "Premium streaming",
 };
+
+/**
+ * **The premium channels a country's lineup must contain.**
+ *
+ * A country guide declares *most* of a country's channels, but the operator channels
+ * a subscriber actually pays for — Star, Sony, Zee and Colors in India; HBO, FX, FXX
+ * and Syfy in the US — are exactly the ones that go missing, and a lineup without them
+ * is the "there is no Star channel" answer. Each entry names the channel, the country
+ * it belongs to, its category and the `tvg-id` a subscriber's own export uses, so the
+ * stream your box exports meets this entry on the same id.
+ *
+ * It is **data, not a fetch**: a premium channel's stream belongs to a subscriber's
+ * box and is never invented here. What this adds is the channel's place in the lineup
+ * and its category, which is what the Guide, the Channels card and search read.
+ *
+ * Where the country's own feed already declares the channel, the entry is matched by
+ * name and only marks it (keeping the feed's real `tvg-id`, which is what joins it to
+ * the schedule); a channel the feed left out is added as itself.
+ */
+export const PREMIUM_CHANNELS = [
+  // ───────────────────────────────────────────────────────────────────── India ──
+  ch("Star Plus", "IN", "Entertainment", "StarPlus.in"),
+  ch("Star Gold", "IN", "Movies", "StarGold.in"),
+  ch("Star Bharat", "IN", "Entertainment", "StarBharat.in"),
+  ch("Star Utsav", "IN", "Entertainment", "StarUtsav.in"),
+  ch("Star Sports 1", "IN", "Sports", "StarSports1.in"),
+  ch("Star Sports 2", "IN", "Sports", "StarSports2.in"),
+  ch("Star Sports Hindi", "IN", "Sports", "StarSportsHindi.in"),
+  ch("Star Movies", "IN", "Movies", "StarMovies.in"),
+  ch("Star World", "IN", "Entertainment", "StarWorld.in"),
+  ch("Sony Entertainment Television", "IN", "Entertainment", "SET.in"),
+  ch("Sony SAB", "IN", "Entertainment", "SonySAB.in"),
+  ch("Sony MAX", "IN", "Movies", "SonyMAX.in"),
+  ch("Sony PIX", "IN", "Movies", "SonyPIX.in"),
+  ch("Sony Ten 1", "IN", "Sports", "SonyTen1.in"),
+  ch("Sony Ten 2", "IN", "Sports", "SonyTen2.in"),
+  ch("Colors", "IN", "Entertainment", "Colors.in"),
+  ch("Colors Cineplex", "IN", "Movies", "ColorsCineplex.in"),
+  ch("Colors Infinity", "IN", "Entertainment", "ColorsInfinity.in"),
+  ch("Zee TV", "IN", "Entertainment", "ZeeTV.in"),
+  ch("Zee Cinema", "IN", "Movies", "ZeeCinema.in"),
+  ch("Zee Anmol", "IN", "Entertainment", "ZeeAnmol.in"),
+  ch("&pictures", "IN", "Movies", "AndPictures.in"),
+  ch("&TV", "IN", "Entertainment", "AndTV.in"),
+
+  // ──────────────────────────────────────────────────────── United States ──
+  ch("HBO", "US", "Movies", "HBO.us"),
+  ch("HBO 2", "US", "Movies", "HBO2.us"),
+  ch("HBO Comedy", "US", "Movies", "HBOComedy.us"),
+  ch("HBO Family", "US", "Movies", "HBOFamily.us"),
+  ch("HBO Signature", "US", "Movies", "HBOSignature.us"),
+  ch("HBO Zone", "US", "Movies", "HBOZone.us"),
+  ch("Cinemax", "US", "Movies", "Cinemax.us"),
+  ch("Showtime", "US", "Movies", "Showtime.us"),
+  ch("Starz", "US", "Movies", "Starz.us"),
+  ch("FX", "US", "Entertainment", "FX.us"),
+  ch("FXX", "US", "Entertainment", "FXX.us"),
+  ch("FXM", "US", "Movies", "FXM.us"),
+  ch("Syfy", "US", "Entertainment", "Syfy.us"),
+  ch("AMC", "US", "Entertainment", "AMC.us"),
+  ch("TNT", "US", "Movies", "TNT.us"),
+  ch("TBS", "US", "Entertainment", "TBS.us"),
+  ch("USA Network", "US", "Entertainment", "USANetwork.us"),
+  ch("Paramount Network", "US", "Entertainment", "ParamountNetwork.us"),
+  ch("Comedy Central", "US", "Entertainment", "ComedyCentral.us"),
+];
+
+/** Every premium channel, or only those of the countries given. */
+export function premiumChannelsFor(codes = []) {
+  const wanted = new Set((Array.isArray(codes) ? codes : []).map((c) => String(c).toUpperCase()).filter(Boolean));
+  return wanted.size ? PREMIUM_CHANNELS.filter((c) => wanted.has(c.country)) : PREMIUM_CHANNELS;
+}
 
 const BY_ID = new Map(DTH_PROVIDERS.map((prov) => [prov.id, prov]));
 
@@ -378,19 +479,48 @@ export const pickedProviders = (ids = []) =>
   (Array.isArray(ids) ? ids : []).map((id) => providerById(id)).filter(Boolean);
 
 /**
- * A **country's** public XMLTV feed.
+ * A **country's** public XMLTV feed(s).
  *
  * Only three providers in the catalogue publish a guide of their own, which left
  * Live TV with a lineup for three countries and a name-only entry everywhere else.
- * EPGShare01 publishes a per-country guide for the whole world at a predictable
- * URL, and a country guide declares **every channel in that country** — so one feed
- * per country gives every country a real lineup *and* a schedule, which is exactly
- * what a DTH lineup is.
+ * EPGShare01 publishes a per-country guide for the whole world, and a country guide
+ * declares **every channel in that country** — so one feed per country gives every
+ * country a real lineup *and* a schedule, which is exactly what a DTH lineup is.
+ *
+ * **The file names are not the country code.** Most countries publish `<CC>1`, but
+ * the largest ones do not: the United States is `US2`, the United Kingdom is `UK1`,
+ * Canada is `CA2`, Belgium is `BE2`. Reading `US1` is a 404 — which is why the two
+ * biggest lineups in the catalogue, America's and Britain's, came back empty — and
+ * some countries publish **several** files (the US also has `US_SPORTS1` and
+ * `US_LOCALS1`; India has `IN1`, `IN2` and `IN4`), each carrying channels the others
+ * do not. So a country resolves to a **list** of feeds, and all of them are read.
  */
-export const countryEpg = (code) => {
-  const cc = String(code || "").toUpperCase();
-  return /^[A-Z]{2}$/.test(cc) ? `https://epgshare01.online/epgshare01/epg_ripper_${cc}1.xml.gz` : "";
+const GUIDE_FILES = {
+  GB: ["UK1"],
+  US: ["US2", "US_SPORTS1", "US_LOCALS1"],
+  CA: ["CA2"],
+  BE: ["BE2"],
+  IN: ["IN1", "IN2", "IN4"],
+  BR: ["BR1", "BR2"],
+  JP: ["JP1", "JP2"],
+  RO: ["RO1", "RO2"],
+  SA: ["SA1", "SA2"],
+  TR: ["TR1", "TR3"],
+  PH: ["PH1", "PH2"],
 };
+
+const GUIDE_ROOT = "https://epgshare01.online/epgshare01";
+
+/** Every published guide file that carries a country's channels. */
+export const countryEpgs = (code) => {
+  const cc = String(code || "").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return [];
+  const files = GUIDE_FILES[cc] || [`${cc}1`];
+  return files.map((file) => `${GUIDE_ROOT}/epg_ripper_${file}.xml.gz`);
+};
+
+/** The first of a country's feeds — the one a single-URL caller wants. */
+export const countryEpg = (code) => countryEpgs(code)[0] || "";
 
 /** A country's name, from the same table the pickers read. */
 const NAME_BY_CODE = new Map(countryTable().map((row) => [row.code, row.name]));

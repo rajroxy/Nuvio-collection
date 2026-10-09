@@ -108,9 +108,16 @@ export function startServer({ port = Number(process.env.PORT) || 4173, host = "0
     }
     try {
       const body = await readFile(filePath);
+      const ext = extname(filePath).toLowerCase();
       res.writeHead(200, {
-        "content-type": TYPES[extname(filePath).toLowerCase()] || "application/octet-stream",
-        "cache-control": "no-cache",
+        "content-type": TYPES[ext] || "application/octet-stream",
+        // The app's own source changes with every edit, and `no-cache` only asks a
+        // browser to *revalidate* — with no validator sent, a browser is free to
+        // keep serving the copy it already has. That is how "the dropdowns aren't
+        // styled" and "the old wording is still there" stayed true after the fix
+        // shipped. Source is `no-store` now, so the next load is the next build;
+        // artwork keeps a revalidating `no-cache`.
+        "cache-control": [".html", ".css", ".js", ".mjs", ".json"].includes(ext) ? "no-store" : "no-cache",
       });
       res.end(body);
     } catch {

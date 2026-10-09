@@ -49,6 +49,10 @@ const DEFAULTS = {
   // every row. "tvdb" therefore re-sources the *content* of every catalog from
   // TVDB and needs the TVDB provider enabled with a key, or it falls back.
   content: { source: "tmdb" },
+  // **Enrichment, not a content source.** TMDB and TVDB work together: TMDB builds
+  // every row, TVDB fills the fields TMDB left empty for the same title (keyed by
+  // IMDb id). Each half can be switched off from Settings → Trackers & providers.
+  enrich: { tmdb: true, tvdb: true },
   // Live TV & Sports: where the lineup and the guide come from. "dth" is the
   // **premium/DTH provider catalogue** shipped with the app ("m3u" is your own
   // playlist URL/file, "xtream" is an Xtream Codes login). `providers` is which of
@@ -74,7 +78,6 @@ const DEFAULTS = {
     simkl: { enabled: false, key: "" },
     myanimelist: { enabled: false, key: "" },
     anilist: { enabled: false, key: "" },
-    letterboxd: { enabled: false, key: "" },
     mydramalist: { enabled: false, key: "" },
   },
   // Add-ons and plugins the user added. They live **on the server**, not only in the
@@ -173,6 +176,10 @@ export function publicSettings() {
     },
     providers: mask("providers"),
     tracking: mask("tracking"),
+    // Both halves of the enrichment, so the app's two switches are read back from the
+    // server rather than only from the page's own copy. They are booleans, so this is
+    // the one provider-shaped block that travels verbatim.
+    enrich: { tmdb: s.enrich?.tmdb !== false, tvdb: s.enrich?.tvdb !== false },
     sources: Array.isArray(s.sources) ? s.sources : [],
     posters: {
       enabled: s.posters?.enabled !== false,
@@ -224,9 +231,23 @@ export const activeContentSource = () => (load().content?.source === "tvdb" ? "t
 /** The effective TMDB key: the one set in Settings first, then the environment. */
 export const tmdbKey = () => load().providers?.tmdb?.key || process.env.TMDB_API_KEY || "";
 
-/** Effective keys for the optional metadata providers (empty when not enabled). */
+/**
+ * Effective keys for the optional metadata providers.
+ *
+ * A key can come from the app (Settings → Providers, which also has an enable
+ * switch) **or from the environment**. The environment counts as enabled: a key set
+ * in Settings → Environment is a key the user deliberately added, and one that did
+ * nothing because an in-app switch they never saw was off is a key that looks
+ * broken. **MDBList is what carries the many-service ratings** — IMDb, Trakt,
+ * Letterboxd, Rotten Tomatoes, Metacritic — so without it the title page can only
+ * show TMDB's own score.
+ */
 export const providerKeys = () => {
   const p = load().providers || {};
-  const pick = (name) => (p[name]?.enabled ? p[name].key || "" : "");
-  return { tvdb: pick("tvdb"), mdblist: pick("mdblist") };
+  const pick = (name, envName) => {
+    const saved = p[name];
+    if (saved?.enabled && saved.key) return saved.key;
+    return process.env[envName] || "";
+  };
+  return { tvdb: pick("tvdb", "TVDB_API_KEY"), mdblist: pick("mdblist", "MDBLIST_API_KEY") };
 };

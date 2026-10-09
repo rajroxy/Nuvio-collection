@@ -23,6 +23,7 @@ import {
   COUNTRIES,
   GLOBAL_OTT,
   collectionsFor,
+  continentsWithContent,
   countryVocab,
   keywordVocab,
   localServices,
@@ -50,13 +51,14 @@ import {
   remove as customRemove,
   metasFor as customMetas,
 } from "./customrows.mjs";
-import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog, hasRecommendSeeds } from "./catalogs.mjs";
+import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog, primeTrendingSeeds, isOttSort } from "./catalogs.mjs";
 import { activeCountry, activeContentSource, activeLanguage, getSettings, updateSettings, publicSettings, tmdbKey, providerKeys } from "./settings.mjs";
 import { enrichRatings, titleRatings, verifyProvider } from "./providers.mjs";
 import { applyPosters, postersEnabled, checkPosterService } from "./posters.mjs";
 import { applyContentSource, contentSourceActive, contentSourceStats } from "./tvdb.mjs";
 import { inspectSource } from "./sources.mjs";
-import { streamsFor } from "./streams.mjs";
+import { streamsFor, channelStreams, liveAddonChannels, clearStreamCache } from "./streams.mjs";
+import { clearTmdbCache } from "./tmdb.mjs";
 import { calendarMonth } from "./calendar.mjs";
 import { liveChannels, liveGuide, liveStatus, liveCountries, countrySpellings } from "./live.mjs";
 
@@ -192,30 +194,42 @@ const SEARCH_CATEGORIES = [
  * card has a row for. One panel, the same names the cards use — which is what the
  * request meant by "a filter per card line".
  */
-const SEARCH_CONTINENTS = [["all", "All continents"], ...Object.keys(CONTINENTS).map((name) => [name, name])];
+// **The panel offers what the cards publish** — the six continents with their thin
+// countries dropped, and every country that clears the content floor. A choice that
+// could only open an empty screen is not offered, which is the same rule the cards follow.
+const SEARCH_CONTINENTS = [["all", "All continents"], ...continentsWithContent().map(([name]) => [name, name])];
 const SEARCH_COUNTRIES = [["all", "All countries"], ...countryVocab()];
 const SEARCH_PROVIDERS = [["all", "All services"], ...GLOBAL_OTT.map(([label, id]) => [String(id), label])];
 const SEARCH_MOODS = [["all", "All moods"], ...keywordVocab("moods-and-vibes").map(([name, id]) => [String(id), name])];
 const SEARCH_THEMES = [["all", "All themes"], ...keywordVocab("themes-and-tags").map(([name, id]) => [String(id), name])];
 
-const CONTINENT_CODES = new Map(Object.entries(CONTINENTS).map(([name, codes]) => [name, codes.join("|")]));
+// Built from the same rows the filter offers, so a continent can only ever be searched
+// with the countries the card itself publishes — and its thin ones are not in there.
+const CONTINENT_CODES = new Map(continentsWithContent().map(([name, codes]) => [name, codes.join("|")]));
 const COUNTRY_CODES = new Set(SEARCH_COUNTRIES.map(([code]) => code));
 const PROVIDER_IDS = new Set(SEARCH_PROVIDERS.map(([id]) => id));
 const MOOD_IDS = new Set(SEARCH_MOODS.map(([id]) => id));
 const THEME_IDS = new Set(SEARCH_THEMES.map(([id]) => id));
 
 /**
- * The period choices: **every year on its own**, newest first, then "Before".
+ * The period choices: **every year on its own**, newest first.
  *
  * It used to be the last eleven years and then two decade buckets, so "Time" could
  * not answer "2013" or "1998" — the two years you might actually be looking for were
  * folded into ranges. TMDB filters by a single year natively, so each one is a chip.
+ *
+ * A trailing "Before" went with it: one more pill at the far end of a long line, for
+ * a range nobody asked for. The value itself is still accepted (`periodParam`,
+ * `yearInPeriod`), so a saved link with `period=before` keeps working.
  */
 function periodChoices() {
   const thisYear = new Date().getUTCFullYear();
   const years = [];
   for (let y = thisYear; y >= 1950; y -= 1) years.push([String(y), String(y)]);
-  return [["all", "All Time Periods"], ...years, ["before", "Before"]];
+  // No "Before" chip: "before 1950" sat at the far end of a line nobody scrolls to,
+  // so the panel offers the years themselves. `period=before` is still understood
+  // (`periodParam`, `yearInPeriod`) — an old link keeps working, it is just not offered.
+  return [["all", "All Time Periods"], ...years];
 }
 
 const SEARCH_SORTS = [
@@ -272,11 +286,21 @@ const parseFilters = (params) => {
     theme: pickOne(params.get("theme"), THEME_IDS),
     category: category === "all" || SEARCH_CATEGORIES.some(([label]) => label === category) ? category : "all",
     period: validPeriod(params.get("period")),
+    // The **original language** (`hi`, `en`, `pt`) — what a title page's *Original
+    // language* row opens. TMDB's own field is a two-letter code, so a longer tag
+    // (`hi-IN`) is read down to it rather than rejected.
+    lang: validLang(params.get("lang")),
     sort: SEARCH_SORTS.some(([id]) => id === params.get("sort")) ? params.get("sort") : "popularity",
   };
 };
 
-const FILTER_KEYS = ["continent", "country", "provider", "mood", "theme"];
+/** A two-letter original-language code, or `all`. */
+const validLang = (value) => {
+  const code = String(value || "").trim().slice(0, 2).toLowerCase();
+  return /^[a-z]{2}$/.test(code) ? code : "all";
+};
+
+const FILTER_KEYS = ["continent", "country", "provider", "mood", "theme", "lang"];
 
 const hasFilters = (f) =>
   Boolean(f.type) ||
@@ -417,6 +441,8 @@ async function browseTitles(f, { adult = false, start = 0 } = {}) {
       // A continent is a set of origin countries; a single country is itself.
       const codes = f.continent !== "all" ? CONTINENT_CODES.get(f.continent) : f.country !== "all" ? f.country : "";
       if (codes) params.with_origin_country = codes;
+      // The language a title was **made in** — not the language it is read in.
+      if (f.lang !== "all") params.with_original_language = f.lang;
       // The OTT filter is a watch-provider filter, so it needs the region you are
       // browsing from as well — a service is only "available" somewhere.
       if (f.provider !== "all") {
@@ -513,8 +539,17 @@ function collectionsPayload(root) {
     // `hidden` marks a card the grid does not draw (the banner's own source) — and
     // the **For You** card hides itself while the watchlist is empty, because a
     // "more like what you watch" card on an empty watchlist is a lie.
-    const hidden = c.key === "for-you" ? !hasRecommendSeeds() : Boolean(c.hidden);
-    return { key: c.key, title: label("movie"), divider: Boolean(c.divider), hidden, movie: row("movie"), series: row("series") };
+    // **The For You card is part of the grid even with an empty watchlist.** It used
+    // to hide itself until something was pinned, which meant you never learned it was
+    // there; with nothing pinned its row falls back to what is trending (the
+    // `recommend` case in `catalogs.mjs`), so the card opens on titles either way.
+    const hidden = Boolean(c.hidden);
+    // `spotlight` tells the app to draw this card as a **window on one still at a
+    // time** — the Upcoming card: one picture that changes every ten seconds like the
+    // hero banner's, and no button in the frame, because the card is a glance rather
+    // than a catalog to walk through.
+    const spotlight = Boolean(c.spotlight);
+    return { key: c.key, title: label("movie"), divider: Boolean(c.divider), hidden, spotlight, movie: row("movie"), series: row("series") };
   });
 }
 
@@ -595,6 +630,15 @@ async function titlePayload(type, id, adult = false) {
       .filter(Boolean),
     adult,
   );
+  // **"More like this" gets the same artwork as every other row.** It used to be the
+  // one row on the page that never went through the poster service (and the content
+  // source), so it wore plain TMDB artwork next to rows wearing BetterPosters.
+  try {
+    await applyPosters(more);
+    await applyContentSource(more);
+  } catch {
+    /* artwork is an extra — the row itself still stands */
+  }
 
   return {
     ok: true,
@@ -610,6 +654,9 @@ async function titlePayload(type, id, adult = false) {
     releaseDate: detail.release_date || detail.first_air_date || "",
     originalLanguage: detail.original_language || "",
     originCountry,
+    // The country **codes** behind the names, so Origin country on the page is a way
+    // into that country's own list rather than a label.
+    originCountryCodes: Array.isArray(detail.origin_country) ? detail.origin_country : [],
     trailers,
     ratings,
     tagline: detail.tagline || "",
@@ -647,10 +694,10 @@ async function titlePayload(type, id, adult = false) {
  *   collection/<id>      the franchise's parts, in release order
  *   season/<show>/<n>    that season's episodes
  */
-async function listPayload(kind, first, second, media, adult) {
+async function listPayload(kind, first, second, media, adult, page = 1) {
   const language = activeLanguage();
   const base = { language, ...(adult ? { include_adult: true } : {}) };
-  const finish = async (metas) => {
+  const finish = async (metas, more = false) => {
     const list = stripAdult(metas.filter(Boolean), adult);
     try {
       await applyPosters(list);
@@ -659,7 +706,7 @@ async function listPayload(kind, first, second, media, adult) {
     } catch {
       /* artwork and ratings are extras — the list itself still stands */
     }
-    return list;
+    return { metas: list, more };
   };
 
   if (kind === "person") {
@@ -680,7 +727,7 @@ async function listPayload(kind, first, second, media, adult) {
     const data = await get(`/tv/${first}/season/${second || 1}`, { language });
     // An episode is not a catalog title — it is part of the show, so every card
     // opens the show it belongs to.
-    return (data.episodes || []).map((e) => ({
+    return { metas: (data.episodes || []).map((e) => ({
       id: `tmdb:${first}`,
       type: "series",
       name: `${e.episode_number}. ${e.name || ""}`.trim(),
@@ -688,19 +735,33 @@ async function listPayload(kind, first, second, media, adult) {
       releaseInfo: String(e.air_date || "").slice(0, 4),
       imdbRating: typeof e.vote_average === "number" && e.vote_average > 0 ? e.vote_average.toFixed(1) : "",
       description: e.overview || "",
-    }));
+      // **What an episode list needs to be a list**: the number it is, the season it
+      // belongs to, when it aired and how long it runs. A wall of stills with a
+      // heading per card is a catalog; this is the shape the episode screen draws.
+      episode: e.episode_number || 0,
+      season: Number(second) || 1,
+      airDate: e.air_date || "",
+      runtime: e.runtime || 0,
+    })), more: false };
   }
 
-  // A studio, a network, a genre or a keyword: a discover query scoped to it.
-  const SCOPED = { company: "with_companies", network: "with_networks", genre: "with_genres", keyword: "with_keywords" };
+  // **A studio, a network, a genre or a keyword: a paged discover query.** These are
+  // the lists that looked capped: TMDB answers twenty titles per page and the route
+  // only ever asked for the first, so a network with hundreds of shows showed twenty
+  // and stopped. `page` is the caller's own cursor, and `more` says whether TMDB has
+  // another one — the client's *Load more* follows it.
+  const SCOPED = { company: "with_companies", network: "with_networks", genre: "with_genres", keyword: "with_keywords", country: "with_origin_country" };
   const scoped = { [SCOPED[kind] || "with_companies"]: first };
+  const wanted = Math.max(1, Number(page) || 1);
   const data = await get(`/discover/${media === "series" ? "tv" : "movie"}`, {
     ...base,
     ...scoped,
     sort_by: "popularity.desc",
     "vote_count.gte": 10,
+    ...(wanted > 1 ? { page: wanted } : {}),
   });
-  return finish((data.results || []).map((r) => toMeta(r, media)));
+  const totalPages = Math.min(Number(data.total_pages) || 1, 500);
+  return finish((data.results || []).map((r) => toMeta(r, media)), wanted < totalPages);
 }
 
 /* ---------------------------------------------------------------- catalog */
@@ -772,6 +833,9 @@ function remember(store, key, make) {
 async function fetchRound(entry) {
   const page = entry.rounds + 1;
   entry.rounds = page;
+  // One round is one page per spec, and **every** spec is read — no in-flight
+  // ceiling, no subset. A round is not a cap on the pool (the pool keeps growing),
+  // and a shuffle that carries a spec per country reads all of them.
   const got = await Promise.all(
     entry.specs.map(async (spec, i) => {
       const cap = spec.take ?? Infinity;
@@ -864,14 +928,29 @@ function deepen(entry, need) {
 }
 
 /**
- * Countries the shuffle skims, so one draw is not one country's chart.
+ * **Every** country the Country card publishes, as origin codes.
  *
- * A row sorted by popularity is, in practice, an American chart: the same big titles
- * at the top of it every time. Shuffle samples the row *and* a handful of other
- * origin countries, so the draw covers what the row holds across the world.
+ * This used to be a hand-written, region-balanced shortlist — four Asia, three
+ * Europe, two Americas, one Africa, one Oceania — and a shortlist is its own cap:
+ * whole countries were never reachable, one Africa slot answered for the entire
+ * continent, and the same few names came back. The card's own list is the source of
+ * truth now, read through the same `countryVocab()` the card and the search panel
+ * use, so "every country available in the Country card" is literally the set drawn
+ * from — no quota, no region, no favourites.
  */
+// **The countries that clear the floor, not the whole table.** Shuffling a row used to
+// vary it across every country with a single title, so a draw could come back as titles
+// no card has a row for. The pool is now the same list the card and the filters publish.
+const SHUFFLE_COUNTRIES = countryVocab().map(([code]) => code);
+
+/** The ids each catalog handed out recently, so a draw does not repeat them. */
+const shuffleMemory = new Map();
+/** How many past draws are held aside for one catalog. */
+const SHUFFLE_MEMORY_DRAWS = 4;
+
 /**
- * The row's own specs, plus a few country-scoped ones when the row is discover-based.
+ * The row's own specs, plus a country-scoped one for **every country the card
+ * publishes** when the row is discover-based.
  *
  * **The row's filters always come first**: the country is layered *on top of* the
  * row's own parameters, so an Action row stays Action, a Netflix row stays Netflix —
@@ -880,45 +959,6 @@ function deepen(entry, need) {
  * (a watchlist, a Top 10, a provider curated list) gets no extra specs: there is
  * nothing to vary without leaving the catalog.
  */
-/**
- * Countries the shuffle skims, so one draw is not one country's chart.
- *
- * The US is deliberately **not** in this list: a row with no country of its own is
- * a US chart by default, and mixing the US chart in is what made every shuffle come
- * back American. These are the draws instead, across every region.
- */
-const SHUFFLE_REGIONS = {
-  asia: ["IN", "JP", "KR", "CN", "HK", "TW", "TH", "ID", "PH", "VN", "MY", "SG", "PK", "BD", "LK", "NP", "KH", "MM", "MN", "KZ", "IR", "IL", "SA", "AE", "TR"],
-  europe: ["GB", "FR", "DE", "IT", "ES", "PL", "SE", "NO", "DK", "FI", "NL", "BE", "PT", "GR", "CZ", "HU", "RO", "UA", "IE", "RU", "AT", "CH"],
-  americas: ["BR", "MX", "AR", "CO", "CL", "PE", "CA"],
-  africa: ["NG", "ZA", "EG", "KE", "GH", "MA", "DZ", "TN", "ET", "TZ"],
-  oceania: ["AU", "NZ", "PH"],
-};
-
-/** The ids each catalog handed out recently, so a draw does not repeat them. */
-const shuffleMemory = new Map();
-/** How many past draws are held aside for one catalog. */
-const SHUFFLE_MEMORY_DRAWS = 4;
-
-/**
- * The countries one shuffle pool draws from, **region by region**.
- *
- * A flat random pick of six used to hand back Europe and the Americas over and over
- * and never reach Asia — which is what "Asian countries do not show in shuffle" was.
- * Every region contributes, and the country inside a region rotates, so the whole
- * table is reached across draws rather than six favoured names.
- */
-function shuffleCountryPicks() {
-  const picks = [];
-  const take = (list, n) => [...list].sort(() => Math.random() - 0.5).slice(0, n);
-  picks.push(...take(SHUFFLE_REGIONS.asia, 4));
-  picks.push(...take(SHUFFLE_REGIONS.europe, 3));
-  picks.push(...take(SHUFFLE_REGIONS.americas, 2));
-  picks.push(...take(SHUFFLE_REGIONS.africa, 1));
-  picks.push(...take(SHUFFLE_REGIONS.oceania, 1));
-  return [...new Set(picks)];
-}
-
 function countryVariedSpecs(specs) {
   const discover = specs.filter((s) => typeof s?.path === "string" && s.path.startsWith("/discover/"));
   if (!discover.length || discover.length !== specs.length) return specs;
@@ -928,11 +968,11 @@ function countryVariedSpecs(specs) {
   const scoped = discover.filter((s) => s.params?.with_origin_country);
   const unscoped = discover.filter((s) => !s.params?.with_origin_country);
   if (!unscoped.length) return specs;
-  const picks = shuffleCountryPicks();
-  // The country-scoped rows **replace** the unscoped one instead of being added to
-  // it: leaving the US-default chart in the pool is what kept the draw American
-  // however many flags were layered on top of it.
-  const extra = picks.map((code) => {
+  // One country-scoped row **per country the card publishes** — the country-scoped
+  // rows replace the unscoped one instead of being added to it: leaving the
+  // US-default chart in the pool is what kept the draw American however many flags
+  // were layered on top of it.
+  const extra = SHUFFLE_COUNTRIES.map((code) => {
     const base = unscoped[Math.floor(Math.random() * unscoped.length)];
     // No `take` cap: the pool grows like every other pool rather than stopping at
     // half a page per country, which was a limit on what a shuffle could hold.
@@ -953,7 +993,10 @@ export async function catalogShuffle(media, def, count, opts = {}) {
   // The language is part of the pool identity: the cached items are raw TMDB
   // records, so a pool built in one language must never serve another.
   const language = opts.language || activeLanguage();
-  const key = `${media}:${identity}:${opts.adult ? "a" : "s"}:${language}`;
+  // The order is part of the pool identity: two orders of one OTT row are two
+  // different lists, and sharing a pool between them would serve one's titles for
+  // the other's request.
+  const key = `${media}:${identity}:${opts.adult ? "a" : "s"}:${language}:${opts.sort || ""}`;
 
   let pool;
   if (specs.length === 1 && specs[0].watchlist) {
@@ -1061,40 +1104,141 @@ async function episodeMetas(media, bucket, language = activeLanguage(), adult = 
     .filter(Boolean);
 }
 
-async function episodesMetas(media, bucket, skip, language, adult) {
+async function episodesMetas(media, bucket, skip, language, adult, size = PAGE_SIZE) {
   const metas = await episodeMetas(media, bucket, language, adult);
-  return metas.slice(skip, skip + PAGE_SIZE);
+  return metas.slice(skip, skip + size);
+}
+
+/* --------------------------------------------------------- the For You deal */
+
+/**
+ * How many titles the For You rows keep aside for the next row's draw.
+ *
+ * Three rows' worth: the card draws four together, so a window that holds more than
+ * that stops being able to say which titles are genuinely fresh.
+ */
+const FOR_YOU_MEMORY = 150;
+/** The ids each For You card's rows have just handed out, per row type. */
+const forYouMemory = new Map();
+
+/** Shuffle a list in place, the same way every draw in this file is shuffled. */
+function shuffleInPlace(list) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+/**
+ * One For You row, **dealt** out of its pool rather than walked down it.
+ *
+ * Two things made the card repeat itself. Its four catalogs are TMDB
+ * recommendation lists, and those lists open on the same popular titles whatever
+ * the seed is — so `More Like A` and `More Like B` printed the same names in the
+ * same order, which is the "same title in place of …" report. And the pool was
+ * walked front to back, so *every* open printed them again.
+ *
+ * A row is now dealt: the order is **shuffled per roll** (a roll starts at
+ * `skip=0`, which is what opening the card does), and the titles the card's other
+ * rows have just handed out are pushed to the back, so its four catalogs are four
+ * different screens and a second open is a second draw. The order is grown, not
+ * rebuilt, when the pool deepens — paging a row must never reshuffle titles the
+ * page above already showed.
+ *
+ * **`exclude` is the third half of that.** Pushing the last draw to the back is
+ * memory *between* opens; it says nothing about the row drawn beside this one in the
+ * *same* open, and TMDB's recommendation lists genuinely overlap — a title stays
+ * popular whatever you seed with, so `More Like A` and `More Like B` can both open on
+ * it. The page knows what its sibling rows have already shown, so it sends those ids
+ * here and they are dropped from the deal before it is handed over.
+ */
+function dealForYou(entry, pool, media, def, skip, window, exclude) {
+  const memoryKey = `${media}:${def.key ?? ""}`;
+  // Grow the dealt order with whatever the pool added since the last request.
+  if (!entry.order || entry.order.length < pool.length) {
+    const added = [];
+    for (let i = entry.order?.length || 0; i < pool.length; i++) added.push(i);
+    entry.order = [...(entry.order || []), ...shuffleInPlace(added)];
+  }
+  if (skip === 0) {
+    // A fresh roll: a new order, and the rows' own titles at the back.
+    shuffleInPlace(entry.order);
+    const recent = new Set(forYouMemory.get(memoryKey) || []);
+    entry.order.sort((a, b) => (recent.has(pool[a]?.id) ? 1 : 0) - (recent.has(pool[b]?.id) ? 1 : 0));
+  }
+  // **Dealt to a full window, skipping what the sibling rows showed.** The titles
+  // already on screen for this card are passed over rather than left as holes, so a
+  // row that has to skip five of them is still a row of twenty.
+  const out = [];
+  for (let i = skip; i < entry.order.length && out.length < window; i++) {
+    const m = pool[entry.order[i]];
+    if (!m) continue;
+    if (exclude?.size && exclude.has(String(m.id))) continue;
+    out.push(m);
+  }
+  forYouMemory.set(
+    memoryKey,
+    [...out.map((m) => m.id), ...(forYouMemory.get(memoryKey) || [])].slice(0, FOR_YOU_MEMORY),
+  );
+  if (forYouMemory.size > 40) forYouMemory.delete(forYouMemory.keys().next().value);
+  return out;
 }
 
 export async function catalogMetas(media, def, skip, opts = {}) {
+  // **How big a window one request hands back.** The default stays the row's own
+  // page, but a caller filling out a whole letter (Explore's alphabet rail) can ask
+  // for several pages in one round trip instead of one page per trip — bounded so a
+  // single request cannot ask TMDB for a whole catalog at once.
+  const window = Math.max(1, Math.min(200, Number(opts.count) || PAGE_SIZE));
   const specs = def.entry ? await catalogSpecs(def.entry, media, opts) : [];
   // Key on the catalog's identity *and* its resolved entry — two definitions
   // must never share a pool just because one of them has no id.
   const identity = def.id ?? JSON.stringify(def.entry ?? def);
   const language = opts.language || activeLanguage();
-  const key = `${media}:${identity}:${opts.adult ? "a" : "s"}:${language}`;
+  // See `catalogShuffle`: the sort is part of the pool identity, so switching the
+  // OTT dropdown cannot be answered from the other order's pool.
+  const key = `${media}:${identity}:${opts.adult ? "a" : "s"}:${language}:${opts.sort || ""}`;
 
   if (specs.length === 1 && specs[0].episodes) {
-    return stripAdult(await episodesMetas(media, specs[0].episodes, skip, language, Boolean(opts.adult)), Boolean(opts.adult));
+    return stripAdult(await episodesMetas(media, specs[0].episodes, skip, language, Boolean(opts.adult), window), Boolean(opts.adult));
   }
 
   // The watchlist is served from the stored pins, not from TMDB — those are titles
   // *you* pinned, so the SFW switch does not silently take your own list away.
   if (specs.length === 1 && specs[0].watchlist) {
-    return watchlistMetas(specs[0].watchlist, media, skip, PAGE_SIZE);
+    return watchlistMetas(specs[0].watchlist, media, skip, window);
   }
 
   // A custom row is served from the titles you put in it, the same way.
   if (specs.length === 1 && specs[0].custom) {
-    return customMetas(specs[0].custom, media, skip, PAGE_SIZE);
+    return customMetas(specs[0].custom, media, skip, window);
   }
 
   // A pool that only grows: page 2 continues where page 1 stopped, and repeat
   // requests are served from memory. `take` catalogues (the ◆ Top 10 rows) stop
   // at their length, because a Top 10 really does hold ten titles.
   const entry = remember(pools, key, () => ({ at: Date.now(), media, specs, lists: specs.map(() => []), rounds: 0, items: null, adult: Boolean(opts.adult) }));
-  const pool = await deepen(entry, skip + PAGE_SIZE);
-  return stripAdult(pool.slice(skip, skip + PAGE_SIZE), Boolean(opts.adult));
+  // **A For You row is read deeper than its first window.** Its four catalogs are
+  // drawn from one shared pool of titles, so a row that only ever held TMDB's first
+  // twenty recommendations could not differ from the row beside it — or from itself
+  // the next time the card was opened.
+  const forYou = def.entry?.kind === "recommend";
+  const pool = await deepen(entry, forYou ? Math.max(skip + window, 160) : skip + window);
+  if (forYou) {
+    // What the card's **other rows** have already shown in this open (see
+    // `dealForYou`): a comma-separated list of meta ids, bounded so a crafted URL
+    // cannot turn one request into an unbounded filter.
+    const exclude = new Set(
+      String(opts.exclude || "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .slice(0, 500),
+    );
+    return stripAdult(dealForYou(entry, pool, media, def, skip, window, exclude), Boolean(opts.adult));
+  }
+  return stripAdult(pool.slice(skip, skip + window), Boolean(opts.adult));
 }
 
 function parseCatalogPath(pathname) {
@@ -1201,6 +1345,15 @@ export async function handleAddon(req, res, pathname, origin) {
         const patch = await readBody(req);
         updateSettings(patch);
         setKey(tmdbKey());
+        // **An add-on you just added has to play now.** Every cached stream answer was
+        // read from the old add-on list, so the played title would keep saying "nothing
+        // is configured to play anything" for up to five minutes after pasting one.
+        if (patch && ("sources" in patch || "enrich" in patch)) clearStreamCache();
+        // **An enrichment switch has to change what you see.** Rows, posters and
+        // ratings are built from TMDB answers held in memory, so toggling enrichment
+        // (or picking a different poster service / provider) rewrites nothing until
+        // those answers are dropped — which is exactly "enrichment does nothing".
+        if (patch && ("enrich" in patch || "posters" in patch || "providers" in patch)) clearTmdbCache();
         json(res, 200, { ...publicSettings(), options: appOptions() });
       } catch (err) {
         json(res, 400, { error: String(err?.message || err) });
@@ -1493,10 +1646,39 @@ export async function handleAddon(req, res, pathname, origin) {
         return true;
       }
       try {
-        json(res, 200, { metas: await listPayload(kind, first, second, media, adult) }, 300);
+        const page = Number(params.get("page")) || 1;
+        json(res, 200, await listPayload(kind, first, second, media, adult, page), 300);
       } catch (err) {
         console.error(`[addon] list ${kind}/${first} failed:`, err.message);
         json(res, 200, { metas: [] });
+      }
+      return true;
+    }
+  }
+
+  // **A Live TV channel's streams**, from the add-ons you added: the live form of the
+  // request above (`/stream/channel/<id>.json`), because a channel has no IMDb id.
+  {
+    const m = pathname.match(/^\/streams\/channel\/(.+)\.json$/);
+    if (m) {
+      const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+      try {
+        json(
+          res,
+          200,
+          await channelStreams({
+            id: decodeURIComponent(m[1]),
+            name: params.get("name") || "",
+            epgId: params.get("epgId") || "",
+            // A channel that came from an add-on carries the add-on and its own id.
+            source: params.get("source") || "",
+            type: params.get("type") || "",
+            mediaId: params.get("mediaId") || "",
+          }, { force: params.get("force") === "1" }),
+        );
+      } catch (err) {
+        console.error(`[addon] channel streams ${m[1]} failed:`, err.message);
+        json(res, 200, { ok: false, reason: "error", streams: [], sources: [], message: err.message });
       }
       return true;
     }
@@ -1511,7 +1693,17 @@ export async function handleAddon(req, res, pathname, origin) {
       const [, type, id] = m;
       const params = new URL(req.url ?? "/", "http://localhost").searchParams;
       try {
-        json(res, 200, await streamsFor(type, id, { name: params.get("name") || "", force: params.get("force") === "1" }));
+        json(
+          res,
+          200,
+          await streamsFor(type, id, {
+            name: params.get("name") || "",
+            force: params.get("force") === "1",
+            // An episode's own streams: `?season=2&episode=5`.
+            season: params.get("season") || "",
+            episode: params.get("episode") || "",
+          }),
+        );
       } catch (err) {
         console.error(`[addon] streams ${type}/${id} failed:`, err.message);
         json(res, 200, { ok: false, reason: "error", streams: [], sources: [], message: err.message });
@@ -1536,7 +1728,16 @@ export async function handleAddon(req, res, pathname, origin) {
       .filter(Boolean);
     const needle = (params.get("q") || "").trim().toLowerCase();
     const list = await liveChannels({ force: params.get("force") === "1" });
-    const channels = (list.channels || []).filter(
+    // **Your add-ons' live channels are Live TV too.** A live Stremio add-on publishes
+    // its channels as catalogues, and a Stremio app shows them beside the operator
+    // lineup. Merged here (not stored in the lineup cache) so they ride the add-on's own
+    // 30-minute cache and an add-on added a minute ago appears at once.
+    const fromAddons = params.get("addons") === "0" ? { channels: [] } : await liveAddonChannels().catch(() => ({ channels: [] }));
+    const lineup = [
+      ...(list.channels || []),
+      ...(fromAddons.channels || []).filter((c) => !(list.channels || []).some((k) => k.id === c.id)),
+    ];
+    const channels = lineup.filter(
       (c) =>
         (!group || (c.groups || []).includes(group)) &&
         (!wanted.length || wanted.includes(String(c.country || "").toUpperCase())) &&
@@ -1589,11 +1790,19 @@ export async function handleAddon(req, res, pathname, origin) {
   }
 
   if (pathname === "/manifest.json") {
+    // **The For You rows are built from titles**, and the card is published with the
+    // list the app is about to read. Priming the trending seeds here (cached for half
+    // an hour) is what makes those rows real "More like …" rows on a watchlist that
+    // is still empty, instead of the standing genre rows.
+    setKey(tmdbKey());
+    await primeTrendingSeeds().catch(() => {});
     json(res, 200, buildManifest(origin));
     return true;
   }
 
   if (pathname === "/collections.json") {
+    setKey(tmdbKey());
+    await primeTrendingSeeds().catch(() => {});
     json(res, 200, collectionsPayload(origin.replace(/\/$/, "")));
     return true;
   }
@@ -1629,11 +1838,22 @@ export async function handleAddon(req, res, pathname, origin) {
   const params = new URL(req.url ?? "/", "http://localhost").searchParams;
   const adult = params.get("adult") === "1";
   const language = params.get("lang") || activeLanguage();
+  // **The OTT cards' own dropdown.** The sort rides on the URL rather than on the
+  // settings, because it is a way of *reading* a row (the same service, five questions),
+  // not a preference the whole app should carry — and it is part of the pool key below,
+  // so two orders of one row never share a cache.
+  const sort = isOttSort(params.get("sort")) ? params.get("sort") : "";
+  // **The For You card's sibling rows.** `?exclude=` carries the meta ids the card's
+  // other rows have already put on screen in this open, so the same title cannot
+  // appear in two of its rows (see `dealForYou`). It rides on the URL rather than in
+  // the pool key: it changes which *slice* of the pool this request gets, not which
+  // pool the row is.
+  const exclude = params.get("exclude") || "";
 
   try {
     const metas = parsed.shuffle
-      ? await catalogShuffle(parsed.type, parsed.def, parsed.shuffle, { adult, language })
-      : await catalogMetas(parsed.type, parsed.def, parsed.skip, { adult, language });
+      ? await catalogShuffle(parsed.type, parsed.def, parsed.shuffle, { adult, language, sort })
+      : await catalogMetas(parsed.type, parsed.def, parsed.skip, { adult, language, sort, exclude, count: Number(params.get("count")) || 0 });
     // Better posters first (it may replace `poster`), then the chosen content
     // source (which owns the poster when it is TVDB), then extra metadata.
     await applyPosters(metas);
@@ -1646,7 +1866,11 @@ export async function handleAddon(req, res, pathname, origin) {
     // bug fix rather than a nicety: they are *your state*, and a 15-minute copy is
     // what made "unpinning a title does not remove it" — the browser kept serving
     // the row as it was before the unpin.
-    const stateful = parsed.def.entry?.kind === "watchlist" || parsed.def.entry?.kind === "custom";
+    //
+    // A **For You** row is rebuilt from your own titles on every request, so it is
+    // uncacheable for the same reason: a 15-minute copy is what froze the card's wall
+    // on the four picks the app happened to draw first.
+    const stateful = ["watchlist", "custom", "recommend"].includes(parsed.def.entry?.kind);
     json(res, 200, { metas }, parsed.shuffle || stateful ? 0 : 900);
   } catch (err) {
     console.error(`[addon] catalog ${parsed.type}/${parsed.def.id} failed:`, err.message);

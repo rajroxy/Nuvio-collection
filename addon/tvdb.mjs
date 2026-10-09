@@ -7,24 +7,23 @@
  * content — name, translations, year, artwork — keyed by IMDb id, which is the id
  * every row already resolves for its poster.
  *
- * So the **content source** setting decides who supplies what you actually see in
- * a row:
- *
- *   tmdb (default) — TMDB's translated name, year and poster
- *   tvdb           — TVDB's name (in the Settings language where TVDB has a
- *                    translation), year and artwork
+ * So TVDB is a **gap filler**: wherever TMDB left a field empty (no name, no
+ * year, no overview, no artwork), TVDB's own record for that IMDb id supplies it.
+ * It never overwrites a field TMDB already has — the row keeps TMDB's content and
+ * TVDB only adds what is missing.
  *
  * Row *membership* is always TMDB's, because that is the part TVDB cannot answer.
  * The title's id stays `tmdb:` too, so the watchlist pins and the title modal keep
- * working across a source switch.
+ * working.
  *
  * Every lookup is bounded (the first `TVDB_PER_ROW` titles of a row), cached, and
  * fails soft: a title TVDB cannot answer for keeps its TMDB content rather than
  * disappearing from the row. `/addon-status.json` reports how many upgrades
  * actually landed, so "is TVDB really supplying this?" is answerable.
  */
-import { activeContentSource, activeLanguage, providerKeys } from "./settings.mjs";
+import { activeContentSource, activeLanguage, getSettings, providerKeys } from "./settings.mjs";
 import { imdbId } from "./posters.mjs";
+import { enrichFromTmdb } from "./providers.mjs";
 
 const API = "https://api4.thetvdb.com/v4";
 const BANNERS = "https://artworks.thetvdb.com/banners";
@@ -123,7 +122,19 @@ async function lookup(meta, key) {
  * pattern only stands for titles TVDB had no artwork for.
  */
 export async function applyContentSource(metas, limit = PER_ROW) {
-  if (contentSourceActive() !== "tvdb" || !Array.isArray(metas) || !metas.length) return metas;
+  if (!Array.isArray(metas) || !metas.length) return metas;
+  // **The enrichment entry point, in two halves that both work on their own.**
+  //
+  // TMDB first: it is the provider that already has a key, and it is what fills the
+  // fields a *row* leaves empty (a `/discover` result carries no synopsis and can
+  // carry no poster). Then TVDB, which fills what TMDB could not — and only when its
+  // key is set, because `enrich` used to be a switch that changed nothing at all when
+  // the only key on the machine was TMDB's.
+  await enrichFromTmdb(metas, limit).catch(() => {});
+  // **Gap filling runs whenever a TVDB key is saved**, not only when TVDB is the
+  // chosen content source: it is a supplement to TMDB here, not a replacement, so
+  // it has nothing to fight with. `enrich.tvdb` is the switch that turns it off.
+  if (!tvdbEnabled() || getSettings().enrich?.tvdb === false) return metas;
   const key = providerKeys().tvdb;
 
   await Promise.all(
@@ -153,9 +164,14 @@ export async function applyContentSource(metas, limit = PER_ROW) {
 }
 
 function assign(meta, hit) {
-  if (hit.name) meta.name = hit.name;
-  if (hit.year) meta.releaseInfo = hit.year;
-  if (hit.overview) meta.description = hit.overview;
-  if (hit.art) meta.poster = hit.art;
-  meta.contentSource = "tvdb";
+  // **Fill the gaps, do not overwrite.** A field TMDB answered stays TMDB's; TVDB
+  // only supplies what was empty. The poster is the one exception worth spelling
+  // out: when a title has no artwork at all, TVDB's own banner is drawn, and we do
+  // not touch a poster that is already there.
+  let filled = false;
+  if (!meta.name && hit.name) { meta.name = hit.name; filled = true; }
+  if (!meta.releaseInfo && hit.year) { meta.releaseInfo = hit.year; filled = true; }
+  if (!meta.description && hit.overview) { meta.description = hit.overview; filled = true; }
+  if (!meta.poster && hit.art) { meta.poster = hit.art; filled = true; }
+  if (filled) meta.contentSource = "tvdb";
 }

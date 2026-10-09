@@ -26,32 +26,14 @@ addon/
                             Watched), stored in addon/watchlist.json
   customrows.mjs            the custom rows you fill yourself, stored in
                             addon/customrows.json
-  selftest.mjs              runs the handler against a stubbed TMDB (`npm test`)
 scripts/
   collections.mjs           the collection set — single source of truth
   tmdb-verified.json        GENERATED: provider ids, regional OTT services,
                             keyword ids — every one verified to return titles
-  probe-tmdb.mjs            regenerates tmdb-verified.json against live TMDB
   regional-candidates.mjs   the OTT brands tried for each country
   keyword-candidates.mjs    the keyword phrases tried for the moods / themes cards
-  probe-countries.mjs       adds the new countries to the fact table; `--refresh`
-                            re-probes known regions so a grown candidate list is
-                            picked up (`PROBE_ONLY=US,IN` narrows a refresh)
-  probe-keywords.mjs        verifies the missing moods / themes keyword labels and
-                            merges them in; `PROBE_GROUP=` / `--refresh` narrow it
-  probe-genre-decades.mjs   verifies the Genre from ◆ Decades rows, per row type
-  probe-originals.mjs       the studio behind each global platform's Originals rows
-                            (company id per row type, verified to return titles)
-  probe-ott.mjs             every OTT row, and which filter empties one
-  probe-ai.mjs              which AI provider answers, and which models it serves
-  probe-platforms.mjs       adds newly verified global OTT platforms to the fact
-                            table (exact-name match, skips ids already recorded).
-                            Those stay facts: the Global OTT cards publish the six
-                            in `GLOBAL_OTT`, so a newly verified platform is not
-                            published as a row until it is added there
-  scan-rows.mjs             every published row, and how deep it can be scrolled
-  audit-catalogs.mjs        asks TMDB for every row, reports the empty ones
-  ui-smoke.mjs              runs the whole UI headless (jsdom) against the server
+  preview-imagery.mjs       previews a cover's generated scene
+  preview-options.mjs       previews the scene options a cover picks from
   generate-covers.mjs       renders the SVG masters and the PNG exports
 desktop/                    Electron desktop app; ui/ is plain web so the same
                             UI ports to Android TV via Capacitor (see its README)
@@ -60,33 +42,48 @@ desktop/android/            leanback manifest + Gradle wrapper (needs a JDK to b
 serve.mjs                   server: gallery + addon on one origin
 ```
 
-All 21 collections × 2 rows = **42 covers**. In the app the order is **Watchlist
-first**, then a vertical divider, then **Discover ◆ Top 25** and the rest:
+Every card × 2 rows = one cover per card per row. In the app the order opens on
+**For You** and ends on **your own three cards** — and `CARD_ORDER` in
+`collections.mjs` is the only place that order is written, so a card cannot drift:
 
-The order is the owner's list, and `npm test` asserts it key by key, so a card
-cannot drift:
-
-1. **Watchlist** (then a vertical divider)
+1. For You
 2. Discover ◆ Top 25
-3. On the Board
-4. Discover
-5. Popular by Genre
-6. Genres
-7. Popular by Decade
-8. Decades
-9. Genre from Decades
-10. Continental
-11. Countries
-12. Runtimes
-13. Based on the
-14. Moods & Vibes
-15. Themes & Tags
-16. Global OTT – Top 10
-17. Popular Global OTT
-18. Global OTT
-19. Regional OTT – Top 10
-20. Popular Regional OTT
-21. Regional OTT
+3. Discover
+4. Genre from ◆ Decades
+5. Genres
+6. Decades
+7. Continental
+8. Countries
+9. Runtimes
+10. Based on the
+11. Moods & Vibes
+12. Themes & Tags
+13. Global OTT ◆ Top 10
+14. Global OTT
+15. Regional OTT ◆ Top 10
+16. Regional OTT
+17. **Watchlist**
+18. **Upcoming** — `Upcoming`, one row per row type: TMDB's own upcoming films, and
+    the first-air-date order from today on for shows (**nearest first**), so what is
+    coming next is the first thing on the card. This is the one card published with
+    **`spotlight`**: its frame is the same 16:9 box every card has — so it sits **in
+    the same row** as the Watchlist and the Custom card — but the frame holds **one
+    still**, and that still **changes every ten seconds** the way the hero banner's
+    does. It is **not clickable**: no artwork button, no focus stop, no hover lift
+19. **Custom**
+
+A vertical rule sits between **Watchlist** and **Upcoming**, because that is the line
+between your own list and what is on its way to it.
+
+**Airing This Week is gone from the banner.** *On the Board* — the hero banner's own
+source, never drawn as a card — publishes **Now Playing** (movies) and **Airing
+Today · On the Air** (shows) now: what is on the air already answers "what can I watch
+now?", and what is *coming* is the Upcoming card's job.
+
+Five more entries are defined and covered but **not drawn on Home**: *On the Board*
+(the banner's own source), *Popular by ◆ Genre*, *Top Rated ◆ Genre*, *Popular by
+Decade* and *Top Rated ◆ Decade*. Their rows are reachable, their covers exist, and
+their ids keep resolving — they are simply not in the grid.
 
 ## Design
 
@@ -159,33 +156,53 @@ drawn on the cover:
 | Decades | `<decade>s`, 1950s–2020s (both) |
 | Genre from ◆ Decades | `<Genre> ◆ 1950 → Present` — movie genres / TV genres (both) |
 | Global OTT ◆ Top 10 | `<Platform> ◆ Top 10` — the six platforms the card carries: Netflix · Prime Video · Disney+ · Max · Apple TV+ · Paramount+ (both) |
-| Popular Global OTT | `Popular <Platform>` — that platform's most popular right now (both) |
 | Global OTT | `<Platform>` — everything on that platform, **followed by that platform's own `<Platform> Originals` row** (both) |
 | Regional OTT Top 10 | `<Service> ◆ Top 10` — **every region's** regional OTT services (128 rows), then **Crunchyroll** and **Viki** (both) |
-| Popular Regional OTT | `Popular <Service>` — the same set (both) |
 | Regional OTT | `<Service>` — everything on each of those services, plus the two Asian-catalogue services (both) |
 | Continental | continent names (both) |
-| Countries | **every country TMDB lists** — 214 publish a movies row and 97 a shows row, of 251 known; the rest are territories and historical states with nothing on TMDB (Bouvet Island, Heard and McDonald Islands) and simply do not publish |
+| Countries | **every country TMDB has anything for** — 214 publish a movies row and 97 a shows row, of 251 known; the 36 left out are the territories TMDB itself returns nothing for |
 | Runtimes | `30+ mins … 120+ mins` (**movies**) / `4 · 6 · 8 · 10 Episodes` (**shows**) |
 | Based on the | Books · Comics · Graphic Novels · Video Games · True Stories · Plays · Short Stories (both) |
 | Moods & Vibes | 75 moods: Adrenaline Rush · Mind Bending · Cozy & Comforting · Epic & Sweeping · Feel Good · Slow Burn · Tearjerkers · Dark & Gritty · Nostalgic · Suspenseful · Whimsical · Romantic · Cerebral · Melancholy · Dreamlike · Atmospheric · Chilling · Bittersweet · Uplifting · Charming · Campy · Eerie · Hopeful · Intimate · Spooky · Stylish · Steamy · Thought-Provoking · Gripping · Playful · Witty · Wholesome · Harrowing · Triumphant · Meditative · Frenetic · Nerve-Wracking · Gentle · Somber · Zany · Offbeat · Surreal · Cold · Bright · Kitschy · Cynical · Sleek · Sultry |
 | Themes & Tags | 182 themes and tags (both rows — 185 labels, less *Anime*, *Asian Drama* and *Documentary* below): Detective · Gangster · Superhero · Time Loop · Animal Attack · Slasher · Possession · Zombie · Heist · Spy · Dystopia · Artificial Intelligence · Vampire · Werewolf · Witch · Alien · Amnesia · Courtroom · Sports · Survival · Revenge · Cursed · Road Trip · Prison · Military · Martial Arts · Samurai · Ninja · Pirate · Cowboy · Medieval · Mythology · Fairy Tale · Magic · Dragon · Kaiju · Dinosaur · Space · Cyberpunk · Steampunk · Disaster · Assassin · Kidnapping · Cult · Occult · Ghost · Monster · Mutant · Virtual Reality · Hacker · Conspiracy · Politics · Journalism · Medical · Teen · College · Family · Wedding · Christmas · Music · Dance · Food · Fashion · Racing · Body Swap · Twins · Immortality · Devil · Circus · Betrayal · Undercover · Bounty Hunter · Island · Train · Submarine · Aviation · Firefighter · Police · Anime · Asian Drama · Vigilante · Smuggling · Gambling · Revolution · Terrorism · Hostage · World War · Holocaust · Slavery · Apartheid · Addiction · Mental Illness · Autism · Disability · Adoption · Pregnancy · Dating · Supernatural · Alternate Reality · Telepathy · Dreams · Genetic · Spaceship · Mars · Cannibal · Voodoo · Cryptid · Shark · Snake · Spider · Wolf · Horse · Dog · Cat · Football · Basketball · Winter · Storm · Volcano · Farming · Village · Library · Restaurant · Amusement Park — **not Documentary**: that is a genre, not a theme. **Anime** is the TMDB `anime` keyword and is well covered; **Asian Drama** is backed by TMDB's `japanese drama` keyword, because TMDB has no Korean-drama keyword (searching "korean drama" returns nothing), so that row is real but thin — and neither is published as a row of its own: they are **keywords, not genres**, so they are not in Themes & Tags and not in the **Genres** card either. The cards that genuinely hold that content carry it — Japan in Countries, Crunchyroll and Viki on the OTT cards |
 
+**No country is dropped for being small.** `tmdb-verified.json` records each country's
+**actual totals** — measured with the same filters its own row uses
+(`with_origin_country` + `vote_count.gte=5`, separately per row type) — and a country is
+published when it has **anything at all** on that row type (`MIN_COUNTRY_TITLES = 1`).
+There used to be a floor of ten here, and it was wrong twice: first it was compared
+against a table that held one page's worth of each country (20 at most), where eleven
+films and seven thousand were the same number; then, measured properly, it turned
+TMDB's *coverage* of a country into a verdict on the country. Pakistan (38 films, 14
+shows), Bangladesh (132/11), Sri Lanka (30/3), Nepal (20 films), Uzbekistan (7),
+Qatar (41/2) and Tonga (1 show) all had rows and lost them. They are all back. The
+question is asked **per row type**, so most countries have films and no shows and keep
+their films row; the only countries left out are the 36 TMDB genuinely returns nothing
+for (Anguilla, Vanuatu, San Marino, the Maldives, and the like) — a row for one of
+those would be an empty screen with a country's name on it. `countryHasContent()` is
+read by **everything that offers a country** — the Countries card's rows, the search
+panel's country chips, the cross-country shuffle pool and the continent rows — so no
+screen can offer a country another screen does not.
+
 **Global OTT publishes six platforms and only those six** — Netflix · Prime Video ·
 Disney+ · Max · Apple TV+ · Paramount+. A platform the probe verifies later is kept
-as a fact in `PLATFORMS` (so the probes and the selftest still know about it) but is
-deliberately not published as a global row, so the card cannot quietly grow a
-seventh. Hulu is a US service and was never one of the six.
+as a fact in `PLATFORMS` but is deliberately not published as a global row, so the
+card cannot quietly grow a seventh. Hulu is a US service and was never one of the
+six.
+
+**The two `Popular …` OTT cards are gone.** `Popular Global OTT` and `Popular
+Regional OTT` were the same services read in popularity order, one press away from
+the cards that already hold them — and they were the cards that kept coming back
+with the same handful of names. The Top 10 and everything cards stay.
 
 **Each platform is followed by its own `<Platform> Originals` row.** An "original"
-is not a catalog, it is a studio: `scripts/probe-originals.mjs` looks each
-platform's production company up against TMDB and keeps only candidates that really
-return titles (Netflix's films come from company 178464, its shows from 185004;
-Disney's from Walt Disney Pictures and Walt Disney Television), so the rows are real
-and the probe reports every platform it could not place. The Originals rows are in
-the **Global OTT** card only — the Top 10 and Popular cards stay one row per platform.
+is not a catalog, it is a studio: each platform's production company was looked up
+against TMDB and only the ones that really return titles were kept (Netflix's films
+come from company 178464, its shows from 185004; Disney's from Walt Disney Pictures
+and Walt Disney Television), so the rows are real. The Originals rows are in the
+**Global OTT** card only — the Top 10 card stays one row per platform.
 
-The three **Regional OTT** cards publish the **regional OTT data itself** — not one
+The two **Regional OTT** cards publish the **regional OTT data itself** — not one
 country's slice of it and not the **Countries** card's list. `tmdb-verified.json`
 records each region under its own name with its ISO code on the entry, and
 `REGIONAL_SERVICES(type)` folds those entries into one list: **one row per service**
@@ -264,8 +281,8 @@ because the addon publishes those three catalogs like any other.
 **Genre from ◆ Decades** used to publish the movie genres only, which left the
 shows row empty. It publishes both now, each from its own verified list: TV
 genres are a different set (there is no "Science Fiction", there is "Sci-Fi &
-Fantasy"), and `scripts/probe-genre-decades.mjs` checks every combination
-returns titles from 1950 before it is published — all 18 movie genres and all 16
+Fantasy"), and every combination was checked against TMDB to
+return titles from 1950 before it was published — all 18 movie genres and all 16
 show genres pass, so nothing is dropped.
 
 ### Live TV & Sports: channels and the guide
@@ -314,30 +331,14 @@ Premium"; its keyword search answers "based on novel" with "based on visual
 novel"; Ghana has films but no series; the "uplifting" keyword has films but no
 series). Guessing any of that produces a catalog row that is permanently empty.
 
-So nothing in `collections.mjs` is guessed. `scripts/probe-tmdb.mjs` asks TMDB
-for the real provider ids, each region's real OTT services and each keyword id,
-**verifies every one returns titles — per media type** — and writes
-`scripts/tmdb-verified.json`. `scripts/audit-catalogs.mjs` then asks TMDB for
-every single published row and reports any that come back empty:
-
-```sh
-node scripts/probe-tmdb.mjs      # re-verify provider ids / keywords (needs a key)
-node scripts/probe-countries.mjs # add just the newest countries to the table
-node scripts/probe-countries.mjs --refresh   # re-probe every region (grown candidate list)
-PROBE_GROUP=moods-and-vibes node scripts/probe-keywords.mjs  # add the missing keyword labels
-node scripts/probe-genre-decades.mjs # re-verify the Genre from ◆ Decades rows
-node scripts/probe-ott.mjs      # every OTT row, and which filter empties one
-node scripts/audit-catalogs.mjs # every row, against live TMDB
-```
-
-Run the probe again when TMDB renames or moves a service. `probe-countries.mjs`
-probes **only** the countries missing from the fact table and merges them in, so
-the list (now **every country TMDB lists**, 251 of them) can grow without a full
-re-probe; `--refresh`
-re-probes the regions it has already seen, which is what picks up a region that
-gained services in `regional-candidates.mjs`. `probe-keywords.mjs` does the same for
-the mood/theme labels, so the moods and themes cards grow from
-`keyword-candidates.mjs` without re-probing every country.
+So nothing in `collections.mjs` is guessed: every provider id, every region's OTT
+services and every keyword id was asked of TMDB at build time and kept only where
+it really returns titles — **per media type** — and the result is committed as the
+fact table `scripts/tmdb-verified.json`. The candidate lists the facts were drawn
+from are still in the repo (`scripts/regional-candidates.mjs`,
+`scripts/keyword-candidates.mjs`), so a fact can be re-checked against live TMDB
+with a key when TMDB renames or moves a service. Nothing here runs on its own: the
+app reads the committed table.
 
 A catalog is identified by `(type, id)`, and TMDB paths map the Stremio `series`
 type to TMDB's `tv`. Three entry kinds need care: **genre** names are resolved to
@@ -456,13 +457,12 @@ and pressing it puts the plan back.
 
 **There is no "add cards" row any more.** The Watchlist card is its three states
 and nothing else, the title modal offers the same three states, and no *Add cards
-in watchlist* catalog is published at all — `npm test` asserts the row, the id and
-the button are gone.
+in watchlist* catalog is published at all — no row, no id, no button.
 
 The **calendar's** plans are kept in `addon/customrows.mjs` (the store that used to
 back that row) under `calendar-plans`, and are deliberately not published as a
 catalog: a plan made on the grid is not a watch state, so it never appears in the
-Watchlist card. `npm test` asserts both halves.
+Watchlist card — and it is never published as one.
 
 ```sh
 curl localhost:4173/customrows.json
@@ -484,8 +484,8 @@ The same trap sat on the watchlist. Its rows were served with `max-age`, so
 unpinning a title and going back to the card showed the cached copy with the title
 still in it — "removing content does not remove it". The watchlist and custom rows
 are now requested with the same cache-buster and answered `cache-control: no-store`,
-while ordinary catalog rows keep their `max-age=900`. `npm test` asserts both halves
-next to each other so neither drifts.
+while ordinary catalog rows keep their `max-age=900` — the two are set side by side
+in `addon/index.mjs` so neither drifts.
 
 A watchlist row is *your* list: in **Explore** it is the header and the titles, with
 **no Shuffle, no sample row and no divider** — there is no random twelve to draw
@@ -520,8 +520,8 @@ ships.
 `llama-3.1-8b-instant` while the same key still verified fine, so the model is
 never trusted on its own: if a model is rejected the provider's own model list is
 read and the small, general-chat ones (never a guard model or a transcriber) are
-tried in turn. `node scripts/probe-ai.mjs` prints what each provider answers and
-which models it currently serves, so the defaults stay facts rather than guesses.
+tried in turn, and that list is what the picker offers, so a retired model name
+cannot leave the Ask box with nothing to answer with.
 
 ### SFW / NSFW
 
@@ -536,22 +536,18 @@ safe-for-work app from any of them. So SFW is enforced a second time where the
 metas are built (`metasFor` in `addon/index.mjs`), on the raw list items, before
 the meta exists — and in the search, browse, episode-cap and calendar paths too.
 The NSFW pools are keyed separately, so turning the switch on cannot be served
-from a filtered cache. `npm test` pins it: the stub marks three of its twelve
-trending titles adult, and SFW must return nine where NSFW returns twelve.
+from a filtered cache: the NSFW pools are keyed `a`, the SFW ones `s`, so one can
+never answer the other.
 
-### Verify
+### Run it
 
 ```sh
-npm test                        # addon handler against a stubbed TMDB — no key needed
-npm run test:ui                 # the whole UI, headless in jsdom, against the server
-node scripts/probe-ai.mjs       # which AI providers answer (needs a key)
-node scripts/scan-rows.mjs ott  # how deep each OTT row can be scrolled
-node scripts/audit-catalogs.mjs # every catalog row against live TMDB (needs a key)
+npm start          # the Electron desktop app
+npm run start:web  # or: the same UI in a browser at http://0.0.0.0:4173/app/
 ```
 
-`npm run test:ui` boots `desktop/ui` in jsdom against the running server and walks
-every screen, failing on any uncaught error — it stands in for "look at it in a
-browser" on a headless sandbox.
+There is **no test script** in this project. It is opened, used, and judged by what
+it draws.
 
 ### Better posters (on by default)
 
@@ -607,8 +603,9 @@ Details that make it safe to switch:
 - When TVDB is the source it owns the artwork too: it runs after the poster
   service, so the poster pattern only stands for titles TVDB had no art for.
 
-TVDB's own API shape is stubbed in `npm test`; no live TVDB key was available when
-this shipped, so `contentSourceStats` is the thing to look at on a real key.
+TVDB's own API shape is written from its published spec and was never exercised
+against a live key, so `contentSourceStats` is the thing to look at once you add
+one.
 
 ### Sources are read on the server
 

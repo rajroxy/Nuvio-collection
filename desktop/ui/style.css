@@ -75,6 +75,10 @@ body {
 /* No app logo / app label — the profile switcher takes the top-left slot. */
 
 .top-left { position: relative; display: flex; align-items: center; gap: 10px; }
+/* `display: flex` outranks the user agent's `[hidden] { display: none }`, so the
+   group needs its own rule before the attribute can hide it (it is Home's chrome
+   only — see `render`). */
+.top-left[hidden], .tabs[hidden] { display: none; }
 .top-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 
 /* The profile control is an icon — no name pill, no caret. */
@@ -155,7 +159,10 @@ body {
 .profile-tile-name { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
 .profile-tile-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
 
-.tabs { display: flex; gap: 8px; margin-left: 8px; }
+/* `align-items: center` is what keeps the card's rule level with its name: a flex
+   row defaults to `stretch`, and a stretched item with its own height is placed from
+   the top of the row instead — which is what left the rule sitting high. */
+.tabs { display: flex; align-items: center; gap: 8px; margin-left: 8px; }
 
 .tab {
   border: 0;
@@ -170,6 +177,17 @@ body {
 }
 
 .tab[aria-selected="true"] { background: rgba(var(--accent-rgb), 0.16); color: #fff; }
+
+/* Inside a card the bar's label is **the name of the screen**, not one tab of
+   several: it reads a touch larger and heavier than Home does, and it is not a
+   chip — no pill, no fill, just the name and the rule to its left. */
+/* The card's name is a `span`, not a button — so it needs `cursor: default` to
+   undo the pointer `.tab` puts there, and it never takes a click or a focus stop. */
+.tab-title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; padding-left: 14px; cursor: default; }
+/* The card's rule sits inside the nav, so it gets its own room on each side rather
+   than leaning on the label's own padding, and it is a touch taller than Home's to
+   sit beside the larger name. */
+.tabs .top-divider { align-self: center; height: 30px; margin-left: 2px; margin-right: 6px; }
 
 /* Vertical rule after the calendar, separating the controls from the nav. */
 .top-divider {
@@ -276,6 +294,24 @@ body {
 
 .icon-box:hover { transform: translateY(-3px); border-color: rgba(var(--accent-rgb), 0.45); }
 
+/* **The spotlight card.** One card is published with `spotlight` (Upcoming). It is
+   **two cards long** — `span 2` — so it sits **in the row** between your Watchlist and
+   your Custom card and the three of them fill it, and it is the **same height as its
+   neighbours** (see the `32 / 9` frame below). The frame holds **one** still instead of
+   a wall of posters, and that still changes every ten seconds (see `startSpotlight`).
+   Nothing in it is clickable, so it takes **no hover lift** either: a card that rises
+   under the cursor is promising a door, and this one is a window on what is coming. */
+.icon-box.card-spotlight { grid-column: span 2; }
+.icons.rows .icon-box.card-spotlight { width: calc(600px + 18px); }
+/* **Two cards wide, one card tall.** With the frame spanning two columns, the same
+   16:9 box would be twice as tall as its neighbours; `32 / 9` is exactly two 16:9
+   frames side by side, so the card is twice as long as the cards beside it and the
+   same height — the row stays aligned and the card reads as a banner among them. */
+.icon-box.card-spotlight .icon-wrap { aspect-ratio: 32 / 9; }
+.icon-box.card-spotlight .content-strip.backdrop { inset: 0; }
+/* A card that rises under the cursor is promising a door, and this one is a window. */
+.icon-box.card-spotlight:hover { transform: none; }
+
 /* Only the artwork opens a collection — so the artwork is the button. */
 .icon-art {
   display: block;
@@ -316,6 +352,9 @@ body {
   height: 100%;
   object-fit: cover;
   border-radius: 10px;
+  /* The app's panel, never a black band: a picture that does not fill its box, or a
+     slot with nothing in it, reads as the card's own surface. */
+  background: var(--panel-2);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
 }
 @keyframes content-in { from { opacity: 0; } to { opacity: 1; } }
@@ -543,10 +582,14 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .search-filter-btn:hover { background: rgba(255, 255, 255, 0.16); }
 .search-filter-btn.on { background: var(--accent); border-color: var(--accent); color: #0b0c10; }
 
+/* The bar is the suggestion panel's own box: without a positioning context here the
+   floating list anchored to the page wrapper, put itself under the filter panel and
+   read as "the panel is not showing at all". */
+.search-bar { position: relative; }
 /* Suggestions under the bar, as you type. */
 .search-suggest {
   position: absolute;
-  z-index: 25;
+  z-index: 80;
   top: calc(100% + 6px);
   left: 0;
   right: 0;
@@ -1079,6 +1122,32 @@ button:focus-visible,
 .guide-block-title { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .guide-block-time { font-size: 10.5px; color: var(--muted); }
 .guide-nodata { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 12px; font-size: 11.5px; color: var(--faint); }
+
+/* **The Guide card's frame is the guide.** The same table at card size: the channel
+   column and the ruler scale down, the rows are shorter, a block drops its own time
+   line (there is no room for two lines in a 28px row) and the body scrolls inside the
+   card instead of growing it. It used to be four "now playing" lines — a preview of a
+   guide you had to open somewhere else. */
+.guide-in-card { position: static; height: 240px; border: 0; border-radius: 0; background: transparent; }
+.guide-in-card .guide-corner { width: 132px; padding: 7px 10px; font-size: 10px; }
+.guide-in-card .guide-time { padding: 7px 8px; font-size: 11px; }
+.guide-in-card .guide-body { max-height: none; flex: 1; min-height: 0; }
+.guide-in-card .guide-row { flex: none; }
+.guide-in-card .guide-channel { width: 132px; gap: 7px; padding: 5px 8px; }
+.guide-in-card .guide-num { width: 16px; font-size: 10px; }
+.guide-in-card .guide-logo { width: 18px; height: 18px; }
+.guide-in-card .guide-name { font-size: 11px; }
+.guide-in-card .guide-track { min-height: 28px; }
+.guide-in-card .guide-block { top: 2px; bottom: 2px; padding: 2px 6px; border-radius: 6px; }
+.guide-in-card .guide-block-title { font-size: 10.5px; }
+.guide-in-card .guide-block-time { display: none; }
+.guide-in-card .guide-nodata { font-size: 10.5px; padding-left: 8px; }
+
+/* A card title that is the way in (the Guide card's, whose frame is its own table)
+   reads exactly like the span it replaces — it is a button only so the card still
+   carries a link to its screen. */
+.icon-name-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.icon-name-link:hover, .icon-name-link:focus-visible { color: var(--accent); }
 .channel-page .channel-art-large { display: flex; align-items: center; justify-content: center; padding: 18px; background: var(--panel-2); }
 .channel-page .channel-art-large img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
@@ -1189,7 +1258,18 @@ button:focus-visible,
 }
 .chip-clamped .chip-track::-webkit-scrollbar { width: 0; height: 0; }
 .chip-clamped .chip-track:focus-visible { outline: 2px solid rgba(var(--accent-rgb), 0.5); outline-offset: 4px; border-radius: 10px; }
-.chip-scroll { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; }
+/* **The arrows sit at the right edge.** They are a full-width strip that pushes its
+   two buttons to the right, so a clamped line (the search filters, a card's tag
+   line) keeps its arrows on the right where the eye already is. */
+.chip-scroll { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+/* A line whose tags all fit its two rows has nothing for the arrows to reach, so the
+   control is taken away (`watchArrowFit` in `app.js` decides it on the real layout) —
+   but **its space is kept**. `visibility` rather than `display: none`, so the row is
+   exactly as tall as a row that does carry arrows: in the search panel the filter
+   lines stand one under another, and collapsing one of them made the panel's spacing
+   jump. It also takes the buttons out of the tab order and off assistive tech, which
+   is what "gone" has to mean for a control you cannot press. */
+.chip-fits .chip-scroll { visibility: hidden; }
 .chip-arrow {
   display: inline-flex;
   align-items: center;
@@ -1728,6 +1808,32 @@ textarea:focus-visible {
 .icon-wrap { overflow: hidden; border-radius: var(--radius) var(--radius) 0 0; }
 .content-strip { overflow: hidden; border-radius: 12px; }
 .content-tile { min-height: 0; }
+/* **A live card's logos are a 3 × 2 wall of squares.** Six channel logos strung out
+   as portrait strips read as a poster row; the profile's cards use this instead, and
+   each logo keeps its own square so a wide wordmark and a tall mark agree. */
+/* **Even cells, one gap.** The tiles were sized to `height: 100%` with a width from
+   `aspect-ratio`, so a wordmark and a square mark came out at different widths inside
+   cells that were all the same size — which is the ragged gap between the six logos.
+   The cells are the frame now: three columns, two rows, one 6px gap, and every tile
+   fills its own cell so the wall reads as a grid. */
+.content-strip.logo-wall {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 6px;
+  align-items: stretch;
+  justify-items: stretch;
+}
+.content-strip.logo-wall .content-tile.logo,
+.content-strip.logo-wall .content-tile.logo-text {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+/* A Live TV card's wall is **channel logos**, not posters: they are drawn whole on
+   their own plate instead of being cropped to fill the slot. */
+.content-tile.logo { object-fit: contain; padding: 7px; background: rgba(255, 255, 255, 0.05); border-radius: 10px; }
+.content-tile.logo-text { display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--faint); }
 
 /* The floated top bar always sits above the page it floats over. */
 .topbar { z-index: 40; }
@@ -1891,15 +1997,50 @@ textarea:focus-visible {
 /* The title is a **page**, not a card over one: its own wide shot at the top with
    the actions on it, then everything about the title underneath. */
 .title-page { display: block; }
+/* **The backdrop, in a card.** The title page's artwork used to bleed edge to edge
+   (`margin: -26px -26px 26px`) while the home screen's banner was a rounded panel, so
+   the same show was framed two different ways. It now wears the banner's own
+   treatment: a rounded card at the page's own width, the wide shot filling it. */
 .title-hero {
   position: relative;
-  min-height: 56vh;
-  margin: -26px -26px 26px;
+  min-height: 52vh;
+  margin: 0 0 28px;
   padding: 0;
+  border-radius: 16px;
   overflow: hidden;
   background: linear-gradient(160deg, var(--panel-2), var(--panel));
 }
 .title-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* **A poster-backed banner.** A 2:3 poster stretched across a 16:9 frame came out
+   cropped and half-empty, so when a title has no wide shot the poster is drawn
+   **whole** over a blurred copy of itself, which fills the frame without cutting the
+   artwork in half. */
+/* The wash is **much darker and softer** than it was: it is a background, not a second
+   copy of the artwork, and a wash you can read the picture through is what made the
+   banner look like a picture that had been stretched. */
+.title-hero-bg { position: absolute; inset: -14%; width: 128%; height: 128%; object-fit: cover; filter: blur(44px) brightness(0.32) saturate(1.05); }
+/* **The poster, as a poster.** `contain` alone drew a sharp slice of artwork at the
+   right edge of a blurry smear, which reads as "the poster does not fit". The poster
+   is now its own plate — **whole**, at its own 2:3, rounded, with a shadow — standing
+   well inside the frame, so nothing about it is cropped. */
+.title-hero-poster {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 26px 34px;
+}
+.title-hero-poster img {
+  height: 100%;
+  width: auto;
+  max-width: 46%;
+  object-fit: contain;
+  border-radius: 14px;
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+/* Play and the pins are the page's own first row now, not an overlay on the picture. */
+.title-body > .title-actions { margin-top: 2px; }
 /* The scrim is what keeps the name and the buttons readable over any artwork. */
 .title-hero-scrim {
   position: absolute;
@@ -1913,7 +2054,7 @@ textarea:focus-visible {
   flex-direction: column;
   align-items: flex-start;
   gap: 14px;
-  min-height: 56vh;
+  min-height: 52vh;
   padding: 30px 30px 34px;
   justify-content: flex-end;
 }
@@ -1924,7 +2065,9 @@ textarea:focus-visible {
 .title-pins { display: flex; gap: 8px; flex-wrap: wrap; }
 .title-body { display: flex; flex-direction: column; gap: 34px; width: 100%; max-width: 1500px; }
 .title-tagline { margin: 0; font-size: 17px; font-style: italic; color: var(--accent); }
-.title-overview { margin: 0; font-size: 15.5px; line-height: 1.65; color: var(--text); max-width: 78ch; }
+/* **The overview runs the width of the page.** It was capped at 78 characters, so
+   it stopped short of the right-hand edge every other row reaches. */
+.title-overview { margin: 0; font-size: 15.5px; line-height: 1.7; color: var(--text); max-width: none; }
 .title-row { display: flex; flex-direction: column; gap: 10px; }
 .row-head { margin: 0; font-size: 13px; font-weight: 800; color: var(--muted); }
 
@@ -1933,10 +2076,16 @@ textarea:focus-visible {
    face draws above it — is never clipped by the scroll box. */
 .people { display: flex; gap: 12px; overflow-x: auto; padding: 8px 4px 12px; scrollbar-width: none; }
 
-/* Director | Writer: one row, two credit lists, a rule between them. */
-.people-duo { display: flex; gap: 22px; align-items: flex-start; }
-.people-duo .people-group { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.v-divider { flex: none; align-self: stretch; width: 1px; background: rgba(255, 255, 255, 0.14); }
+/* Director | Writer: one row, two credit lists, a rule between them.
+   Each side is **as wide as its own content** (`flex: 0 1 auto`), not a fixed half:
+   with `flex: 1` a single director sat alone in a half-width column and left a large
+   empty gap before the rule. A side that runs long still shrinks and scrolls. */
+.people-duo { display: flex; gap: 18px; align-items: flex-start; }
+.people-duo .people-group { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+/* The rule between Director and Writer is the **same accent rule** every other
+   divider in the app uses. This override used to repaint it plain grey, which is
+   what made it the one divider that did not look like the app's. */
+.v-divider { flex: none; align-self: stretch; width: 1px; }
 
 /* Studios and networks: rectangular cards, logo on a plate, name under it. */
 .company-strip { display: flex; gap: 14px; overflow-x: auto; padding: 8px 4px 12px; scrollbar-width: none; }
@@ -2002,19 +2151,160 @@ textarea:focus-visible {
 .trailer-name { font-size: 13px; font-weight: 700; line-height: 1.25; }
 .trailer-kind { font-size: 11px; color: var(--muted); }
 
-/* Ratings: one plate per service. */
-.ratings { display: flex; flex-wrap: wrap; gap: 10px; }
-.rating {
-  display: flex; flex-direction: column; gap: 2px; min-width: 96px; padding: 10px 14px;
-  border-radius: 12px; background: var(--panel);
+/* ------------------------------------------------------- no subtext anywhere */
+/* **Every explanatory line under a heading is gone.** The app explained itself in a
+   second, smaller sentence under almost every control — what a setting does, what a
+   screen holds, what a card is — and the ask was to remove all of it. This is one
+   block, so it is one line to put back. Statuses, counts and errors that are not
+   `.option-desc` (a source's own status line, a card's channel count, `.empty`) are
+   untouched and still report what is happening. */
+.option-desc,
+.view-hint,
+.icon-sub,
+.hero-sub,
+.hero-line,
+.strip-note,
+.title-source-note,
+.section-sub,
+.card-sub,
+/* **The rest of the second lines**, as they came in one at a time: a saved
+   profile's line, the trailer's kind, the picker's note, every `-sub` and
+   `-note` caption the app draws under a control. Nothing here reports state —
+   statuses, counts and errors are separate classes and still speak. */
+.profile-tile-sub,
+.current-profile-note,
+.trailer-kind,
+.option-note,
+.row-sub,
+.row-note,
+.card-note,
+.field-note,
+.cal-note,
+.episode-sub,
+.poster-note,
+.source-note,
+.live-note,
+[class$="-subtext"],
+[class$="-caption"] {
+  display: none !important;
 }
-.rating-value { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent); }
-.rating-source { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+
+/* Ratings: one plate per service. */
+/* **One row of plates that line up.** Every plate is the same width and height, its
+   figure sits on the same baseline and its source under it — 8.3 (TMDB) and 86%
+   (Rotten Tomatoes) are different scales, and a row where each plate sizes itself
+   reads as a pile rather than as a table. */
+.ratings { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.rating {
+  display: flex; flex-direction: column; justify-content: space-between; align-items: center; gap: 4px;
+  min-width: 104px; padding: 9px 13px;
+  border-radius: 11px; background: var(--panel);
+  text-align: center;
+}
+/* **The figure and its source sit in the plate's centre**, not against its left
+   edge: the plate is the unit, and a number pinned left with empty space beside it
+   read as a table cell rather than as a rating. */
+.rating-value { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1.1; text-align: center; }
+.rating-source { font-size: 10.5px; font-weight: 700; color: var(--muted); text-align: center; }
 
 /* The facts a streaming app keeps in a grid: what it is, when, how long, where, in what. */
-.detail-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 22px; margin: 0; }
-.detail-grid dt { font-size: 12.5px; font-weight: 700; color: var(--muted); }
-.detail-grid dd { margin: 0; font-size: 14px; color: var(--text); }
+/* The Details block. It was a **two-column list squeezed into the left edge** of a
+   1500px page — one pair per line at 12.5px, with two thirds of the width empty.
+   Four columns put **two pairs on a line** and use the width, and the text is a
+   step larger, so it reads as information rather than as fine print. */
+/* **One fact per line: the label at the left edge, its value at the far right.** The
+   two are one row with the page's width between them (`space-between`), which is what
+   "detail information on the far right side" asks for — two pairs per line put each
+   value right next to its label and read as a squeezed list. */
+.detail-grid { display: flex; flex-direction: column; gap: 0; margin: 0; }
+.detail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 10px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+}
+.detail-row:last-child { border-bottom: 0; }
+.detail-label { flex: none; font-size: 13px; font-weight: 700; color: var(--muted); }
+.detail-value { margin: 0; min-width: 0; font-size: 15px; color: var(--text); text-align: right; }
+/* A value with somewhere to go says so: accent colour, underlined on hover and
+   focus, exactly the way every other link in the app reads. */
+.detail-link { font: inherit; font-size: 15px; color: var(--accent); background: transparent; border: 0; padding: 0; cursor: pointer; }
+.detail-link:hover, .detail-link:focus-visible { text-decoration: underline; }
+.detail-plain { color: var(--text); }
+
+/* ------------------------------------------------------- the episode screen */
+
+/* **The show's backdrop, in the page's own card** — a rounded band with the season
+   picker on it, the same treatment the home hero gets, instead of a bare page under
+   the app's chrome. */
+/* **No banner, no back button.** The season screen is a heading line and the
+   episodes: the show's own page is one tap away in the nav, and a hero above the
+   list pushed the list down the screen. The picker used to live inside that hero,
+   whose `overflow: hidden` is exactly what clipped its menu. */
+.season-page { display: flex; flex-direction: column; gap: 18px; }
+.season-head { display: flex; align-items: center; }
+.season-head-row { display: flex; align-items: center; gap: 18px; width: 100%; }
+.season-head-row .dropdown { flex: 0 0 auto; min-width: 230px; }
+.season-title { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -0.02em; }
+.season-sub { margin: 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+
+/* One row per episode: number, still, title and synopsis. **The still is the play
+   button** — clicking the picture is what everyone does. */
+.ep-list { display: flex; flex-direction: column; gap: 12px; }
+.ep-row {
+  display: grid;
+  grid-template-columns: 42px 232px 1fr;
+  align-items: center;
+  gap: 18px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  transition: background 0.2s ease;
+}
+.ep-row:hover { background: var(--panel-2); }
+.ep-num { font-size: 20px; font-weight: 800; color: var(--muted); text-align: center; }
+.ep-still {
+  position: relative;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+.ep-still img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ep-still-empty { display: grid; place-items: center; height: 100%; font-size: 12px; color: var(--muted); }
+.ep-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(var(--accent-rgb), 0.92);
+  color: #fff;
+  font-size: 16px;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.ep-row:hover .ep-play, .ep-still:focus-visible .ep-play { opacity: 1; transform: scale(1); }
+.ep-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ep-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ep-title { margin: 0; font-size: 15.5px; font-weight: 800; }
+.ep-meta { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.ep-overview { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ep-btn { white-space: nowrap; }
+@media (max-width: 900px) {
+  .ep-row { grid-template-columns: 34px 1fr; }
+  .ep-still { grid-column: 2; }
+  .ep-body { grid-column: 2; }
+}
 
 /* The note the hero falls back to when nothing can play the title. */
 .title-source-note { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--muted); }
@@ -2049,9 +2339,22 @@ textarea:focus-visible {
 .player-group { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .player-group.end { justify-content: flex-end; flex: none; }
 .player-icon {
-  border: 0; border-radius: 9px; padding: 7px 11px; background: rgba(255, 255, 255, 0.09);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 36px; height: 34px;
+  border: 0; border-radius: 9px; padding: 0 9px; background: rgba(255, 255, 255, 0.09);
   color: var(--text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
 }
+/* A drawn mark, on the same stroked grid as the top bar's icons. */
+.player-glyph { display: inline-flex; align-items: center; justify-content: center; }
+.player-glyph svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ------------------------------------- the provider picker, grouped by country */
+/* Live TV's provider catalogue is laid out by country — a country heading, then
+   that country's operators under it — so the whole screen answers "which of these
+   is mine?" instead of being one flat run of a hundred names. */
+.provider-groups { display: flex; flex-direction: column; gap: 16px; }
+.provider-country-block { display: flex; flex-direction: column; gap: 8px; }
+.provider-country { font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: 0.02em; }
 .player-icon:hover, .player-icon:focus-visible { background: rgba(var(--accent-rgb), 0.4); color: #fff; }
 .player-seek { flex: 1; min-width: 120px; height: 4px; accent-color: var(--accent); }
 .player-volume { width: 76px; height: 4px; accent-color: var(--accent); }
@@ -2122,6 +2425,52 @@ select.player-rate option { background: #14161c; color: var(--text); }
   border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
 }
 .player-sources[hidden] { display: none; }
+
+/* **Which add-ons answered.** A small flat block under the Sources head: one line per
+   add-on you have, so one that has nothing for this title still shows up in the drawer
+   instead of reading as missing from the player. A failed one is marked, not hidden. */
+.drawer-addons { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
+.drawer-addon { margin: 0; font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drawer-addon-failed { color: #ff9d9d; }
+
+/* The volume figure, right of the icon it belongs to. */
+.player-vol-note {
+  font-size: 11.5px; font-weight: 700; color: var(--muted);
+  font-variant-numeric: tabular-nums; min-width: 38px;
+}
+/* The ramped rate, and only while a ±10s button is held (it is emptied on release). */
+.player-speed-note { font-size: 11.5px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* **Audio and subtitles, behind the gear.** It opens on the other side of the stage
+   from the sources drawer, so picking a track and picking a stream are two different
+   panels rather than one list that changes meaning. */
+.player-settings-menu {
+  position: absolute; top: 14px; left: 14px; width: min(340px, 42%);
+  max-height: calc(100% - 120px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px; padding: 16px;
+  border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
+}
+.player-settings-menu[hidden] { display: none; }
+
+/* **The season, when an episode ends.** A floating card over the picture, the way a
+   streaming player offers what is next instead of dropping you back to the app. */
+.player-episodes {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 108px;
+  width: min(760px, calc(100% - 64px)); max-height: 46%; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px; padding: 18px 20px;
+  border-radius: 16px; background: rgba(8, 9, 13, 0.95); backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+}
+.player-episodes[hidden] { display: none; }
+.episode-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.episode-item {
+  text-align: left; padding: 11px 13px; border: 0; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07); color: inherit; font: inherit; font-size: 13px;
+  font-weight: 600; cursor: pointer;
+}
+.episode-item:hover, .episode-item:focus-visible { background: rgba(255, 255, 255, 0.14); }
+.episode-item.active { background: rgba(var(--accent-rgb), 0.24); }
+
 .stream-list { display: flex; flex-direction: column; gap: 8px; }
 .stream {
   display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; text-align: left;
@@ -2233,12 +2582,31 @@ select {
   cursor: pointer;
 }
 select:hover { background-color: rgba(255, 255, 255, 0.11); }
-select:focus { background-color: rgba(255, 255, 255, 0.15); outline: 2px solid rgba(var(--accent-rgb), 0.6); outline-offset: 2px; }
+/* **No focus ring on a dropdown.** Every other field in the app shows focus with its
+   own fill and no ring — the ring here was the one thing that made the dropdown look
+   like a different kind of control. */
+select:focus { background-color: rgba(255, 255, 255, 0.15); outline: none; }
 select option { background: #14161c; color: var(--text); }
 
 /* A stream that is a page to open rather than a video to play, in the Sources drawer. */
 .stream-flag { font-size: 10.5px; font-weight: 700; color: var(--accent); }
 .stream-external .stream-name { color: var(--accent); }
+/* A torrent, which the player opens with its own engine instead of a URL. */
+.stream-torrent .stream-name { color: var(--text); }
+
+/* The swarm's own numbers, over the picture while a torrent fills in. */
+.player-torrent-note {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  max-width: 70%;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.62);
+  color: var(--text);
+  z-index: 5;
+}
 
 /* The two ways out of an empty player: check again, or leave. */
 .player-empty-actions { display: flex; gap: 10px; }
@@ -2275,11 +2643,80 @@ select.player-rate,
   cursor: pointer;
 }
 select:hover { background-color: rgba(255, 255, 255, 0.13) !important; }
-select:focus { background-color: rgba(255, 255, 255, 0.16) !important; outline: 2px solid rgba(var(--accent-rgb), 0.6) !important; outline-offset: 2px !important; }
+select:focus { background-color: rgba(255, 255, 255, 0.16) !important; outline: none !important; }
 select option { background: #14161c !important; color: var(--text) !important; }
 select.player-rate { padding: 7px 30px 7px 10px !important; border-radius: 9px !important; font-size: 12px !important; }
+
+/* A card that has nothing to show still draws its poster slots: an empty plate is
+   the card's own shape, where a bare cover read as "this card holds nothing". */
+/* An empty slot: the card's own surface with a hairline outline, so "nothing in here
+   yet" reads as a slot waiting for a title and never as a picture that failed. */
+.content-tile.blank {
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* --------------------------------------------------------- the app's dropdown */
+/* A dropdown the app draws itself — a button and a list. There is no native
+   `<select>` left to be painted by the platform, so nothing about it can come out
+   as the system's grey box. */
+.dropdown { position: relative; flex: 1; min-width: 200px; }
+
+/* The OTT cards' order switch: the same dropdown, sized to the header's corner
+   instead of stretching like the settings pickers do. */
+.sort-dropdown { flex: none; width: 170px; min-width: 0; margin-left: auto; }
+.section-head .sort-dropdown { align-self: center; }
+.dropdown-menu { min-width: 0; }
+.dropdown-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; font: inherit; font-size: 14px; color: var(--text); text-align: left;
+  background: rgba(255, 255, 255, 0.07); border: 0; border-radius: 10px;
+  padding: 10px 14px; cursor: pointer;
+}
+.dropdown-btn:hover { background: rgba(255, 255, 255, 0.11); }
+.dropdown.open .dropdown-btn { background: rgba(255, 255, 255, 0.15); }
+.dropdown-caret { flex: none; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--muted); }
+.dropdown-menu {
+  position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; right: 0;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--panel-2); border-radius: 12px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+/* **A `hidden` menu is hidden.** `display: flex` above outranks the user agent's
+   `[hidden] { display: none }`, so every closed dropdown in the app stayed painted
+   under its own button — which is what "the dropdown will not close" was. */
+.dropdown-menu[hidden] { display: none; }
+.dropdown-item {
+  font: inherit; font-size: 14px; text-align: left; color: var(--text);
+  background: transparent; border: 0; border-radius: 8px; padding: 9px 10px; cursor: pointer;
+}
+.dropdown-item:hover, .dropdown-item:focus-visible { background: rgba(var(--accent-rgb), 0.18); }
+
+/* A row whose posters are the way in says so on hover, without wearing the accent
+   the way a heading link does. */
+.strip-note { margin: 0; padding: 10px 2px; font-size: 14px; font-weight: 600; color: var(--text); }
+.strip-clickable { cursor: pointer; }
+.strip-clickable:hover { outline: 1px solid rgba(255, 255, 255, 0.09); outline-offset: 6px; border-radius: 12px; }
 
 /* ---------------------------------------------- the add-on / plugin dropdowns */
 /* The source form's type field and the model picker are drawn by the same rule
    above; these only make the label sit the way the rest of the panel does. */
 .source-form label { display: block; }
+
+/* A dropdown wears the theme, not just the app's fill: the option you are on takes
+   the accent, so an open list reads as this app's own control rather than as a
+   system box. `color-scheme: dark` (set on :root) is what makes the native popup
+   itself dark on the engines that draw it. */
+select,
+select.text-input,
+.settings-pane select,
+.source-form select,
+.setting select,
+#live-source-mode,
+#ai-model {
+  accent-color: var(--accent) !important;
+}
+select option:checked,
+select option:hover {
+  background: rgba(var(--accent-rgb), 0.38) !important;
+  color: #fff !important;
+}

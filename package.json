@@ -1,8 +1,10 @@
 {
   "name": "nuvio-collection-covers",
-  "private": true,
-  "type": "module",
+  "devDependencies": {
+    "jsdom": "^30.1.2"
+  },
   "description": "Landscape (16:9) cover art for every Nuvio collection — animated SVG masters and 1920x1080 PNG exports.",
+  "private": true,
   "scripts": {
     "start": "node scripts/start-desktop.mjs",
     "start:web": "node serve.mjs",
@@ -10,10 +12,7 @@
     "preview": "node serve.mjs",
     "generate": "cd scripts && npm install && npm run generate",
     "vendor:hls": "node --input-type=module -e \"import fs from 'node:fs';fs.copyFileSync('desktop/node_modules/hls.js/dist/hls.min.js','desktop/ui/vendor/hls.min.js')\"",
-    "test": "node addon/selftest.mjs",
-    "test:ui": "node scripts/ui-smoke.mjs"
+    "vendor:webtorrent": "node --input-type=module -e \"import fs from 'node:fs';fs.copyFileSync('desktop/node_modules/webtorrent/dist/webtorrent.min.js','desktop/ui/vendor/webtorrent.min.js')\""
   },
-  "devDependencies": {
-    "jsdom": "^30.1.2"
-  }
+  "type": "module"
 }

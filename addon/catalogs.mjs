@@ -8,7 +8,7 @@
  * Only the `catalog` resource is advertised — no search, no discover resource.
  */
 import { collectionsFor, catalogEntries } from "../scripts/collections.mjs";
-import { genres, resolveGenre, tmdbPath } from "./tmdb.mjs";
+import { genres, resolveGenre, tmdbPath, get } from "./tmdb.mjs";
 import { activeCountry } from "./settings.mjs";
 import { list as watchlistState } from "./watchlist.mjs";
 
@@ -22,11 +22,67 @@ export const CATALOG_ID_PREFIX = "nuvio-";
  */
 export const activeRegion = () => activeCountry();
 
+/**
+ * The eight rows a For You card falls back to while nothing is pinned.
+ *
+ * Index 0 is what is trending; the rest are genres, so the card is a spread of
+ * different titles instead of the same row eight times. The pairs are `[label,
+ * TMDB genre id]`, and the two lists are separate because a movie genre id is not
+ * a TV genre id.
+ */
+const FALLBACK_ROWS = {
+  movie: [
+    ["Trending now", null],
+    ["Action", 28],
+    ["Comedy", 35],
+    ["Drama", 18],
+    ["Thriller", 53],
+    ["Adventure", 12],
+    ["Sci-Fi", 878],
+    ["Animation", 16],
+  ],
+  series: [
+    ["Trending now", null],
+    ["Drama", 18],
+    ["Comedy", 35],
+    ["Sci-Fi & Fantasy", 10765],
+    ["Animation", 16],
+    ["Crime", 80],
+    ["Mystery", 9648],
+    ["Action & Adventure", 10759],
+  ],
+};
+
 const iso = (d) => d.toISOString().slice(0, 10);
 const dateField = (media) => (media === "movie" ? "primary_release_date" : "first_air_date");
 
 /** A single TMDB query: where to fetch, what filters, how many items to keep. */
 const q = (path, params, take) => ({ path, params, take });
+
+/**
+ * The five orders an OTT row can be drawn in — the card's own dropdown.
+ *
+ * They are five different **questions** about the same service, not five labels for one
+ * sort: *latest* is what just came out (a date order with some traction behind it), *newest*
+ * is the very front of that date order including the titles with no votes yet, *trending* is
+ * what is popular **now** (the last six months by popularity), *popular* is the service's
+ * standing hits, and *top rated* is the best-reviewed it holds — which is why that one
+ * carries a high vote floor: an average over 200 votes, or a handful of 10s tops the list.
+ */
+const OTT_SORTS = {
+  latest: (media) => ({ sort_by: `${dateField(media)}.desc`, "vote_count.gte": 5 }),
+  newest: (media) => ({ sort_by: `${dateField(media)}.desc`, "vote_count.gte": 0 }),
+  trending: (media) => ({
+    [`${dateField(media)}.gte`]: iso(new Date(Date.now() - 180 * 864e5)),
+    sort_by: "popularity.desc",
+    "vote_count.gte": 3,
+  }),
+  popular: () => ({ sort_by: "popularity.desc", "vote_count.gte": 10 }),
+  top_rated: () => ({ sort_by: "vote_average.desc", "vote_count.gte": 200 }),
+};
+
+/** Does this value name one of the five orders? Anything else is ignored. */
+export const isOttSort = (value) => Boolean(OTT_SORTS[value]);
 
 /* ------------------------------------------------------------------ specs */
 
@@ -45,6 +101,14 @@ function presetSpecs(value, media, take, adult = false) {
     case "now_playing": return [q("/movie/now_playing", {}, take)];
     case "airing_today": return [q("/tv/airing_today", {}, take)];
     case "on_the_air": return [tr("/tv/on_the_air", {}, take)];
+    // **What is on its way.** Films come from TMDB's own upcoming list; shows have
+    // no such endpoint, so the row is the first-air-date order from today on — **the
+    // nearest first**, which is what "upcoming" means, and the opposite of the
+    // popularity order every other row uses.
+    case "upcoming":
+      return media === "movie"
+        ? [q("/movie/upcoming", {}, take)]
+        : [q(`/discover/${t}`, { "first_air_date.gte": iso(new Date()), sort_by: "first_air_date.asc", "vote_count.gte": 1 }, take)];
     case "airing_this_week": {
       const now = new Date();
       const week = new Date(now.getTime() + 7 * 864e5);
@@ -134,6 +198,16 @@ async function specsFor(entry, media, opts = {}) {
       // A **For You** row carries the title it was built for: the row is that one
       // title's own recommendations.
       if (entry.seed) return [q(`/${t}/${entry.seed.id}/recommendations`, {}, entry.take)];
+      if (Number.isFinite(entry.fallback)) {
+        // **What the card holds while the watchlist is empty.** One trending row and
+        // seven genre rows, so the card is eight rows of *different* titles rather
+        // than one fallback repeated — a single row was what "For You has one row"
+        // and "its titles never change" both were.
+        const roster = FALLBACK_ROWS[media] || FALLBACK_ROWS.movie;
+        const row = roster[Math.min(entry.fallback, roster.length - 1)];
+        if (row && row[1]) return [page({ with_genres: row[1], sort_by: "popularity.desc", "vote_count.gte": 20 }, entry.take)];
+        return [q(`/trending/${t}/week`, {}, entry.take)];
+      }
       const pinned = ["watched", "watching", "planned"]
         .flatMap((state) => watchlistState(state))
         .filter((i) => (media === "movie" ? i.type === "movie" : i.type === "series"))
@@ -162,16 +236,20 @@ async function specsFor(entry, media, opts = {}) {
 
     // An OTT service: a global platform (region = the configured one) or a
     // region's own service (JioHotstar in IN, Stan in AU, …).
-    case "provider":
+    // An OTT service row, in whichever of the five orders the card's own dropdown
+    // asked for. With none chosen it is the row it always was — most popular first —
+    // so the switch is additive and the default is unchanged.
+    case "provider": {
+      const order = OTT_SORTS[opts.sort];
       return [
         page({
           with_watch_providers: entry.providerId,
           watch_region: entry.region || activeRegion(),
           with_watch_monetization_types: "flatrate",
-          sort_by: "popularity.desc",
-          "vote_count.gte": 10,
+          ...(order ? order(media) : { sort_by: "popularity.desc", "vote_count.gte": 10 }),
         }, entry.take),
       ];
+    }
 
     // A platform's originals: the titles its own studio made. TMDB has no network
     // search endpoint, so a company id is the handle that works for both row
@@ -270,6 +348,16 @@ function buildCatalogDefs(collections) {
  */
 const tmdbIdOf = (item) => String(item?.id || "").replace(/^tmdb:/, "");
 
+/**
+ * The titles For You builds its "more like this" rows from.
+ *
+ * **Everything you have watched, are watching or have planned**, watched first — a
+ * title you watched most recently is the best guess and a title you only planned is
+ * still a guess worth making, and the card is about *your* list or it is about
+ * nothing. The **order is shuffled per call**, so entering the card re-rolls which of
+ * your titles are on it (the manifest and the card's rows are rebuilt on every
+ * request — see `catalogDefs`).
+ */
 function recommendSeeds(type) {
   const seen = new Set();
   const out = [];
@@ -279,20 +367,60 @@ function recommendSeeds(type) {
       if (item?.type !== type || !/^\d+$/.test(id) || seen.has(id)) continue;
       seen.add(id);
       out.push({ id, name: String(item.name || "this title") });
-      if (out.length >= 6) return out;
     }
   }
-  return out;
+  // A shuffle, so the rows the card opens on are a different mix each time while
+  // still being drawn from your own list.
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out.slice(0, FOR_YOU_ROWS_PER_TYPE);
 }
 
 /**
- * Whether the For You card has anything to be about.
+ * How many "more like" rows one row type contributes to For You.
  *
- * The card is a promise about *you* — "more like what you watch". With an empty
- * watchlist there is nothing to be like, so the card is not published at all
- * instead of being filled with trending titles that have nothing to do with anyone.
+ * **Four each**, always: four catalogues on the Movies side and four on the Shows side,
+ * the same number whatever the watchlist holds. The rows your own list does not cover
+ * are topped up from what is trending and then from the standing roster (see
+ * `catalogDefs`), so a short watchlist does not shrink the card.
  */
-export const hasRecommendSeeds = () => Boolean(recommendSeeds("movie").length || recommendSeeds("series").length);
+const FOR_YOU_ROWS_PER_TYPE = 4;
+
+/**
+ * Trending titles, per row type — the seeds a For You card starts from.
+ *
+ * **Every For You row is a title, not a genre.** The rows are named after the title
+ * they were built from (`More Like …`), so the seeds have to be *titles*. A watchlist
+ * supplies them while it holds enough; a new watchlist supplies none, and a card of
+ * genre rows named "For You · Comedy" was what the card got instead — not the "more
+ * like this" rows it says it holds. So the current week's trending titles top the
+ * list up, cached for half an hour and refreshed in the background, which is what
+ * `primeTrendingSeeds` is for. `catalogDefs` stays synchronous: it reads whatever is in
+ * hand and the next call has the fresh list.
+ */
+const trendingSeeds = { movie: { at: 0, seeds: [] }, series: { at: 0, seeds: [] } };
+const TRENDING_TTL = 30 * 60 * 1000;
+
+export async function primeTrendingSeeds() {
+  await Promise.all(
+    ["movie", "series"].map(async (type) => {
+      const slot = trendingSeeds[type];
+      if (slot.seeds.length && Date.now() - slot.at < TRENDING_TTL) return;
+      try {
+        const res = await get(`/trending/${tmdbPath(type)}/week`);
+        slot.seeds = (res?.results || [])
+          .slice(0, 24)
+          .map((r) => ({ id: String(r.id), name: r.title || r.name || "this title" }))
+          .filter((s) => /^\d+$/.test(s.id));
+        slot.at = Date.now();
+      } catch {
+        /* offline: the standing rows below stand in */
+      }
+    }),
+  );
+}
 
 const defsCache = new Map();
 
@@ -309,9 +437,10 @@ export function catalogDefs(code = activeCountry()) {
   if (!defsCache.has(key)) defsCache.set(key, buildCatalogDefs(collectionsFor(key)));
   const { defs, recommendCards } = defsCache.get(key);
   if (!recommendCards.length) return defs;
-  // Nothing pinned, nothing to say: the For You rows are not published and the
-  // card itself is hidden (see `collectionsPayload`).
-  if (!hasRecommendSeeds()) return defs;
+  // **The rows are published even with an empty watchlist.** Withholding them left
+  // the For You card with no rows at all, so it could not show anything; with nothing
+  // pinned each row falls back to what is trending (the `recommend` case in
+  // `specsFor`), which is why the card is never empty.
   return [
     ...defs,
     ...recommendCards.flatMap((c) => {
@@ -320,23 +449,55 @@ export function catalogDefs(code = activeCountry()) {
       // leave the Movies row standing. Deciding this once for the whole card made
       // the Movies row vanish as soon as a single show was pinned.
       for (const type of ["movie", "series"]) {
-        const seeds = recommendSeeds(type);
-        if (seeds.length) {
-          for (const seed of seeds) {
-            rows.push({
-              id: `${CATALOG_ID_PREFIX}${c.key}--${type}--${seed.id}`,
-              type,
-              key: c.key,
-              entry: { kind: "recommend", seed },
-              name: `More Like ${seed.name}`,
-            });
-          }
-        } else {
-          // Nothing pinned on this row yet: keep one row so the card is not empty —
-          // it falls back to what is trending (see the `recommend` case in `specsFor`).
-          const entry = catalogEntries(c, type === "movie" ? "movie" : "show").find((e) => e.kind === "recommend");
-          if (entry) rows.push({ id: `${CATALOG_ID_PREFIX}${c.key}--${slug(entry.name)}`, type, key: c.key, entry, name: entry.name });
+        const mine = [];
+        // **One pool, one shuffle.** Your own titles used to be laid into the rows
+        // *first*, so a watchlist holding two shows gave those same two shows a slot on
+        // every single roll — the card said "More Like NCIS · More Like Family Guy"
+        // however many times it was opened, which is the "NCIS is in For You shows
+        // every time" report. The rows are now drawn from your titles **and** this
+        // week's trending titles as one shuffled pool, so a roll is a genuine mix: your
+        // own list is still the first source it draws from, it is simply no longer a
+        // fixed prefix that fills the card before anything else is considered.
+        //
+        // Every row is still a *title* (never a genre), and the standing roster below
+        // only appears when even the pool is short. See `findCatalog` for how the ids
+        // keep resolving across rolls.
+        const pool = [
+          ...recommendSeeds(type).map((seed) => ({ seed })),
+          ...trendingSeeds[type].seeds.map((seed) => ({ seed })),
+        ];
+        const used = new Set();
+        while (mine.length < FOR_YOU_ROWS_PER_TYPE && pool.length) {
+          const [pick] = pool.splice(Math.floor(Math.random() * pool.length), 1);
+          if (used.has(pick.seed.id)) continue;
+          used.add(pick.seed.id);
+          mine.push({
+            id: `${CATALOG_ID_PREFIX}${c.key}--${type}--${pick.seed.id}`,
+            type,
+            key: c.key,
+            entry: { kind: "recommend", seed: pick.seed },
+            name: `More Like ${pick.seed.name}`,
+          });
         }
+        // Still short (no TMDB answer yet, or no watchlist and no trending): the
+        // standing rows, which are named as "more like" rows too.
+        const roster = FALLBACK_ROWS[type === "movie" ? "movie" : "series"];
+        const indexes = roster.map((_, i) => i);
+        for (let i = indexes.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indexes[i], indexes[j]] = [indexes[j], indexes[i]];
+        }
+        for (const i of indexes) {
+          if (mine.length >= FOR_YOU_ROWS_PER_TYPE) break;
+          mine.push({
+            id: `${CATALOG_ID_PREFIX}${c.key}--${type}--f${i}`,
+            type,
+            key: c.key,
+            entry: { kind: "recommend", fallback: i },
+            name: `More Like ${roster[i][0]}`,
+          });
+        }
+        rows.push(...mine);
       }
       return rows;
     }),
@@ -345,6 +506,20 @@ export function catalogDefs(code = activeCountry()) {
 
 // Stremio identifies a catalog by (type, id) — the same id is used for the movie
 // and series variants, so lookups must match on both.
-export const findCatalog = (id, type) => catalogDefs().find((d) => d.id === id && d.type === type) || null;
+//
+// **A For You id is rebuilt if the current split does not hold it.** Both its
+// flavours carry everything the row needs — the title it was built for, or the
+// fallback index — and the seed list is re-rolled on every call, so the id the
+// manifest published a moment ago can be missing from the set built now. Dropping
+// it would make the row it names open empty.
+export const findCatalog = (id, type) => {
+  const found = catalogDefs().find((d) => d.id === id && d.type === type);
+  if (found) return found;
+  const m = /^nuvio-(.+?)--(movie|series)--(?:f(\d+)|(\d+))$/.exec(String(id || ""));
+  if (!m || m[2] !== type) return null;
+  return m[3]
+    ? { id, type, key: m[1], entry: { kind: "recommend", fallback: Number(m[3]) }, name: "For You" }
+    : { id, type, key: m[1], entry: { kind: "recommend", seed: { id: m[4], name: "this title" } }, name: "More Like" };
+};
 
 export { genres };

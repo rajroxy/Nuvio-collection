@@ -178,12 +178,75 @@ The tag arrows are the deliberate exception to the flat pass — a stroked chevr
 bordered, accent-tinted plate is what makes them read as something to press.
 
 **Top bar:** no app logo or label, **no Movies/Shows tabs** and **no counts** (the
-old `Movies & Shows · 21 collections · 534 catalogs` line is gone). Left: a **profile
-icon**, the **calendar** button, then a **vertical divider**. Middle: **Home**. Right:
-**search** and **Settings**. Every one of those controls is the same drawn 24px
-stroke icon (no emoji glyphs), and both dividers are painted lines, not faint
-near-transparent ones. Settings is a **real cog** — the old glyph was a centre dot
-with eight even spokes, which reads as a brightness/sun icon, not as settings.
+old `Movies & Shows · 21 collections · 534 catalogs` line is gone). On **Home** it
+reads left to right as a **profile icon**, the **calendar** button, a **vertical
+divider**, the **Home** tab, then **search** and **Settings**. Every one of those
+controls is the same drawn 24px stroke icon (no emoji glyphs), and both dividers are
+painted lines, not faint near-transparent ones. Settings is a **real cog** — the old
+glyph was a centre dot with eight even spokes, which reads as a brightness/sun icon,
+not as settings.
+
+**The four doors are Home's.** The profile switch, the calendar, search and Settings
+are all ways *into* something, and drawn on a card, a channel or a settings pane they
+sat over the content as a second, unrelated set of controls — so the whole left-hand
+group and both right-hand icons render on **Home only**. Every other screen carries a
+**back arrow** instead, and nothing else of its own.
+
+**The bar names the screen you are on.** Not Home, which keeps the clickable tab,
+and not the screens that never had a title of their own (settings, search, the
+calendar, the guide, the live screens), which wear the **arrow alone**. The three
+that do name themselves put that name in the slot beside the arrow:
+
+| Screen | The bar reads |
+|---|---|
+| Collection (card) | the **card's** name |
+| Explore | the **catalog** you are inside — the genre, country or runtime chip you picked (`30–44 mins`) |
+| Title | the **title** itself |
+
+The name is **a touch larger and heavier than Home's tab** (`16px` / `800` against
+`14px` / `700`) with the same **vertical rule** to its left. It is **text, not a
+door**: it used to be a Home button, which threw you out of the card you were reading,
+so it is now a `span` with no click, no hover and no focus stop. Leaving is the
+**arrow's** job, right beside it.
+
+A title's route is `#/t/<type>/<id>` — an id, not a name — so its page hands the name
+in once its own data has arrived, and the bar draws again; a late answer from a screen
+you have already left is dropped.
+
+The **body breadcrumb is gone.** An Explore page drew `Runtimes › 30–44 mins` under
+this bar as well; with the catalog now up here it was the same two words twice, so
+the line — and the switcher that hung off it — went with the duplication. A **title
+page** lost its big `h1` for the same reason: the name is in the bar.
+
+**The title page's banner is artwork and nothing else.** With the name gone and **Play**
+and the pins moved down onto the page, the banner holds one picture. It is the title's
+own **wide shot** when it has one. When it has only a **poster**, the poster is drawn **as
+a poster**: whole, at its own shape, with its own rounded edge and shadow, standing
+inside the frame on a **much darker and softer wash** of itself. Two earlier attempts
+are why that is the rule — a poster stretched `cover` across the 16:9 frame came out
+cropped, and a poster laid in as a `contain` strip at the right edge came out as a sharp
+slice of artwork beside a blurry smear. Both read as "the poster does not fit". **Play
+and the pins are the page's first row**, under the banner and **above the ratings**.
+
+## Torrents
+
+Most Stremio add-ons answer with **torrents** — an `infoHash`, a `fileIdx` and a list
+of trackers — rather than with a URL. The server keeps them (`readStreams` in
+`addon/streams.mjs` builds a **magnet** out of them) and the player opens the magnet
+with **WebTorrent**, vendored at `ui/vendor/webtorrent.min.js` exactly the way
+hls.js is (`npm run vendor:webtorrent`, which copies it out of
+desktop/node_modules), so nothing is fetched from a CDN at play time.
+
+The Sources drawer marks a torrent and says how many seeders it has; the swarm's own
+peers / progress / speed ride in a note over the picture while it fills in, because a
+torrent that has found no peers must not look like one that is playing. Only the
+magnet is opened — a stream that names a video file (`fileIdx`, otherwise the
+biggest video in the torrent) is streamed into the `<video>` element with
+`file.streamTo`. Switching source or closing the player destroys the swarm.
+
+A torrent is **not** a live channel: the live profile's channel streams are
+continuous URLs, so a torrent handed to one is dropped rather than sitting at 0%
+forever.
 
 **The page keeps its place.** Every screen remembers where it was scrolled: going
 back returns you to the spot you left, and re-rendering the screen you are already on
@@ -232,7 +295,12 @@ eases the row toward it, instead of snapping the row a wheel-notch at a time.
 two hundred tags, and as one wall of pills they pushed the rows off the screen — so
 the line never grows: the arrows scroll it a row at a time (the wheel works over it
 too) and each one dims at its own end of the list. Nothing is expanded in place.
-Short cards get no control at all. Both arrows are drawn as **buttons** — a bordered,
+Short cards get no control at all — and **neither does a line that fits its rows**, even
+when it holds more than eight tags: *Runtime* folds nine pills and *Genres* about
+twenty, both fit their two rows whole, and arrows that scroll nothing were sitting
+under them. The count only decides whether the question is asked; the **layout**
+decides the answer, so a card like **Countries**, which really is held back, keeps its
+arrows. Both arrows are drawn as **buttons** — a bordered,
 accent-tinted plate with a stroked chevron, sized and hovered like every other
 control — so they read as something to press rather than as marks on the background.
 The chevron is built with `document.createElementNS`, in the **SVG namespace**:
@@ -273,9 +341,21 @@ its rounded corners cut across what sat behind them. The hover response is now a
 and an inset ring, the card is `overflow: hidden`, and the poster strip is clipped to
 the frame's radius — nothing a card draws can leave its own box.
 
-**Watchlist comes first, then a vertical divider**, then **Discover ◆ Top 25** and
-the rest of the cards. The cards are always in the published order, and every card
-appears — there is no picked subset on Home any more. The **Watchlist** card's frame
+The cards run **For You first** and end on **your own three**: **Watchlist**,
+**Upcoming** and **Custom**, with a **vertical divider** before the Watchlist so the
+block reads as one group at the bottom of the page. The cards are always in the
+published order, and every card appears — there is no picked subset on Home any more.
+**Upcoming** is the card that shows what is on its way — TMDB's upcoming films, and the
+nearest first-air dates for shows — and it is drawn as a **spotlight** (the card the
+manifest marks `spotlight`): the **same 16:9 frame every card has**, so it sits **in the
+same row** as the Watchlist and the Custom card, but the frame holds **one still**
+instead of a wall of four posters, and that still **changes every ten seconds** the way
+the hero banner's does (one of its own titles each time, never the one on screen, and
+it holds still while the cursor is over it — see `startSpotlight`). **Nothing in it is
+clickable**: there is no artwork button, so it is not a focus stop, it takes no hover
+lift, and a title rotating through it is a glance rather than a link.
+**Airing This Week** is no longer one of the banner's
+rows: what is on the air is the banner's job, what is coming is this card's. The **Watchlist** card's frame
 holds **two** posters: it is three rows of your own pins, and a wider wall of them
 read as a chart rather than as "what you are watching". A card is also only ever
 drawn with the rows the addon's **manifest** publishes, so a retired catalog cannot
@@ -294,16 +374,33 @@ Nuvio sees the same rows. Those rows are requested with a cache-busting `_=<n>` 
 answered `cache-control: no-store`, so a removed title is gone the moment you come
 back — an ordinary catalog row keeps its `max-age` and is not re-fetched pointlessly.
 
+**The For You rows are dealt, not walked.** Its rows are one title's own recommendations
+each (`More Like …`), and TMDB's recommendation lists overlap — a film stays popular
+whatever you seed with — so the card had a habit of showing the same title in two of its
+rows. Three things stop it now: the order is **shuffled on every open**; the titles
+handed out recently are remembered and pushed to the back; and each row is told what the
+card's **other rows have already put on screen in that open** (`?exclude=` on the catalog
+URL — see `forYouServed` in `ui/app.js` and `dealForYou` in `addon/index.mjs`), so a title
+cannot appear twice on the page. What it passes over is skipped rather than left as a
+hole, so a row that has to skip several is still a full row.
+
 **Catalog labels are clickable** — in the hero banner and on a collection page each
 catalog name is a chip that opens that catalog inside the card.
 
-**Explore** shows only the card label and the catalog label in its header (with a
-catalog switcher) and a **Shuffle** that redraws its sample rows with fresh random
-draws from the row **and from other origin countries** it holds, so a shuffle is not
-the same American chart every time,
-draws — requested with a cache-busting `_=<n>` parameter and answered
+**Explore** carries one control, and which one depends on the row. Every ordinary
+card — **including the plain Global OTT and Regional OTT cards** — gets a **Shuffle**
+that redraws its sample rows with fresh random draws from the row **and from other
+origin countries** it holds, so a shuffle is not the same American chart every time;
+the draws are requested with a cache-busting `_=<n>` parameter and answered
 `cache-control: no-store`, because a cached identical URL is what made Shuffle look
 like a button that did nothing.
+
+**The two ◆ Top 10 OTT cards get an order dropdown instead** — **Latest · Newest ·
+Trending · Popular · Top rated** — and **only there, on their Explore page**: a Top 10
+is one service's best, so "best by what?" is the one question worth asking of it. The
+plain Global OTT and Regional OTT cards publish the whole service in published order
+and ask no such question, and **no card asks it from its card page** — a card page is
+a wall of its own rows.
 
 **The wheel moves the row, never the page.** Pointing at a strip and scrolling
 scrolls that strip sideways; at either end the row simply stops, so the page cannot
@@ -345,6 +442,11 @@ name, and a service filter only means anything once you have said where you are,
 are the **same two-row window the card tag lines use**: a pair of up/down arrows that
 step them a row at a time, each dimming at its own end, with your chosen chip
 scrolled into view — instead of a *More (N)* pill that expanded the line in place.
+They follow the **same rule about being needed**, too, and that rule is the one place
+it matters most here: the panel is built **shut**, so a line with no box yet cannot be
+measured — the choice the card lines make on `ResizeObserver` size changes is what lets
+*Genre* (about twenty chips, two rows, no arrows needed) and *Country* or *Time* (every
+country, every year on its own, arrows genuinely needed) be told apart once it opens.
 
 The depth comes from the server: it reads TMDB 20 titles at a time into a growing,
 10-minute cache per catalog, so each 40-title window continues where the last
