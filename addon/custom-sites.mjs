@@ -23,6 +23,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchStaticHTML } from "../scraper/tier1.js";
 import { renderJS } from "../scraper/tier2.js";
+import { browserSearch } from "../scraper/tier3.js";
+import { describeStream } from "../scraper/meta.js";
 import { extractStreams } from "../scraper/index.js";
 import { cookieHeader } from "../scraper/sessions.js";
 
@@ -482,11 +484,43 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
         // The sandbox tier runs them (and finishes in about a second), so a search page
         // gets the same treatment a content page has always had here.
         let rendered = false;
+        // Set when the browser is what found the page: this site needs a browser, and its
+        // content page deserves the same tier that got us here.
+        let seenInBrowser = false;
         if (!hit && Date.now() < deadline) {
           const dom = await renderJS(searchUrl, { referer: site.url, wait: 1200, timeout: Math.min(perSite, 8000) });
           if (dom) {
             rendered = true;
             hit = pickPage(dom, searchUrl, name, year);
+          }
+        }
+        /**
+         * **Then the real browser, which is the only thing some sites answer.**
+         *
+         * A search page is an application: it draws its results after its own scripts run,
+         * the results are frequently `<div>`s rather than links, and on several sites the
+         * title opens as a modal whose Play button is what makes the stream load at all.
+         * Neither a fetch nor a DOM sandbox can see any of that — they read the shell, and
+         * the site's whole catalogue looks empty. (`shuttletv.su/search?q=Oppenheimer`
+         * shows four results in a browser and none of those tiers.) So the browser opens
+         * the search page, opens the best match, presses Play, and whatever the player
+         * asks for is the stream.
+         */
+        let media = [];
+        if (!hit && Date.now() < deadline) {
+          const found = await inBrowserQueue(() =>
+            browserSearch(searchUrl, {
+              score: (card) => Math.max(matchScore(card.text, name, year), matchScore(card.alt, name, year)),
+              timeout: Math.min(perSite, 25000),
+              cookies: cookieHeader(searchUrl) || undefined,
+            }),
+          ).catch(() => null);
+          if (found?.media?.length) {
+            media = found.media;
+            hit = { url: found.url || searchUrl, text: found.matched?.alt || found.matched?.text || name };
+          } else if (found?.url) {
+            hit = { url: found.url, text: found.matched?.alt || found.matched?.text || name };
+            seenInBrowser = true;
           }
         }
         if (!hit) {
@@ -499,7 +533,25 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
             : "no matching result on the search page";
           return { streams, report: { domain: site.domain, count: 0, error } };
         }
-        const verified = Boolean(cookieHeader(hit.url));
+        // **The player's own request, caught while the site was driven.** Nothing else
+        // reaches these: the address is made by the page's script, minutes after the
+        // markup was written, and it is what a `<video>` on the page was pointed at.
+        if (media.length) {
+          const got = media.slice(0, limitPerSite).map((url) => ({
+            ...describeStream(url, { tier: "browser", pageUrl: hit.url, pageHtml: "", title: name }),
+            url,
+            // The site's own page is the referer its player used; the app's proxy sends it.
+            referer: hit.url,
+            scraped: true,
+            site: site.domain,
+            domain: site.domain,
+          }));
+          streams.push(...got);
+          const report = { domain: site.domain, count: got.length, page: hit.url, error: "" };
+          try { onSite?.(report, got); } catch { /* a listener must not fail the search */ }
+          return { streams, report };
+        }
+        const verified = Boolean(cookieHeader(hit.url)) || seenInBrowser;
         const rows = await extractStreams(hit.url, {
           trace: null,
           timeout: perSite,
@@ -550,6 +602,22 @@ export const _reset = () => {
  * was working, the request carrying it was not. The search runs in the background now and
  * the page watches it, so every request is short.
  */
+/**
+ * **One site in the browser at a time.**
+ *
+ * The sites are searched together — that is what keeps a Play press quick — but the
+ * browser is a single shared process, and a page that takes its renderer down takes every
+ * search in flight with it. (A bot check, a heavy player and a headless shell do not
+ * always agree.) So the cheap tiers stay parallel and only the browser hop is serialized:
+ * a site that kills the browser costs the other sites a moment, not their results.
+ */
+let browserQueue = Promise.resolve();
+const inBrowserQueue = (work) => {
+  const next = browserQueue.then(work, work);
+  browserQueue = next.then(() => {}, () => {});
+  return next;
+};
+
 const JOBS = new Map();
 const JOB_TTL_MS = 5 * 60 * 1000;
 

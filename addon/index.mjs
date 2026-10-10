@@ -76,6 +76,7 @@ import { installDnsFetch } from "./net.mjs";
 import { publicDns, updateDns, testDns, activeDnsServers, dnsScope } from "./dns.mjs";
 import { handleProxy } from "./proxy.mjs";
 import { guardState } from "./guards.mjs";
+import { browserUnavailableReason } from "../scraper/tier3.js";
 import { handleTorrentStream, prepareTorrent, torrentStatus, torrentState } from "./torrent.mjs";
 import { publicSites, addSite, updateSite, removeSite, detectSearchPattern, patternFromSample, addRepository, removeRepository, searchJob, startSearchOnPlay, listSites } from "./custom-sites.mjs";
 import { getPrefs, updatePrefs } from "./user-prefs.mjs";
@@ -2067,6 +2068,11 @@ export async function handleAddon(req, res, pathname, origin) {
       // the last few were, so "the server died while searching my sites" is answerable
       // from the status route instead of from a missing reply.
       absorbedErrors: guardState(),
+      // **Is the browser tier usable here?** Custom Websites whose search page draws its
+      // own results need it, so "the site found nothing" and "this machine cannot launch
+      // a browser" have to be tellable apart. (`npx playwright install-deps chromium`
+      // installs what a host needs for it.)
+      browserTier: browserUnavailableReason() || "ready",
     });
     return true;
   }
