@@ -55,9 +55,26 @@ import {
 import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog, primeTrendingSeeds, isOttSort } from "./catalogs.mjs";
 import { activeCountry, activeContentSource, activeLanguage, getSettings, updateSettings, publicSettings, tmdbKey, providerKeys } from "./settings.mjs";
 import { enrichRatings, titleRatings, verifyProvider } from "./providers.mjs";
-import { applyPosters, postersEnabled, checkPosterService } from "./posters.mjs";
+import { applyPosters, postersEnabled, checkPosterService, imdbId } from "./posters.mjs";
 import { applyContentSource, contentSourceActive, contentSourceStats } from "./tvdb.mjs";
 import { inspectSource } from "./sources.mjs";
+import { resolveMagnet, verifyDebrid, debridReady, DEBRID_SERVICES } from "./debrid.mjs";
+import { searchSubtitles, downloadSubtitle, cachedSubtitle, verifySubtitles, SUBTITLE_LANGUAGES } from "./subtitles.mjs";
+import { extractStreams } from "../scraper/index.js";
+import { addPlugin, listPlugins, removePlugin } from "../scraper/plugins.js";
+import { sessionDomains, clearSession } from "../scraper/sessions.js";
+import { startManualVerification, finishManualVerification, cancelManualVerification, manualSessions, MANUAL_MESSAGE } from "../scraper/manual.js";
+import { installDnsFetch } from "./net.mjs";
+import { publicDns, updateDns, testDns, activeDnsServers, dnsScope } from "./dns.mjs";
+import { handleProxy } from "./proxy.mjs";
+import { publicSites, addSite, updateSite, removeSite, detectSearchPattern, patternFromSample, addRepository, removeRepository, searchOnPlay, listSites } from "./custom-sites.mjs";
+import { getPrefs, updatePrefs } from "./user-prefs.mjs";
+
+// **The DNS override is installed once, here.** Every request the server makes — metadata,
+// add-ons, subtitles, debrid, the scraper, the stream proxy — goes through the global
+// `fetch`, so wrapping it once is what makes the setting app-wide rather than per-call. A
+// request made with no resolver configured is handed straight to the platform fetch.
+installDnsFetch();
 import { streamsFor, channelStreams, liveAddonChannels, clearStreamCache } from "./streams.mjs";
 import { clearTmdbCache } from "./tmdb.mjs";
 import { calendarMonth } from "./calendar.mjs";
@@ -1342,6 +1359,11 @@ function appOptions() {
       name,
       services: localServices(code, "movie").length + localServices(code, "tv").length,
     })),
+    // The languages Settings → Subtitles searches in, as `[code, label]` — the shape
+    // the app's own dropdown reads. OpenSubtitles is keyed by the two-letter code, a
+    // different vocabulary from the locale above, so it is published rather than
+    // guessed at on the page.
+    subtitleLanguages: SUBTITLE_LANGUAGES.map(([code, label]) => [code, label]),
   };
 }
 
@@ -1394,13 +1416,13 @@ export async function handleAddon(req, res, pathname, origin) {
         // (or picking a different poster service / provider) rewrites nothing until
         // those answers are dropped — which is exactly "enrichment does nothing".
         if (patch && ("enrich" in patch || "posters" in patch || "providers" in patch)) clearTmdbCache();
-        json(res, 200, { ...publicSettings(), options: appOptions() });
+        json(res, 200, { ...publicSettings(), options: appOptions(), dns: publicDns(), customSites: publicSites(), prefs: getPrefs() });
       } catch (err) {
         json(res, 400, { error: String(err?.message || err) });
       }
       return true;
     }
-    json(res, 200, { ...publicSettings(), options: appOptions() });
+    json(res, 200, { ...publicSettings(), options: appOptions(), dns: publicDns(), customSites: publicSites(), prefs: getPrefs() });
     return true;
   }
 
@@ -1475,6 +1497,430 @@ export async function handleAddon(req, res, pathname, origin) {
       json(res, 400, { ok: false, text: String(err?.message || err) });
     }
     return true;
+  }
+
+  // **Debrid.** A torrent stream has no address of its own: an add-on publishes an
+  // info hash, and a browser cannot join a public swarm (the peers speak TCP/UDP,
+  // which a page cannot dial). The server therefore turns the magnet into a direct
+  // HTTPS link through the user's own debrid account and hands the player something
+  // it can play like any other stream.
+  if (pathname === "/debrid/verify") {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      res.end();
+      return true;
+    }
+    try {
+      const { name, key } = await readBody(req);
+      json(res, 200, await verifyDebrid(name, key));
+    } catch (err) {
+      json(res, 400, { ok: false, text: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/debrid/resolve") {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      res.end();
+      return true;
+    }
+    try {
+      const { magnet, infoHash, name } = await readBody(req);
+      // Always 200: a stream that could not be resolved is an answer, not a
+      // transport failure, and the body carries which service said what.
+      json(res, 200, await resolveMagnet({ magnet, infoHash, name }));
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  // Which debrid services this build offers, and which would answer right now.
+  if (pathname === "/debrid.json") {
+    json(res, 200, { services: DEBRID_SERVICES, ready: debridReady() });
+    return true;
+  }
+
+  /**
+   * **A page the add-ons do not cover.** `extractStreams` (scraper/) runs server-side for
+   * the same reason the streams route does: a browser cannot read another host's page, and
+   * the last tier is a real browser that has to live here. The trace comes back with the
+   * list, so "nothing found" can say *which* tiers were tried instead of being a shrug.
+   */
+  if (pathname === "/extract") {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      res.end();
+      return true;
+    }
+    try {
+      const { url, referer } = await readBody(req);
+      const trace = [];
+      const streams = await extractStreams(String(url || ""), { trace, cookies: undefined, referer });
+      json(res, 200, {
+        ok: streams.length > 0,
+        url: String(url || ""),
+        streams,
+        trace,
+        tier: streams[0]?.source || "",
+        // **A bot check is passed back as its own fact**, so the UI can offer the manual
+        // step instead of reporting "nothing found" for a site that asked for a person.
+        needsVerification: streams.needsVerification || null,
+        message: streams.length ? "" : trace[trace.length - 1] || "No streams found.",
+      });
+    } catch (err) {
+      json(res, 200, { ok: false, streams: [], trace: [], message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  // The plugins a user pasted: list them, add one by URL, forget one.
+  if (pathname === "/scraper/plugins.json") {
+    json(res, 200, { plugins: listPlugins(), sessions: sessionDomains() });
+    return true;
+  }
+
+  if (pathname === "/scraper/plugins" && req.method === "POST") {
+    try {
+      const { url, name, domains } = await readBody(req);
+      json(res, 200, await addPlugin({ url, name, domains }));
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/scraper/plugins/remove" && req.method === "POST") {
+    try {
+      const { name } = await readBody(req);
+      json(res, 200, { ok: removePlugin(String(name || "")), plugins: listPlugins() });
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/scraper/sessions/clear" && req.method === "POST") {
+    try {
+      const { domain } = await readBody(req);
+      json(res, 200, { ok: true, dropped: clearSession(domain ? String(domain) : "") });
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  /* ------------------------------------------------------------------ DNS */
+
+  // Which resolver is in force, and what it applies to.
+  if (pathname === "/dns.json") {
+    json(res, 200, { ...publicDns(), scope: dnsScope() });
+    return true;
+  }
+
+  if (pathname === "/dns" && req.method === "POST") {
+    try {
+      const patch = await readBody(req);
+      updateDns(patch || {});
+      json(res, 200, { ok: true, dns: publicDns(), servers: activeDnsServers(), scope: dnsScope(), message: activeDnsServers().length ? `Resolving through ${activeDnsServers().join(", ")} from now on.` : "The system resolver is in use again." });
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  // The Settings button: resolve the *same* name both ways and report both answers.
+  if (pathname === "/dns/test") {
+    try {
+      const { host } = req.method === "POST" ? await readBody(req).catch(() => ({})) : { host: "" };
+      json(res, 200, await testDns(String(host || "google.com")));
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  /* ------------------------------------------------------ Custom Websites */
+
+  if (pathname === "/custom-sites.json") {
+    json(res, 200, { ...publicSites(), prefs: getPrefs() });
+    return true;
+  }
+
+  if (pathname === "/custom-sites/add" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      // **The whole list comes back, not just the new row.** The pane redraws from this
+      // answer, so a response without `sites` left the category it had just added to
+      // looking empty until the next full settings fetch.
+      const added = await addSite({ url: body.url, category: body.category, searchPattern: body.searchPattern || null });
+      json(res, 200, { ...added, sites: listSites() });
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  // A sample search URL into a pattern, for a site whose form could not be detected.
+  if (pathname === "/custom-sites/pattern" && req.method === "POST") {
+    try {
+      const { sample, title, url, category } = await readBody(req);
+      const pattern = patternFromSample(String(sample || ""), String(title || ""));
+      if (!pattern) {
+        json(res, 200, { ok: false, message: "That URL has no query parameters to copy a pattern from." });
+        return true;
+      }
+      if (url) {
+        const withSite = await addSite({ url: String(url), category: category || "other", searchPattern: pattern });
+        json(res, 200, { ok: true, pattern, ...withSite, sites: listSites() });
+        return true;
+      }
+      json(res, 200, { ok: true, pattern });
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/custom-sites/detect" && req.method === "POST") {
+    try {
+      const { url } = await readBody(req);
+      json(res, 200, await detectSearchPattern(String(url || "")));
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/custom-sites/update" && req.method === "POST") {
+    try {
+      const { url, category, patch } = await readBody(req);
+      json(res, 200, updateSite({ url, category, patch: patch || {} }));
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/custom-sites/remove" && req.method === "POST") {
+    try {
+      const { url } = await readBody(req);
+      json(res, 200, removeSite({ url }));
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/custom-sites/repositories" && req.method === "POST") {
+    try {
+      const { url } = await readBody(req);
+      json(res, 200, await addRepository({ url }));
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/custom-sites/repositories/remove" && req.method === "POST") {
+    try {
+      const { url } = await readBody(req);
+      json(res, 200, removeRepository({ url }));
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  /**
+   * **Search-on-Play.** The sites the user added, searched for the title being played:
+   * every stream comes back tagged with the site's domain, and every site reports what it
+   * did — so a site that failed says why instead of silently adding nothing.
+   */
+  if (pathname === "/custom-sites/streams.json") {
+    try {
+      const body = req.method === "POST" ? await readBody(req) : Object.fromEntries(new URL(req.url, "http://localhost").searchParams);
+      const trace = [];
+      const result = await searchOnPlay({
+        title: body.title || body.name || "",
+        year: body.year || "",
+        type: body.type === "series" ? "series" : "movie",
+        trace,
+      });
+      json(res, 200, { ...result, trace });
+    } catch (err) {
+      console.error("[addon] custom-sites search failed:", err.message);
+      json(res, 200, { ok: false, streams: [], sites: [], trace: [], message: `Custom Sites could not be searched — ${err.message}` });
+    }
+    return true;
+  }
+
+  /* ------------------------------------------------------------ preferences */
+
+  if (pathname === "/prefs.json") {
+    json(res, 200, getPrefs());
+    return true;
+  }
+
+  if (pathname === "/prefs" && req.method === "POST") {
+    try {
+      const patch = await readBody(req);
+      json(res, 200, { ok: true, prefs: updatePrefs(patch || {}) });
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  /* --------------------------------------------------------------- the pipe */
+
+  /**
+   * **The stream proxy.** A scraped file usually wants the page as its `Referer` and the
+   * site's cookies; a browser can send neither. So the server fetches it — and rewrites a
+   * playlist's own URIs to come back through here, so a stream's segments carry the same
+   * two headers as its first request.
+   */
+  if (pathname === "/stream/proxy") {
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    await handleProxy(req, res, { url: params.get("url") || "", ref: params.get("ref") || "" });
+    return true;
+  }
+
+  /* --------------------------------------------------- manual verification */
+
+  // When every tier was stopped by a bot check, the site is asking for a person. This
+  // opens a window on the machine the server runs on; the user solves it and says so.
+  if (pathname === "/scraper/verify" && req.method === "POST") {
+    try {
+      const { url } = await readBody(req);
+      json(res, 200, await startManualVerification(String(url || "")));
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/scraper/verify/done" && req.method === "POST") {
+    try {
+      const { sessionId } = await readBody(req);
+      json(res, 200, await finishManualVerification(String(sessionId || "")));
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/scraper/verify/cancel" && req.method === "POST") {
+    try {
+      const { sessionId } = await readBody(req);
+      json(res, 200, await cancelManualVerification(String(sessionId || "")));
+    } catch (err) {
+      json(res, 200, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  if (pathname === "/scraper/verify.json") {
+    json(res, 200, { sessions: manualSessions(), message: MANUAL_MESSAGE });
+    return true;
+  }
+
+  // **Subtitles a stream does not carry.** OpenSubtitles is searched on the server
+  // (the API needs a key that must not reach the page, and the file it returns is
+  // often a ZIP), and the chosen one is served back from here as WebVTT — which is
+  // what a `<track>` element can actually read.
+  if (pathname === "/subtitles/verify") {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "POST, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      });
+      res.end();
+      return true;
+    }
+    // The body names which service to check; without one, the first that is set up.
+    let name = "";
+    try {
+      name = String((await readBody(req)).name || "");
+    } catch {
+      /* an empty body means "check whatever is ready" */
+    }
+    json(res, 200, await verifySubtitles(name));
+    return true;
+  }
+
+  // Which languages the catalogue is searched in, for the Settings picker.
+  if (pathname === "/subtitles.json") {
+    json(res, 200, { languages: SUBTITLE_LANGUAGES, ...publicSettings().subtitles });
+    return true;
+  }
+
+  if (pathname === "/subtitles/search.json") {
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    // The IMDb id is resolved **here** from the TMDB id when the app does not have one:
+    // OpenSubtitles matches on IMDb and on little else, and the page only ever knows a
+    // TMDB id for the title it is playing.
+    const type = params.get("type") === "series" ? "series" : "movie";
+    // The TMDB id the page holds, and the IMDb id derived from it: the services index on
+    // either, so both travel rather than one being thrown away.
+    const tmdbId = String(params.get("id") || "").replace(/^tmdb:/, "");
+    let imdb = params.get("imdb") || "";
+    if (!imdb && tmdbId) {
+      imdb = await imdbId({ id: tmdbId, type }).catch(() => "") || "";
+    }
+    try {
+      json(res, 200, await searchSubtitles({
+        imdb,
+        tmdb: tmdbId,
+        type,
+        season: params.get("season") || "",
+        episode: params.get("episode") || "",
+        name: params.get("name") || "",
+        year: params.get("year") || "",
+        language: params.get("lang") || "",
+        provider: params.get("provider") || "",
+      }));
+    } catch (err) {
+      console.error("[addon] subtitles search failed:", err.message);
+      json(res, 200, { ok: false, ready: true, results: [], message: `Could not search for subtitles — ${err.message}` });
+    }
+    return true;
+  }
+
+  {
+    // The **service** is part of the path, because the same build searches several: a
+    // result carries the service it came from and its short token, and only a cold
+    // service+token is fetched — re-picking one already downloaded spends nothing.
+    const m = pathname.match(/^\/subtitles\/([a-z]+)\/([A-Za-z0-9_.-]+)\.vtt$/);
+    if (m) {
+      const [, provider, ref] = m;
+      const hit = cachedSubtitle(provider, ref);
+      const result = hit || (await downloadSubtitle(ref, { provider }));
+      if (!result?.ok) {
+        json(res, result?.ok === false ? 404 : 500, { error: result?.message || "That subtitle could not be downloaded." });
+        return true;
+      }
+      res.writeHead(200, {
+        "content-type": "text/vtt; charset=utf-8",
+        "cache-control": "private, max-age=3600",
+      });
+      res.end(result.vtt);
+      return true;
+    }
   }
 
   // Provider state, for the Settings screen and diagnostics.

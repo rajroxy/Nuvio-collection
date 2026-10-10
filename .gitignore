@@ -26,3 +26,26 @@ desktop/android/app/src/main/assets/public/
 
 # OS noise
 .DS_Store
+
+# Scratch used while working on the app's live preview: server logs and the one-off
+# render/check scripts. Nothing here is part of the app.
+.preview/
+
+# Scraper sessions — cookies earned while extracting, runtime state not source
+scraper/sessions.json
+
+# Scraper plugins — pasted by the user at runtime, not source
+scraper/plugins.json
+
+# Custom Websites — the sites this user added, with their detected search forms.
+# Private to the install, and not source.
+addon/custom-sites.json
+
+# Repository list — the repositories this user subscribed to, by name
+addon/repositories.json
+
+# DNS — which resolver this install asked, and whether the override was on
+addon/dns-config.json
+
+# General preferences written by the app (search-on-play, the summary line, …)
+addon/user-preferences.json

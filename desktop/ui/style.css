@@ -124,6 +124,7 @@ body {
   text-align: center;
 }
 
+
 .profile-grid {
   display: flex;
   flex-wrap: wrap;
@@ -209,6 +210,10 @@ body {
 }
 
 /* One icon set: every top-bar control draws the same 24px stroke glyph. */
+/* **The switch-mode button wears the mode's mark**, at the pen weight a 20px drawing
+   needs — `.icon-btn svg`'s 1.8 is measured for a 24-unit box and would be a hairline
+   on this one. */
+.profile-btn .avatar-mark { width: 20px; height: 20px; stroke-width: 3.6; }
 .icon-btn svg {
   display: block;
   width: 19px;
@@ -295,48 +300,77 @@ body {
 .icon-box:hover { transform: translateY(-3px); border-color: rgba(var(--accent-rgb), 0.45); }
 
 /* **The spotlight card.** One card is published with `spotlight` (Upcoming). It is
-   **two cards long** — `span 2` — so it sits **in the row** between your Watchlist and
-   your Custom card and the three of them fill it, and it is the **same height as its
-   neighbours** (see the `32 / 9` frame below). The frame holds **one** still instead of
-   a wall of posters, and that still changes every ten seconds (see `startSpotlight`).
-   Nothing in it is clickable, so it takes **no hover lift** either: a card that rises
-   under the cursor is promising a door, and this one is a window on what is coming. */
+   **two cards long** — `span 2` — so it sits in the row between your Watchlist and your
+   Custom card and the three of them fill it, and it is the **same height as its
+   neighbours**: `32 / 9` is exactly two 16:9 frames side by side. Its frame holds **two
+   poster cards** instead of a wall of four, and which two it holds changes every ten
+   seconds (see `startSpotlight`). Nothing in it is clickable, so it takes **no hover
+   lift** either: a card that rises under the cursor is promising a door, and this one
+   is a window on what is coming. */
 .icon-box.card-spotlight { grid-column: span 2; }
 .icons.rows .icon-box.card-spotlight { width: calc(600px + 18px); }
-/* **Two cards wide, one card tall.** With the frame spanning two columns, the same
-   16:9 box would be twice as tall as its neighbours; `32 / 9` is exactly two 16:9
-   frames side by side, so the card is twice as long as the cards beside it and the
-   same height — the row stays aligned and the card reads as a banner among them. */
 .icon-box.card-spotlight .icon-wrap { aspect-ratio: 32 / 9; }
-.icon-box.card-spotlight .content-strip.backdrop { inset: 0; }
 /* A card that rises under the cursor is promising a door, and this one is a window. */
 .icon-box.card-spotlight:hover { transform: none; }
-/* **The still names itself.** The card's label underneath says Upcoming — the card —
-   so the picture carries the title, its year and its rating over a bottom gradient.
-   The strip takes no pointer events, and the caption is `aria-hidden`: it repeats
-   what sighted readers get from the picture, and a screen reader gets the card. */
-.icon-box.card-spotlight .content-strip.backdrop { justify-content: flex-start; }
-.spotlight-caption {
+/* **Two full posters inside the one card** — the same tiles the Watchlist and Custom
+   cards hold, so a poster reads the way it does everywhere else in the app, with its
+   own title and the date it lands over a bottom gradient. */
+.spotlight-tile {
+  position: relative;
+  flex: 0 0 calc(50% - 5px);
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel-2);
+}
+/* **The pair shifts, it does not animate.** A cycle moves the right-hand poster into the
+   left slot, drops the left-hand one, and brings the next title in on the right — so one
+   poster changes per cycle and nothing moves on screen. */
+.icon-box.card-spotlight .content-strip { display: block; }
+.spotlight-track {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+}
+/* **A 16:9 frame holds 16:9 artwork.** The tile is landscape, so the wide shot fills it
+   at its own shape — nothing is cropped into the other orientation. */
+.spotlight-tile-art { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 40%; }
+.spotlight-tile-art.blank { background: linear-gradient(160deg, var(--panel-2), var(--panel)); }
+/* The tag and the name are **drawn on the frame**, the way the tagged artwork draws
+   them: a pill across the top, the title under it at the bottom. */
+.spotlight-frame {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 30px 16px 12px;
-  background: linear-gradient(0deg, rgba(3, 4, 6, 0.88), rgba(3, 4, 6, 0));
-  text-align: left;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(3, 4, 6, 0.35), rgba(3, 4, 6, 0) 34%, rgba(3, 4, 6, 0) 60%, rgba(3, 4, 6, 0.82));
+  pointer-events: none;
+}
+.spotlight-tag {
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(3, 4, 6, 0.72);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
 }
 .spotlight-title {
-  font-size: 17px;
+  max-width: 100%;
+  font-size: 15px;
   font-weight: 800;
   color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.92), 0 1px 12px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.spotlight-meta { font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.72); }
 
 /* Only the artwork opens a collection — so the artwork is the button. */
 .icon-art {
@@ -522,6 +556,16 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 /* Catalog labels are clickable chips in the hero and on a collection. */
 .hero-cats, .cats { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
 .cats { margin-bottom: 0; }
+
+/* **The banner's words read down the middle of its left column**, not bunched against
+   the left edge: the kicker sits on the centre line, the title is centred under it and
+   the tag chips wrap around the same line — so the left half reads as the banner's own
+   heading rather than a stack pushed into the corner.
+   The **title page** wears this same banner (`.hero.title-hero`) but not this rule: its
+   left column is a column of facts — overview, actions, genres — and left-aligned is
+   what those want. */
+.hero:not(.title-hero) .hero-body { text-align: center; }
+.hero:not(.title-hero) .hero-cats { justify-content: center; }
 
 .hero-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 
@@ -893,7 +937,12 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .source-status { font-size: 12px; }
 .source-status.ok { color: #8fd694; }
 .source-status.bad { color: #e39a9a; }
-.source-actions { display: flex; gap: 8px; flex: none; }
+.source-actions { display: flex; gap: 8px; flex: none; align-items: flex-start; }
+/* **The position arrows.** Compact squares in the row's action cluster: pressing one
+   moves the add-on one place, and the order is the order it is asked in. */
+.source-move { padding: 9px 12px; font-size: 14px; line-height: 1; }
+.source-move[disabled] { opacity: 0.32; cursor: default; }
+.source-move[disabled]:hover { border-color: rgba(255, 255, 255, 0.14); }
 
 /* No scrollbar is drawn on a row: the row scrolls with the wheel (see
    `horizontalWheel` in app.js) and with the D-pad, and a chunky bar under every
@@ -1416,20 +1465,45 @@ button:focus-visible,
 }
 .boot.done { opacity: 0; visibility: hidden; pointer-events: none; }
 .boot[hidden] { display: none; }
-.boot-mark { position: relative; width: 74px; height: 74px; display: grid; place-items: center; }
-.boot-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 2px solid rgba(var(--accent-rgb), 0.18);
-  border-top-color: var(--accent);
-  animation: boot-spin 1.05s linear infinite;
+/* The wordmark and the cat sit side by side: "Auto" then the mark to its right. */
+.boot-brand { display: flex; align-items: center; gap: 9px; }
+.boot-name {
+  margin: 0;
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: #f8f3e8;
+  text-shadow: 0 3px 22px rgba(var(--accent-rgb), 0.3);
 }
-.boot-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); animation: boot-pulse 1.4s ease-in-out infinite; }
-.boot-name { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: 0.06em; color: #f2ece0; }
-.boot-note { margin: 0; font-size: 12px; color: var(--muted); letter-spacing: 0.08em; }
-@keyframes boot-spin { to { transform: rotate(360deg); } }
-@keyframes boot-pulse { 0%, 100% { transform: scale(0.72); opacity: 0.65; } 50% { transform: scale(1); opacity: 1; } }
+.boot-mark { width: 100px; height: 100px; display: grid; place-items: center; }
+/* The logo mark: the whole classic anime black cat, drawn inline in index.html.
+   The SVG owns its gradients (iris-purple inner ears, white eyes with black
+   pupils); the halo behind it is the one themed part. Everything here is motion
+   only, and `motion-off` / prefers-reduced-motion already stop all of it. */
+.boot-cat {
+  width: 100px;
+  height: 100px;
+  overflow: visible;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+  animation: boot-float 3.8s ease-in-out infinite;
+}
+.cat-glow { animation: boot-glow 3.8s ease-in-out infinite; }
+/* Blink: flatten both eyes around the line that joins them (y = 40.5). */
+.cat-eyes { transform-box: view-box; transform-origin: 60px 34.5px; animation: boot-blink 4.8s ease-in-out infinite; }
+/* A slow ear twitch, each ear pivoting on its own base. */
+.cat-ear-l { transform-box: view-box; transform-origin: 48px 24px; animation: boot-twitch-l 5.4s ease-in-out infinite; }
+.cat-ear-r { transform-box: view-box; transform-origin: 72px 24px; animation: boot-twitch-r 5.4s ease-in-out infinite; }
+/* The tail flicks from where it meets the body. */
+.cat-tail { transform-box: view-box; transform-origin: 74px 92px; animation: boot-tail 6.2s ease-in-out infinite; }
+.cat-whisk { animation: boot-whisk 3.8s ease-in-out infinite; }
+@keyframes boot-float { 0%, 100% { transform: translateY(2px); } 50% { transform: translateY(-2.5px); } }
+@keyframes boot-glow { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.85; } }
+@keyframes boot-blink { 0%, 89% { transform: scaleY(1); } 93%, 95.5% { transform: scaleY(0.07); } 100% { transform: scaleY(1); } }
+@keyframes boot-twitch-l { 0%, 78%, 100% { transform: rotate(0deg); } 83% { transform: rotate(-6deg); } 89% { transform: rotate(2.5deg); } 95% { transform: rotate(0deg); } }
+@keyframes boot-twitch-r { 0%, 78%, 100% { transform: rotate(0deg); } 84% { transform: rotate(6deg); } 90% { transform: rotate(-2.5deg); } 96% { transform: rotate(0deg); } }
+@keyframes boot-tail { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-9deg); } }
+@keyframes boot-whisk { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
 
 /* ------------------------------------------- the whole-app surface, one look */
 
@@ -1818,13 +1892,19 @@ textarea:focus-visible {
    its colour from the disc's text colour, so it reads on the gradient, and it is
    sized as a share of the disc — the same mark works at 84px on the picker and at
    46px in Settings. */
+/* **The avatar is the app's own cat.** It is a filled drawing rather than a stroked
+   mark, so it takes a larger share of the disc than `.avatar-mark`'s 62% and needs no
+   colour of its own — the fur, the eyes and the inner ears are drawn. Its halo is
+   dropped by `avatarNode`, because the disc is the light part here. */
+
 .avatar-mark {
   display: block;
-  width: 62%;
-  height: 62%;
+  width: 72%;
+  height: 72%;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.6;
+  /* Measured for a 48-unit box drawn about 20px wide: a thinner pen disappears. */
+  stroke-width: 3.4;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -2021,76 +2101,45 @@ textarea:focus-visible {
 
 /* ------------------------------------------------------------- a title page */
 
-/* The title is a **page**, not a card over one: its own wide shot at the top with
-   the actions on it, then everything about the title underneath. */
+/* The title is a **page**, not a card over one: the banner, then everything about
+   the title under it. */
 .title-page { display: block; }
-/* **The backdrop, in a card.** The title page's artwork used to bleed edge to edge
-   (`margin: -26px -26px 26px`) while the home screen's banner was a rounded panel, so
-   the same show was framed two different ways. It now wears the banner's own
-   treatment: a rounded card at the page's own width, the wide shot filling it. */
-.title-hero {
-  position: relative;
-  /* A compact banner, not a full page: 40vh leaves Play, the pins and the start of
-     Ratings on the first screen. The frame is wider than the 16:9 wide shot, so
-     `cover` must crop — and it crops from the bottom (see `object-position` on the
-     art below), never the heads. */
-  min-height: 40vh;
-  margin: 0 0 28px;
-  padding: 0;
-  border-radius: 16px;
-  overflow: hidden;
-  background: linear-gradient(160deg, var(--panel-2), var(--panel));
-}
-/* **The banner card is stretched down, not the picture.** The ask was height for the
-   frame — a taller card crops less off the top and bottom of a wide shot — and never
-   a stretched picture, so the art is `cover` again: it fills the frame at its own
-   shape with the sides always full. Posters keep their own plate
-   (`.title-hero-poster`), whole and uncropped. */
-/* Heads live in the top third of a wide shot, so any unavoidable crop takes from
-   the bottom, never the top. Center-cropping is what ate the heads. */
-.title-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; }
-/* **A poster-backed banner.** A 2:3 poster stretched across a 16:9 frame came out
-   cropped and half-empty, so when a title has no wide shot the poster is drawn
-   **whole** over a blurred copy of itself, which fills the frame without cutting the
-   artwork in half. */
-/* The wash is **much darker and softer** than it was: it is a background, not a second
-   copy of the artwork, and a wash you can read the picture through is what made the
-   banner look like a picture that had been stretched. */
-.title-hero-bg { position: absolute; inset: -14%; width: 128%; height: 128%; object-fit: cover; filter: blur(44px) brightness(0.32) saturate(1.05); }
-/* **The poster, as a poster.** `contain` alone drew a sharp slice of artwork at the
-   right edge of a blurry smear, which reads as "the poster does not fit". The poster
-   is now its own plate — **whole**, at its own 2:3, rounded, with a shadow — standing
-   well inside the frame, so nothing about it is cropped. */
+/* **The title page wears the home banner.** The same `.hero` card — two columns, the
+   same padding, radius and artwork frame — with the title's own actions, ratings,
+   overview and genres in the left column instead of a card's labels. The bar above
+   the page already names the title, so it is not repeated here. It sits in the same
+   place the home banner does: at the top of the page. */
+.title-hero { margin: 0 0 28px; align-items: stretch; }
+/* **The artwork fills the banner's own height.** With `center` it floated in the
+   middle of a tall card, which is what made the detail banner stop reading like the
+   home banner; stretched, the wide shot fills the frame edge to edge. */
+.title-hero .hero-art { aspect-ratio: auto; height: 100%; min-height: 260px; }
+.title-hero .title-actions { margin: 0 0 18px; }
+.title-hero .title-row { margin: 0 0 16px; }
+.title-hero .title-row:last-child { margin-bottom: 0; }
+/* The wide shot fills the banner's frame exactly the way the home banner's does:
+   cropped to the frame, never stretched into it. */
+.title-hero-art-frame { overflow: hidden; }
+.title-hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
+/* **A poster-backed banner.** A 2:3 poster stretched across a wide frame comes out
+   cropped, so a title with no wide shot wears its poster **whole**, at its own shape,
+   standing on the frame's plate. */
 .title-hero-poster {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 26px 34px;
+  justify-content: center;
+  padding: 14px;
 }
 .title-hero-poster img {
   height: 100%;
   width: auto;
-  max-width: 46%;
+  max-width: 100%;
   object-fit: contain;
-  border-radius: 14px;
-  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
-/* Play and the pins are the page's own first row now, not an overlay on the picture. */
-.title-body > .title-actions { margin-top: 2px; }
-/* No scrim: nothing sits on the banner any more, so nothing needs darkening for. */
-.title-hero-inner {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-  min-height: 40vh;
-  padding: 30px 30px 34px;
-  justify-content: flex-end;
-}
-.title-name { margin: 0; font-size: clamp(30px, 4.2vw, 56px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.02; }
 .title-facts { margin: 0; font-size: 14px; font-weight: 600; color: var(--muted); }
 .title-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .play-btn { font-size: 16px; font-weight: 800; padding: 12px 26px; }
@@ -2387,7 +2436,20 @@ textarea:focus-visible {
 .provider-groups { display: flex; flex-direction: column; gap: 16px; }
 .provider-country-block { display: flex; flex-direction: column; gap: 8px; }
 .provider-country { font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: 0.02em; }
-.player-icon:hover, .player-icon:focus-visible { background: rgba(var(--accent-rgb), 0.4); color: #fff; }
+/* The speaker dims while the picture is silent, so the one volume control still
+   reports its state without a percentage sitting beside it. */
+.player-icon.muted { color: var(--muted); }
+.player-icon.muted:hover, .player-icon.muted:focus-visible { color: #fff; }
+
+/* **The split in the bar:** the stream's own options on the left of the line, the
+   transport on the right. */
+.player-rule {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 3px;
+  background: rgba(255, 255, 255, 0.18);
+}
 .player-seek { flex: 1; min-width: 120px; height: 4px; accent-color: var(--accent); }
 .player-volume { width: 76px; height: 4px; accent-color: var(--accent); }
 .player-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -2465,21 +2527,34 @@ select.player-rate option { background: #14161c; color: var(--text); }
 .drawer-addon { margin: 0; font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drawer-addon-failed { color: #ff9d9d; }
 
+/* Paste a page URL and extract from it (scraper/) — the one control in the Sources
+   drawer that is about a page rather than about the title being played. */
+.drawer-extract { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.drawer-extract .text-input { flex: 1; min-width: 160px; }
+.drawer-extract-note { margin: 0; font-size: 11.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.drawer-extract-note.ok { color: #9ff0b8; }
+.drawer-extract-note.bad { color: #ff9d9d; }
+/* The same turning ring as the finding-sources panel, at the size of a line of text. */
+.drawer-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.18); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+
 /* The volume figure, right of the icon it belongs to. */
-.player-vol-note {
-  font-size: 11.5px; font-weight: 700; color: var(--muted);
-  font-variant-numeric: tabular-nums; min-width: 38px;
-}
 /* The ramped rate, and only while a ±10s button is held (it is emptied on release). */
 .player-speed-note { font-size: 11.5px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 
 /* **Audio and subtitles, behind the gear.** It opens on the other side of the stage
    from the sources drawer, so picking a track and picking a stream are two different
    panels rather than one list that changes meaning. */
+/*
+ * **The two player panels are mirrors, and they are the same box.**
+ *
+ * They were different widths (340 against 420) with different bottoms — the gear
+ * panel ended wherever its content did, the Sources drawer ran to a fixed inset — so
+ * opening one or the other moved the furniture around and the pair read as
+ * unaligned. Same inset, same width, same bottom: one panel, reflected.
+ */
 .player-settings-menu {
-  position: absolute; top: 14px; left: 14px; width: min(340px, 42%);
-  max-height: calc(100% - 120px); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 8px; padding: 16px;
+  position: absolute; top: 14px; left: 14px; bottom: 96px; width: min(420px, 46%);
+  display: flex; flex-direction: column; gap: 8px; padding: 16px; overflow-y: auto;
   border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
 }
 .player-settings-menu[hidden] { display: none; }
@@ -2637,6 +2712,28 @@ select option { background: #14161c; color: var(--text); }
   border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.62);
   color: var(--text);
+  z-index: 5;
+}
+
+/*
+ * **Why a torrent is not playing** — a line of its own, under the swarm's numbers,
+ * which the swarm's own readout never overwrites. One sentence, wrapped, because it
+ * is the one thing on this screen a user cannot infer: a black picture with no
+ * explanation is indistinguishable from the app being broken.
+ */
+.player-torrent-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 50px;
+  transform: translateX(-50%);
+  max-width: 70%;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.62);
+  color: var(--faint);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.45;
   z-index: 5;
 }
 

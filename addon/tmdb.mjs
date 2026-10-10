@@ -171,7 +171,7 @@ export function toMeta(item, type) {
   };
   if (item.poster_path) meta.poster = `${IMG}/w500${item.poster_path}`;
   if (item.backdrop_path) meta.background = `${IMG}/w780${item.backdrop_path}`;
-  if (date) meta.releaseInfo = String(date).slice(0, 4);
+  if (date) { meta.releaseInfo = String(date).slice(0, 4); meta.releaseDate = String(date).slice(0, 10); }
   if (typeof item.vote_average === "number" && item.vote_average > 0) {
     meta.imdbRating = item.vote_average.toFixed(1);
   }

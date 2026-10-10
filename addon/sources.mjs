@@ -30,9 +30,33 @@ export function repoBases(url) {
   return [...new Set(out.filter(Boolean))];
 }
 
+// **5xx is the add-on's own host, and it is usually momentary.** A Cloudflare-fronted
+// add-on answers 503 while its origin restarts and answers 200 a second later — which is
+// the difference between "your add-on works" and a row that reads "HTTP 503" every time
+// the app starts. Only 5xx is retried: a 404 is an answer, and retrying it would double
+// every legitimate miss.
+const TRANSIENT = new Set([502, 503, 504]);
+// One User-Agent for every outbound add-on call, this file and `streams.mjs` alike. A
+// request with no agent at all is the shape a host's bot rules are most likely to refuse.
+const ADDON_UA = "NuvioCollections/1.0";
+
 async function getJSON(url, timeoutMs = 12000) {
-  const res = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(timeoutMs) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const send = () =>
+    fetch(url, {
+      headers: { accept: "application/json", "user-agent": ADDON_UA },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  let res = await send();
+  if (!res.ok && TRANSIENT.has(res.status)) {
+    // Let the origin come back before asking again.
+    await new Promise((r) => setTimeout(r, 700));
+    res = await send();
+  }
+  if (!res.ok) {
+    throw new Error(
+      res.status >= 500 ? `HTTP ${res.status} — the add-on's own server is failing` : `HTTP ${res.status}`,
+    );
+  }
   return res.json();
 }
 

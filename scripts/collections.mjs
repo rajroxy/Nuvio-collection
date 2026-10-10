@@ -829,11 +829,17 @@ const buildCollections = () => {
         runtime("120–149 mins", 120, 149), runtime("150–179 mins", 150, 179),
         runtime("180+ mins", 180),
       ],
+      // The ladder keeps climbing past a single season's worth: a 32- or 50-episode
+      // show is common, and the long-running ones land in the buckets beyond 50.
       show: [
         episodes("4 Episodes", 1, 4), episodes("6 Episodes", 5, 6),
         episodes("8 Episodes", 7, 8), episodes("10 Episodes", 9, 10),
         episodes("12 Episodes", 11, 12), episodes("16 Episodes", 13, 16),
         episodes("20 Episodes", 17, 20), episodes("24 Episodes", 21, 24),
+        episodes("28 Episodes", 25, 28), episodes("32 Episodes", 29, 32),
+        episodes("40 Episodes", 33, 40), episodes("50 Episodes", 41, 50),
+        episodes("60 Episodes", 51, 60), episodes("80 Episodes", 61, 80),
+        episodes("100+ Episodes", 81),
       ],
     },
   },

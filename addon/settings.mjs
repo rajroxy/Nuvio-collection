@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FILE = process.env.NUVIO_SETTINGS_FILE || path.join(__dirname, "settings.json");
 
 const DEFAULTS = {
-  profile: "Movies & Shows",
+  profile: "VOD",
   safe: true,
   // The **Custom** card's label. The card holds your own list; what it is called
   // is yours to say, so the name is a setting rather than a constant in the card
@@ -42,6 +42,47 @@ const DEFAULTS = {
     tmdb: { enabled: true, key: "" },
     tvdb: { enabled: false, key: "" },
     mdblist: { enabled: false, key: "" },
+  },
+  // **Debrid turns a torrent into an ordinary HTTPS link.** This is what makes
+  // torrent streams play at all from the app: a browser's own torrent engine can
+  // only reach peers that speak WebRTC, which the public swarms barely have, so a
+  // magnet usually sits at "looking for peers" forever. A debrid service downloads
+  // the torrent on its own servers and hands back a direct URL the video element
+  // plays like any other stream — instant when someone else already cached it.
+  //
+  // Ordered the way they are tried: the first enabled service with a key answers.
+  // `key` is the user's API token; it never leaves the server (see
+  // `publicSettings`, which reports only whether one is set).
+  debrid: {
+    realdebrid: { enabled: false, key: "" },
+    alldebrid: { enabled: false, key: "" },
+    premiumize: { enabled: false, key: "" },
+    torbox: { enabled: false, key: "" },
+    // The three below round out the set the wider Stremio/add-on ecosystem speaks:
+    // Debrid-Link (Europe's biggest), Deepbrid (its own documented REST API) and
+    // Put.io (a cloud that plays torrents, with no plain-HTTP hoster side at all).
+    debridlink: { enabled: false, key: "" },
+    deepbrid: { enabled: false, key: "" },
+    putio: { enabled: false, key: "" },
+  },
+  // **Subtitles for a stream that carries the wrong ones.** Plenty of streams carry
+  // no subtitle track at all, or carry one language and not yours; OpenSubtitles is
+  // the catalogue the player searches to fill that gap. `language` is the language it
+  // looks in — empty means "the language you browse in" (`language` above), because
+  // wanting your subtitles in the language you read the app in is the whole point of
+  // it. The username/password half is optional: it raises the daily download quota and
+  // is the only way to download at all once OpenSubtitles asks for a signed-in user.
+  // Both halves never leave the server, like every other key here.
+  subtitles: {
+    // Ordered the way they are searched: OpenSubtitles first (widest coverage, and
+    // the only one whose downloads work without a paid tier), then the ones that
+    // reach titles it is missing. Each holds its own key; a service is asked only
+    // when it is switched on and holds one.
+    opensubtitles: { enabled: false, key: "", username: "", password: "" },
+    subdl: { enabled: false, key: "" },
+    subsource: { enabled: false, key: "" },
+    wyzie: { enabled: false, key: "" },
+    language: "",
   },
   // Who supplies the content you see inside a row. TMDB is the only provider that
   // can generate a row (its discover endpoint is what answers "90s action on
@@ -116,6 +157,12 @@ const DEFAULTS = {
 
 let cache = null;
 
+// The two profiles were renamed: `Movies & Shows` → `VOD` and `Live TV & Sports` →
+// `IPTV`. A settings file written before that still holds the old word, so it is
+// mapped on the way in — the new name is what the app is told and what gets written.
+const PROFILE_RENAME = { "Movies & Shows": "VOD", "Live TV & Sports": "IPTV" };
+const currentProfile = (name) => PROFILE_RENAME[name] || (["VOD", "IPTV"].includes(name) ? name : "VOD");
+
 function merge(base, next) {
   for (const [k, v] of Object.entries(next || {})) {
     if (v && typeof v === "object" && !Array.isArray(v) && base[k] && typeof base[k] === "object") merge(base[k], v);
@@ -131,6 +178,7 @@ function load() {
   } catch {
     cache = structuredClone(DEFAULTS);
   }
+  cache.profile = currentProfile(cache.profile);
   return cache;
 }
 
@@ -176,6 +224,35 @@ export function publicSettings() {
     },
     providers: mask("providers"),
     tracking: mask("tracking"),
+    debrid: mask("debrid"),
+    // OpenSubtitles is not a plain `mask()` group: the login is a second secret on
+    // the same row, so it is reported the same way a key is — as a boolean.
+    subtitles: {
+      // One entry per service, each masked exactly like a provider group: whether it
+      // is switched on, and whether a key is set — never the key. OpenSubtitles adds
+      // `hasLogin`, because its download step is the part that wants an account.
+      ...Object.fromEntries(
+        SUBTITLE_SERVICES.map((name) => {
+          const sv = s.subtitles?.[name] || {};
+          const env = SUBTITLE_ENV[name] || {};
+          const masked = {
+            enabled: sv.enabled === true,
+            hasKey: Boolean(sv.key) || Boolean(env.key && process.env[env.key]),
+          };
+          if (name === "opensubtitles") {
+            masked.hasLogin =
+              Boolean(sv.username && sv.password) ||
+              Boolean(process.env.OPENSUBTITLES_USERNAME && process.env.OPENSUBTITLES_PASSWORD);
+          }
+          return [name, masked];
+        }),
+      ),
+      language: subtitleLanguage(),
+      // The names of the services that would actually be searched right now, so the
+      // player can say which catalogue a result came from.
+      services: subtitleServices().map((x) => x.name),
+      ready: subtitlesReady(),
+    },
     // Both halves of the enrichment, so the app's two switches are read back from the
     // server rather than only from the page's own copy. They are booleans, so this is
     // the one provider-shaped block that travels verbatim.
@@ -242,6 +319,133 @@ export const tmdbKey = () => load().providers?.tmdb?.key || process.env.TMDB_API
  * Letterboxd, Rotten Tomatoes, Metacritic — so without it the title page can only
  * show TMDB's own score.
  */
+/**
+ * The debrid services to try, in order, as `{ name, key }`.
+ *
+ * A service counts when it is switched on **and** holds a key, or when its key is in
+ * the environment — the same rule as the metadata providers: a key the user
+ * deliberately exported is a key, and one that did nothing because an in-app switch
+ * they never opened was off is a key that looks broken.
+ */
+export const DEBRID_ENV = {
+  realdebrid: "REALDEBRID_API_KEY",
+  alldebrid: "ALLDEBRID_API_KEY",
+  premiumize: "PREMIUMIZE_API_KEY",
+  torbox: "TORBOX_API_KEY",
+  debridlink: "DEBRIDLINK_API_TOKEN",
+  deepbrid: "DEEPBRID_API_KEY",
+  putio: "PUTIO_API_TOKEN",
+};
+
+export function debridServices() {
+  const d = load().debrid || {};
+  return Object.keys(DEBRID_ENV)
+    .map((name) => {
+      const saved = d[name];
+      const key = saved?.enabled && saved.key ? saved.key : process.env[DEBRID_ENV[name]] || "";
+      return { name, key };
+    })
+    .filter((s) => Boolean(s.key));
+}
+
+/** The key a single debrid service would use, whether or not it is switched on. */
+export function debridKey(name) {
+  const saved = load().debrid?.[name];
+  return (saved?.enabled && saved.key ? saved.key : "") || process.env[DEBRID_ENV[name]] || "";
+}
+
+/* ----------------------------------------------------------------- subtitles */
+
+/**
+ * **The subtitle services this build offers**, in the order they are searched.
+ *
+ * OpenSubtitles leads: it has the widest catalogue and is the only service here whose
+ * downloads work without a paid tier. The rest exist because a title OpenSubtitles is
+ * missing is often present somewhere else — SubDL and SubSource carry a great deal of
+ * television and regional releases, and Wyzie is an aggregator that reaches several of
+ * the smaller sites at once. Each needs its own key, and a service is asked only when
+ * it is switched on and holds one.
+ */
+export const SUBTITLE_SERVICES = ["opensubtitles", "subdl", "subsource", "wyzie"];
+
+export const SUBTITLE_LABELS = {
+  opensubtitles: "OpenSubtitles",
+  subdl: "SubDL",
+  subsource: "SubSource",
+  wyzie: "Wyzie",
+};
+
+/**
+ * Where each service's secret may come from in the environment.
+ *
+ * OpenSubtitles carries a second secret — the login its downloads need; the others are
+ * key-only. The same rule as every other key in this file: something set in Settings
+ * counts when it is switched on, and a key in the environment counts on its own — a key
+ * the user deliberately exported must not do nothing because an in-app switch they never
+ * opened was off.
+ */
+export const SUBTITLE_ENV = {
+  opensubtitles: { key: "OPENSUBTITLES_API_KEY", username: "OPENSUBTITLES_USERNAME", password: "OPENSUBTITLES_PASSWORD" },
+  subdl: { key: "SUBDL_API_KEY" },
+  subsource: { key: "SUBSOURCE_API_KEY" },
+  wyzie: { key: "WYZIE_API_KEY" },
+};
+
+/** OpenSubtitles' three secrets, kept as its own export for the engine and its tests. */
+export const OPENSUBTITLES_ENV = SUBTITLE_ENV.opensubtitles;
+
+/** One subtitle service's credentials, Settings first and the environment second. */
+export function subtitleService(name) {
+  const saved = load().subtitles?.[name] || {};
+  const env = SUBTITLE_ENV[name] || {};
+  const fromEnv = (field) => (env[field] ? process.env[env[field]] || "" : "");
+  const pick = (field) => (saved.enabled && saved[field] ? saved[field] : "") || fromEnv(field);
+  const key = pick("key");
+  const username = pick("username");
+  const password = pick("password");
+  const on = saved.enabled === true || Boolean(fromEnv("key"));
+  const ready = Boolean(key && on);
+  return {
+    name,
+    label: SUBTITLE_LABELS[name] || name,
+    key,
+    username,
+    password,
+    enabled: on,
+    ready,
+    // Everything is downloadable with a key except OpenSubtitles, whose downloads are
+    // the step that wants a signed-in account.
+    canDownload: ready && (name !== "opensubtitles" || Boolean(username && password)),
+  };
+}
+
+/** Every subtitle service that is switched on and holds a key, in search order. */
+export const subtitleServices = () => SUBTITLE_SERVICES.map(subtitleService).filter((s) => s.ready);
+
+/** Is there a subtitle service ready to search with? */
+export const subtitlesReady = () => subtitleServices().length > 0;
+
+/**
+ * The OpenSubtitles credentials in the shape `addon/subtitles.mjs` has always consumed.
+ */
+export function opensubtitles() {
+  const s = subtitleService("opensubtitles");
+  return { key: s.key, username: s.username, password: s.password, ready: s.ready, canDownload: s.canDownload };
+}
+
+/**
+ * The language subtitles are searched in, as an ISO-639-1 code.
+ *
+ * Empty (or nonsense) follows the language the app is browsed in — `en-US` becomes
+ * `en`. A two-letter code the user picked is used as-is, because OpenSubtitles keys
+ * its catalogue by that code and nothing else.
+ */
+export const subtitleLanguage = () => {
+  const picked = String(load().subtitles?.language || "").trim().toLowerCase();
+  if (/^[a-z]{2}$/.test(picked)) return picked;
+  return String(load().language || "en-US").slice(0, 2).toLowerCase();
+};
+
 export const providerKeys = () => {
   const p = load().providers || {};
   const pick = (name, envName) => {

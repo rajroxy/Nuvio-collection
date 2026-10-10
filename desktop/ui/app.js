@@ -31,6 +31,11 @@ const KEY = {
   sources: "nuvio.sources",
   profile: "nuvio.profile",
   providers: "nuvio.providers",
+  debrid: "nuvio.debrid",
+  subtitles: "nuvio.subtitles",
+  dns: "nuvio.dns",
+  customSites: "nuvio.customSites",
+  prefs: "nuvio.prefs",
   tracking: "nuvio.tracking",
   posters: "nuvio.posters",
   ai: "nuvio.ai",
@@ -89,11 +94,22 @@ const WATCH_STATES = [
   ["watching", "Watching"],
   ["watched", "Watched"],
 ];
+// The states a **title page** offers as pins: no `Watching`, because Plan to Watch
+// and Watched are the two that say something different from each other.
+const PIN_STATES = WATCH_STATES.filter(([id]) => id !== "watching");
 
-// The profiles you can switch between. `Live TV & Sports` is the second one, and
-// it is a different app: its own two buttons, its own cards, its own settings.
-const LIVE_PROFILE = "Live TV & Sports";
-const PROFILES = ["Movies & Shows", LIVE_PROFILE];
+// The profiles you can switch between. `IPTV` is the second one, and it is a
+// different app: its own two buttons, its own cards, its own settings.
+//
+// Both were named after what they hold — `Movies & Shows` and `Live TV & Sports` —
+// before the rename, and an installed copy still has one of those in localStorage.
+// So the old spellings are still read and read *as* the new name; only the new
+// name is ever written.
+const LIVE_PROFILE = "IPTV";
+const PROFILES = ["VOD", LIVE_PROFILE];
+const LEGACY_PROFILES = { "Movies & Shows": PROFILES[0], "Live TV & Sports": LIVE_PROFILE };
+/** The current name for whatever a stored setting says — legacy or unknown → the first. */
+const profileName = (name) => LEGACY_PROFILES[name] || (PROFILES.includes(name) ? name : PROFILES[0]);
 
 // How much of a playlist Live TV & Sports draws: rows for a playlist's biggest
 // categories, a cap on the channels inside one row, and the guide's own window.
@@ -156,6 +172,53 @@ const PROVIDERS = [
   ["tvdb", "TVDB", "Extra series metadata (episode art, air dates)."],
   ["mdblist", "MDBList", "Aggregated ratings — enabling it replaces each title's rating with MDBList's."],
 ];
+
+/**
+ * The debrid services, in the order they are tried.
+ *
+ * A **debrid account is what makes a torrent stream playable at all** here. An
+ * add-on publishes a torrent as an info hash; the app used to hand that magnet to a
+ * torrent engine running in the page, but a browser can only reach peers that speak
+ * WebRTC, and the public swarms speak TCP/UDP — so the picture never arrives. A
+ * debrid service downloads the torrent on its own servers and returns a direct
+ * HTTPS link, which is an ordinary stream from the player's point of view.
+ *
+ * The keys never reach this page: `keyRow` writes them to the server and only
+ * `hasKey` comes back.
+ */
+const DEBRID_SERVICES = [
+  ["realdebrid", "Real-Debrid", "Cached torrents plus a hoster unrestrictor. The widest support among add-ons, and the one most streams resolve through instantly."],
+  ["alldebrid", "AllDebrid", "The same idea as Real-Debrid: cached torrents and an unrestricted download link, often with a different cache than Real-Debrid has."],
+  ["premiumize", "Premiumize", "Cached torrents, and the account carries its own cloud storage as well."],
+  ["torbox", "TorBox", "Cached torrents with a free tier. Its download links expire, so the app mints a fresh one for every play."],
+  ["debridlink", "Debrid-Link", "Europe's largest debrid: a seedbox for torrents plus a hoster unrestrictor. Popular with Stremio add-ons, which is where a stream's magnet often expects it."],
+  ["deepbrid", "Deepbrid", "Cached torrents and a hoster unrestrictor on its own documented REST API. A Premium plan is required for torrents."],
+  ["putio", "Put.io", "A cloud that plays torrents rather than a plain HTTPS link: it downloads the torrent into your account and streams the file. Its download links are per-play, like TorBox's."],
+];
+
+/** The enabled service that holds a key — the one a torrent will go through. */
+const debridActive = () => DEBRID_SERVICES.find(([n]) => state.debrid?.[n]?.enabled && state.debrid?.[n]?.hasKey) || null;
+const debridLabel = () => debridActive()?.[1] || "";
+
+/**
+ * The subtitle services beyond OpenSubtitles, which has a block of its own (it carries a
+ * login as well as a key). Each is searched only when it is switched on and holds a key,
+ * and each needs its own free key from that service's account page.
+ */
+const SUBTITLE_SERVICES = [
+  ["subdl", "SubDL", "A large catalogue with a great deal of television and non-English releases. Create a free API key in your SubDL account."],
+  ["subsource", "SubSource", "Another broad catalogue behind a single key — often carrying a release the others miss."],
+  ["wyzie", "Wyzie", "An aggregator: one key reaches several smaller subtitle sites at once, which is where an obscure title often lives."],
+];
+
+/** The subtitle services that would be searched right now, as their labels. */
+const subtitleActive = () =>
+  [
+    ["opensubtitles", "OpenSubtitles"],
+    ...SUBTITLE_SERVICES.map(([n, l]) => [n, l]),
+  ]
+    .filter(([n]) => state.subtitles?.[n]?.enabled && state.subtitles?.[n]?.hasKey)
+    .map(([, l]) => l);
 
 /**
  * Tracking services, in two groups.
@@ -272,9 +335,34 @@ const SETTINGS_GROUPS = [
   {
     group: "Where it comes from",
     sections: [
-      ["providers", "Trackers & providers"],
+      // **Two panes, not one.** A tracker is where your viewing history goes; a
+      // provider is who the catalogues are read from. They were one tab named after
+      // both, which made "Trackers & providers" a heading you had to look inside to
+      // find out which half you wanted.
+      ["tracking", "Trackers"],
+      ["providers", "Providers"],
       ["addons", "Add-ons"],
+      // **Custom Websites sit beside Add-ons on purpose**: both are where a stream can
+      // come from, and a site you added yourself is the same idea as an add-on you pasted.
+      ["customsites", "Custom Websites"],
+      // Debrid sits where the streams come *from*: the add-ons publish the torrents,
+      // the debrid account is what turns one into something that plays.
+      ["debrid", "Debrid"],
     ],
+  },
+  {
+    // **The network, not the content.** Which resolver every request in the app uses is
+    // not a catalogue choice or a player choice — it is a property of the machine, which
+    // is why it sits on its own.
+    group: "Network",
+    sections: [["dns", "DNS"]],
+  },
+  {
+    // **Playback, not content.** Subtitles are not part of what a row holds or where it
+    // is read from: they are what happens to the picture once it is playing. The tab
+    // sits beside the catalogue settings rather than inside them for that reason.
+    group: "Playback",
+    sections: [["subtitles", "Subtitles"]],
   },
   {
     group: "Ratings",
@@ -301,7 +389,7 @@ const LIVE_SETTINGS_GROUPS = [
   {
     // The profile's own four first — source, countries, guide, refresh — because
     // they are the only reason this screen is different from the other profile's.
-    group: "Live TV & Sports",
+    group: "IPTV",
     sections: [
       ["livesource", "Source"],
       ["livecountries", "Countries"],
@@ -317,10 +405,18 @@ const LIVE_SETTINGS_GROUPS = [
     sections: [["addons", "Add-ons"]],
   },
   {
+    // The resolver belongs to the machine, not to a profile, so it is offered here too.
+    group: "Network",
+    sections: [["dns", "DNS"]],
+  },
+  {
     group: "Profile & playback",
     sections: [
       ["profile", "Profile"],
       ["appearance", "Appearance & layout"],
+      // A live channel carries the subtitle question too — often more so, since a
+      // foreign-language feed rarely carries the track you want.
+      ["subtitles", "Subtitles"],
     ],
   },
 ];
@@ -351,7 +447,7 @@ const state = {
   refresh: readJSON(KEY.refresh, 60),
   // Bumped by a refresh so a re-read is a new URL for the browser cache too.
   gen: 0,
-  profile: localStorage.getItem(KEY.profile) || PROFILES[0],
+  profile: profileName(localStorage.getItem(KEY.profile)),
   profiles: PROFILES,
   // Live TV & Sports: which of its two rows is showing, and the channels, groups
   // and guide the server has answered with.
@@ -359,6 +455,24 @@ const state = {
   liveSource: readJSON(KEY.liveSource, { mode: "dth", m3u: "", host: "", username: "", password: "", epg: "", providers: [], refreshMinutes: 0 }),
   live: { loading: false, loaded: false, all: [], total: 0, groups: [], rows: [], updated: 0, error: "", guide: null, guideLoading: false, guideError: "" },
   providers: readJSON(KEY.providers, { tmdb: { enabled: true }, tvdb: { enabled: false }, mdblist: { enabled: false } }),
+  // Debrid: which service turns a torrent into a direct link. Only `enabled` and
+  // `hasKey` are ever stored here — the key itself lives on the server and is
+  // never sent back to the page.
+  debrid: readJSON(KEY.debrid, { realdebrid: { enabled: false }, alldebrid: { enabled: false }, premiumize: { enabled: false }, torbox: { enabled: false }, debridlink: { enabled: false }, deepbrid: { enabled: false }, putio: { enabled: false } }),
+  // Subtitles: OpenSubtitles' key and login, and the language to look in. As with
+  // debrid, the page only ever learns whether a key is set — never the key itself.
+  subtitles: readJSON(KEY.subtitles, { opensubtitles: { enabled: false, hasKey: false, hasLogin: false }, subdl: { enabled: false, hasKey: false }, subsource: { enabled: false, hasKey: false }, wyzie: { enabled: false, hasKey: false }, language: "" }),
+  // DNS: which resolver the server's own requests use. Read back from the server, which
+  // owns the setting — the page only draws it.
+  dns: readJSON(KEY.dns, { enabled: false, provider: "cloudflare", primary: "1.1.1.1", secondary: "1.0.0.1", servers: [], presets: [] }),
+  // Custom Websites: the sites the user added, by category, plus the repositories they
+  // came from. Held locally so the pane draws before the server answers.
+  customSites: readJSON(KEY.customSites, { categories: [], repositories: [] }),
+  prefs: readJSON(KEY.prefs, { searchOnPlay: true, sourcesSummary: true, lastCategory: "movies" }),
+  // **Extracted streams live in memory, not on disk.** They are re-extracted every play
+  // because a stream URL expires; keeping them here means they survive closing the player
+  // and are gone on a restart, which is exactly the requested lifetime. */
+  customStreams: {},
   tracking: readJSON(KEY.tracking, {
     trakt: { enabled: false },
     simkl: { enabled: false },
@@ -518,19 +632,58 @@ const get = async (path) => {
   return res.json();
 };
 
+/**
+ * The one read that is not JSON: a subtitle file.
+ *
+ * The player hands the answer straight to a `<track>`, so it needs the **text**, not a
+ * parsed body — and a failure carries its reason in the JSON error the server wrote,
+ * which is what stops "could not load the subtitles" from being all you get.
+ */
+const getText = async (path) => {
+  const res = await fetch(API + path);
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      message = (await res.json())?.error || message;
+    } catch {
+      /* not a JSON error — the status is the answer */
+    }
+    throw new Error(message);
+  }
+  return res.text();
+};
+
+/**
+ * `unreachable` marks a failed **transport**, not a failed add-on.
+ *
+ * Without it a 503 from this app's own server and a 503 from an add-on were the same
+ * object, so a source row blamed the add-on for a request that never reached it —
+ * "HTTP 503" appeared on every source at once, including ones whose hosts do not even
+ * resolve. Two different failures must not share a word.
+ */
 const post = async (path, body) => {
   const res = await fetch(API + path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return res.ok ? res.json().catch(() => ({})) : { ok: false, message: `HTTP ${res.status}` };
+  if (!res.ok) return { ok: false, unreachable: true, message: `HTTP ${res.status}` };
+  return res.json().catch(() => ({}));
 };
 
+/** Which settings write is the newest, so an older answer cannot undo a newer edit. */
+let settingsPush = 0;
+
 async function pushSettings(patch) {
+  const seq = ++settingsPush;
   try {
     const res = await post("/settings", patch);
-    if (res) mergeServerSettings(res);
+    // **Only the newest answer merges.** Two edits in a row — two presses of a position
+    // arrow — leave two writes in flight, and the slower one's answer carries the
+    // *older* list, which would put the add-ons back where they were a moment ago.
+    // The server applies them in the order it receives them, so the newest answer is
+    // the one that is true of it.
+    if (res && seq === settingsPush) mergeServerSettings(res);
   } catch {
     /* offline — the local copy still applies */
   }
@@ -547,6 +700,23 @@ function mergeServerSettings(res) {
   };
   if (res.providers) fold(res.providers, state.providers, KEY.providers);
   if (res.tracking) fold(res.tracking, state.tracking, KEY.tracking);
+  if (res.debrid) fold(res.debrid, state.debrid, KEY.debrid);
+  if (res.subtitles) {
+    // A row per service: `enabled` and `hasKey`, plus OpenSubtitles' `hasLogin` (a second
+    // secret on its row), then the shared language and the list of services that are live.
+    const next = { ...state.subtitles };
+    for (const name of ["opensubtitles", ...SUBTITLE_SERVICES.map(([n]) => n)]) {
+      const sv = res.subtitles[name];
+      if (!sv) continue;
+      next[name] = { ...state.subtitles[name], enabled: sv.enabled === true, hasKey: Boolean(sv.hasKey) };
+      if (name === "opensubtitles") next[name].hasLogin = Boolean(sv.hasLogin);
+    }
+    next.language = typeof res.subtitles.language === "string" ? res.subtitles.language : state.subtitles.language;
+    next.ready = res.subtitles.ready === true;
+    if (Array.isArray(res.subtitles.services)) next.services = res.subtitles.services;
+    state.subtitles = next;
+    writeJSON(KEY.subtitles, state.subtitles);
+  }
   if (Array.isArray(res.sources)) {
     // The server's copy is the one the player reads, so it wins — but only when it
     // actually holds something. A server that has never seen a source must not wipe
@@ -557,6 +727,18 @@ function mergeServerSettings(res) {
     } else {
       pushSettings({ sources: state.sources });
     }
+  }
+  if (res.dns) {
+    state.dns = { ...state.dns, ...res.dns };
+    writeJSON(KEY.dns, state.dns);
+  }
+  if (res.customSites) {
+    state.customSites = { categories: res.customSites.categories || [], repositories: res.customSites.repositories || [] };
+    writeJSON(KEY.customSites, state.customSites);
+  }
+  if (res.prefs) {
+    state.prefs = { ...state.prefs, ...res.prefs };
+    writeJSON(KEY.prefs, state.prefs);
   }
   if (res.posters) {
     state.posters = { ...state.posters, ...res.posters };
@@ -1358,37 +1540,65 @@ function chooseProfile(name) {
  * A profile's avatar — a drawn mark, not a letter.
  *
  * The two profiles are not people, they are **ways of watching**, so each gets the
- * mark that says which: a clapperboard for Movies & Shows, a screen taking a signal
- * for Live TV & Sports. Anything else falls back to a person, so a profile added
- * later still has one. Drawn with `svgNode`, in the SVG namespace — `el("svg", …)`
- * makes an HTML element that merely has the name, whose paths never paint.
+ * mark that says which: a screen with a play mark for **VOD**, a television taking a
+ * signal for **IPTV**. Anything else falls back to a person, so a profile added later
+ * still has one. Drawn with `svgNode`, in the SVG namespace — `el("svg", …)` makes an
+ * HTML element that merely has the name, whose paths never paint.
  */
 function avatarNode(name) {
+  // **A mode is not a mascot.** These discs used to hold the app's own cat, which
+  // says "this app" — on the one screen whose whole job is to say *which mode* you
+  // are picking. The two drawn marks below answer that question: a screen with a
+  // play mark for on-demand, a television taking a signal for live.
   if (name === LIVE_PROFILE) {
+    // IPTV — a screen being fed: the set, its stand, and the aerial with its signal.
     return svgNode(
       "svg",
       { class: "avatar-mark", viewBox: "0 0 48 48", "aria-hidden": "true" },
-      svgNode("rect", { x: "8", y: "16", width: "32", height: "21", rx: "3.5" }),
-      svgNode("path", { d: "M19 41l-3 4M29 41l3 4" }),
-      svgNode("path", { d: "M24 5v5" }),
-      svgNode("path", { d: "M18 10a8.5 8.5 0 0 1 12 0" }),
+      svgNode("rect", { x: "7.5", y: "17.5", width: "33", height: "20", rx: "3.5" }),
+      svgNode("path", { d: "M24 37.5v4M17.5 41.5h13" }),
+      svgNode("path", { d: "M24 7v5" }),
+      svgNode("path", { d: "M17.5 12.5a9 9 0 0 1 13 0" }),
+      svgNode("path", { d: "M20.5 9a5 5 0 0 1 7 0" }),
     );
   }
   if (name === PROFILES[0]) {
+    // VOD — on demand: a screen, and the play mark that says *you* choose when.
     return svgNode(
       "svg",
       { class: "avatar-mark", viewBox: "0 0 48 48", "aria-hidden": "true" },
-      svgNode("rect", { x: "9", y: "20", width: "30", height: "19", rx: "3" }),
-      svgNode("path", { d: "M7 16h34l-2.5-6.5H9.5z" }),
-      svgNode("path", { d: "M16 9.5l4.5 6.5M26 9.5l4.5 6.5" }),
+      svgNode("rect", { x: "6.5", y: "11", width: "35", height: "26", rx: "4" }),
+      svgNode("path", { d: "M20.5 18.5l9 5.5-9 5.5z" }),
     );
   }
+  // A profile added later still gets a mark rather than an empty disc.
   return svgNode(
     "svg",
     { class: "avatar-mark", viewBox: "0 0 48 48", "aria-hidden": "true" },
     svgNode("circle", { cx: "24", cy: "17", r: "7.5" }),
     svgNode("path", { d: "M10 40c0-7.5 6.3-12 14-12s14 4.5 14 12" }),
   );
+}
+
+/**
+ * Dress the top-left button in the mark of the mode you are in.
+ *
+ * That corner holds the switch-mode button, and it drew a person — which answers
+ * "who is this?" in an app whose two profiles are **ways of watching**. The same mark
+ * the switch screen uses answers "which mode am I in?" instead. It is redrawn only
+ * when the mode actually changes, so a render cannot steal focus from the button you
+ * are standing on.
+ */
+function syncProfileMark() {
+  const button = document.getElementById("profile");
+  if (!button) return;
+  const title = `Switch mode — you are in ${state.profile}`;
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  if (button.dataset.mark === state.profile) return;
+  button.dataset.mark = state.profile;
+  const mark = avatarNode(state.profile);
+  if (mark) button.replaceChildren(mark);
 }
 
 /**
@@ -1400,8 +1610,9 @@ function renderProfiles() {
     el(
       "section",
       { class: "profiles" },
-      // These are **modes**, not accounts: "Movies & Shows" and "Live TV & Sports"
-      // are two ways to use the app, and the screen reads as a mode picker.
+      // These are **modes**, not accounts: VOD (films and series) and IPTV (live
+      // channels and sport) are two ways to use the app, and the screen reads as a
+      // mode picker.
       el("p", { class: "hero-kicker", text: "Modes" }),
       el("h1", { class: "view-title", text: "What do you want to watch?" }),
       el("p", { class: "view-hint", text: "Pick a mode to start. Each one keeps its own settings." }),
@@ -1907,17 +2118,115 @@ function stopHeroRotation() {
  * Nothing here is a door: the frame is a `div` with no click and no focus stop (see
  * `iconBox`), so a title rotating through it is a glance, not a link.
  */
-const SPOTLIGHT_ROTATE_MS = 10_000;
+const SPOTLIGHT_ROTATE_MS = 15_000;
 let spotlightTimer = null;
 let spotlightStrip = null;
 let spotlightList = [];
 let spotlightAt = 0;
+/**
+ * The poster the card is holding in its **right-hand slot**.
+ *
+ * The shift is anchored to *this poster*, not to a list index: the row is re-read
+ * from time to time, and an index into a list that has been rebuilt points somewhere
+ * else entirely — which is what put two brand-new posters on the card instead of
+ * moving the right-hand one across.
+ */
+let spotlightAnchor = "";
 /** True while the cursor is over the card — the rotation holds still then. */
 let spotlightHover = false;
+/**
+ * Which call owns the card.
+ *
+ * The card is started again on every render, and a start **waits on the row read**
+ * before it installs its clock. Two starts can therefore be in flight at once — the
+ * home screen draws twice on launch — and each one used to install its own clock, so
+ * the card took **two** posters per cycle: the pair shifted the moment it was drawn,
+ * and the whole card looked like it was being replaced twice as often as it should.
+ * Only the newest call owns the card; an older one stops at the door.
+ */
+let spotlightRun = 0;
+
+/**
+ * The picture one of the card's frames holds: a **16:9 frame takes 16:9 artwork**, so the
+ * wide shot first and the poster only as the last resort. A portrait poster cannot be
+ * fitted into this frame — cutting it into a band is what made the posters read as
+ * backdrops.
+ */
+function spotlightArt(m) {
+  return backdropOf(m) || heroImage(m) || posterOf(m) || "";
+}
+
+/**
+ * Every wide shot the card has already fetched.
+ *
+ * Putting a new `src` on the tile's image clears whatever is painted there until the new
+ * file arrives — an empty plate with the new title on it. That empty frame was the
+ * glitch: the poster that was arriving blinked, while the poster that was *moving* across
+ * stayed put. The next pictures are fetched here ahead of their move, so a move is one
+ * picture replaced by another, never by a hole.
+ */
+const warmedArt = new Set();
+function warmArtwork(src) {
+  if (!src || warmedArt.has(src)) return;
+  warmedArt.add(src);
+  const pre = new Image();
+  pre.decoding = "async";
+  pre.src = src;
+}
+
+/**
+ * Put artwork on a tile's plate **without ever showing the plate empty**.
+ *
+ * The first picture goes straight on (the plate was bare anyway). A **swap** waits for the
+ * incoming file first: only once it is in hand is it drawn, so the frame goes from one
+ * picture to the next with no blank between them.
+ */
+function putSpotlightArt(img, art, backup) {
+  img.dataset.backup = backup;
+  if (!art) {
+    img.removeAttribute("src");
+    img.classList.add("blank");
+    return;
+  }
+  if (img.getAttribute("src") === art) {
+    img.classList.remove("blank");
+    return;
+  }
+  const paint = () => {
+    img.setAttribute("src", art);
+    img.classList.remove("blank");
+  };
+  // A bare tile takes its picture straight away. The card's **first pair is filled
+  // before it is put on the page**, so waiting for the element to be in the document
+  // left both of the first two plates empty — the card opened on two grey frames.
+  if (!img.getAttribute("src")) {
+    paint();
+    return;
+  }
+  const pre = new Image();
+  pre.decoding = "async";
+  pre.onload = paint;
+  // A file that fails still goes on: the tile's own error handling draws the original
+  // artwork instead, or the app's flat plate when there is nothing to fall back to.
+  pre.onerror = paint;
+  pre.src = art;
+}
+
+/** A wide shot that will not load: the original artwork, then the app's flat plate. */
+function spotlightArtFailed(img) {
+  const backup = img.dataset.backup || "";
+  if (backup && img.getAttribute("src") !== backup) {
+    img.setAttribute("src", backup);
+    return;
+  }
+  img.removeAttribute("src");
+  img.classList.add("blank");
+}
 
 async function startSpotlight(strip, card, row) {
   stopSpotlight();
   if (!strip) return;
+  const run = spotlightRun;
   spotlightStrip = strip;
   strip.addEventListener("mouseenter", () => { spotlightHover = true; });
   strip.addEventListener("mouseleave", () => { spotlightHover = false; });
@@ -1930,46 +2239,131 @@ async function startSpotlight(strip, card, row) {
   if (!spotlightList.length) {
     try {
       const { metas = [] } = await get(`/catalog/${row}/${encodeURIComponent(cat.id)}.json${catalogQuery()}`);
+      // A newer start took the card while this one was reading: it owns the pair now,
+      // and drawing here would move the card on a second time.
+      if (run !== spotlightRun) return;
+      // **Landscape titles.** This card's two frames are 16:9, so it wants the
+      // landscape artwork — a portrait poster has to be cut down to a band to fit one.
       spotlightList = metas.filter((m) => m.background || m.poster);
       if (spotlightList.length) {
         contentDrawn.set(key, spotlightList);
-        // A different title each launch, like the cards.
-        spotlightAt = LAUNCH_SEED % spotlightList.length;
+        // **Continue where the card left off**, if the poster it was holding is still
+        // in the row. A different title each launch only when there is nothing to
+        // carry over — a re-read must not restart the pair somewhere else.
+        const at = spotlightList.findIndex((m) => String(m.id) === spotlightAnchor);
+        spotlightAt = at >= 0 ? at : LAUNCH_SEED % spotlightList.length;
       }
     } catch {
       spotlightList = [];
     }
   }
+  if (run !== spotlightRun) return;
   drawSpotlight();
   if (spotlightList.length < 2) return;
+  // One clock for one card: never leave a second one running beside this.
+  if (spotlightTimer) clearInterval(spotlightTimer);
   spotlightTimer = setInterval(() => {
     if (spotlightHover) return;
-    spotlightAt = (spotlightAt + 1 + Math.floor(Math.random() * (spotlightList.length - 1))) % spotlightList.length;
+    // **One poster per cycle, not two.** The pair shifts a slot to the left: the
+    // right-hand poster takes the left slot, the left-hand one leaves, and a new
+    // title arrives on the right. The poster is looked up in the row as it is *now*,
+    // so a re-read cannot move the card off the pair it is showing.
+    const len = spotlightList.length;
+    if (!len) return;
+    const at = spotlightList.findIndex((m) => String(m.id) === spotlightAnchor);
+    spotlightAt = at >= 0 ? at : (spotlightAt + 1) % len;
     drawSpotlight();
   }, SPOTLIGHT_ROTATE_MS);
 }
 
 /** Put the current title's landscape picture in the card's frame. */
 /**
- * The still carries its own caption — the title, its year and its rating, over a
- * bottom gradient — because the card's label underneath names the *card* (Upcoming),
- * not what is on the picture, and opening the card to learn the title defeats a card
- * that is not a door.
+ * **Two poster cards, each naming itself.** The card's own label underneath says
+ * Upcoming — the card — so each frame carries the tag and the title it holds, drawn
+ * where the tagged artwork draws them.
+ */
+function spotlightTile() {
+  return el(
+    "figure",
+    { class: "spotlight-tile" },
+    el("img", {
+      class: "spotlight-tile-art",
+      alt: "",
+      loading: "lazy",
+      // A wide shot the service does not have falls back the way every other plate
+      // does, instead of leaving the frame empty.
+      onerror: (event) => spotlightArtFailed(event.currentTarget),
+    }),
+    el(
+      "div",
+      { class: "spotlight-frame", "aria-hidden": "true" },
+      // The tag the card is about, drawn where the tagged artwork draws it: a pill
+      // across the top, in the same voice BetterPosters uses for "Coming 9 Oct".
+      el("span", { class: "spotlight-tag" }),
+      el("span", { class: "spotlight-title" }),
+    ),
+  );
+}
+
+/**
+ * Point one tile at a title, **in place**.
+ *
+ * The tile is reused rather than rebuilt, so the poster that is staying on the card
+ * keeps its image element: nothing is re-requested, nothing re-decodes, and the
+ * picture does not blink out for a frame in the middle of a move.
+ */
+function fillSpotlightTile(node, m) {
+  const art = spotlightArt(m);
+  node.dataset.id = String(m.id || "");
+  const img = node.querySelector(".spotlight-tile-art");
+  if (img) putSpotlightArt(img, art, m.posterBackup || "");
+  node.querySelector(".spotlight-tag").textContent = upcomingTag(m);
+  node.querySelector(".spotlight-title").textContent = m.name || "";
+}
+
+/**
+ * Draw the card's two frames.
+ *
+ * The pair **shifts a slot** each cycle rather than being replaced — the right-hand
+ * poster moves into the left slot, the left-hand one leaves the card, and the next
+ * title arrives on the right — so one poster changes per cycle. The poster that
+ * carries over is the *same tile element* moved across, so only the new one loads.
  */
 function drawSpotlight() {
   const strip = spotlightStrip;
   if (!strip || !strip.isConnected || !spotlightList.length) return;
-  const m = spotlightList[spotlightAt % spotlightList.length];
-  const meta = [m.releaseInfo, m.imdbRating ? `★ ${m.imdbRating}` : ""].filter(Boolean).join(" · ");
-  strip.replaceChildren(
-    el("img", { class: "content-tile", src: heroImage(m), alt: "", loading: "lazy" }),
-    el(
-      "div",
-      { class: "spotlight-caption", "aria-hidden": "true" },
-      el("span", { class: "spotlight-title", text: m.name || "" }),
-      meta ? el("span", { class: "spotlight-meta", text: meta }) : null,
-    ),
-  );
+  const len = spotlightList.length;
+  const shown = Math.min(2, len);
+  const picks = Array.from({ length: shown }, (_, i) => spotlightList[(spotlightAt + i) % len]);
+
+  let track = strip.querySelector(".spotlight-track");
+  if (!track) {
+    track = el("div", { class: "spotlight-track" });
+    strip.replaceChildren(track);
+  }
+  const tiles = Array.from(track.children);
+  const carries = shown === 2 && tiles.length === 2 && tiles[1].dataset.id === String(picks[0].id || "");
+  if (carries) {
+    // Swap the two tiles over: the one that was on the right is now on the left, and
+    // the tile that came off the left is refilled with the title arriving on the right.
+    track.replaceChildren(tiles[1], tiles[0]);
+    fillSpotlightTile(track.children[1], picks[1]);
+  } else {
+    track.replaceChildren(...picks.map((m) => {
+      const tile = spotlightTile();
+      fillSpotlightTile(tile, m);
+      return tile;
+    }));
+  }
+
+  // Fetch the artwork the next two moves will need **before** they need it, so a move
+  // never lands on a plate that is still waiting on the network.
+  for (const ahead of [2, 3]) {
+    if (len > ahead) warmArtwork(spotlightArt(spotlightList[(spotlightAt + ahead) % len]));
+  }
+
+  // Remember what the right-hand slot is holding: the next cycle moves it across.
+  spotlightAnchor = String(spotlightList[(spotlightAt + Math.min(1, len - 1)) % len]?.id || "");
   // The same marker a card's strip carries: `filled` means "this is the picture",
   // and the frame under it is the app's own flat panel until then.
   strip.classList.add("filled");
@@ -1977,7 +2371,24 @@ function drawSpotlight() {
   if (frame) frame.classList.add("art-filled");
 }
 
+/**
+ * **When a title lands**, in the voice the tagged artwork uses: `Coming 9 Oct`. TMDB
+ * gives the day, not only the year, so the card prints it and falls back to `Coming
+ * 2026` when that is all there is — the same tag BetterPosters bakes into its poster.
+ */
+function upcomingTag(m) {
+  const raw = String(m.releaseDate || "").slice(0, 10);
+  const date = raw ? new Date(`${raw}T12:00:00Z`) : null;
+  if (date && !Number.isNaN(date.getTime())) {
+    return `Coming ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(date)}`;
+  }
+  const year = String(m.releaseInfo || "").trim();
+  return year ? `Coming ${year}` : "Coming soon";
+}
+
 function stopSpotlight() {
+  // Anything still waiting on a read is stale the moment the card is stopped.
+  spotlightRun++;
   if (spotlightTimer) clearInterval(spotlightTimer);
   spotlightTimer = null;
   spotlightStrip = null;
@@ -2100,11 +2511,14 @@ function iconBox(c, row) {
   // glance at what is coming is a window rather than a shelf of four posters. It has
   // **no artwork button**: nothing about it is clickable.
   const spotlight = Boolean(c.spotlight);
-  const tiles = spotlight ? 1 : mine ? 2 : 4;
-  // The frame is filled by `startSpotlight`, not by the poster wall, so the strip
-  // carries the flag those later steps look for and its layout is the wide one.
-  const strip = contentStrip(c, row, tiles, spotlight ? "backdrop" : undefined);
-  if (spotlight) strip._job.spotlight = true;
+  const tiles = spotlight || mine ? 2 : 4;
+  // The frame is filled by `startSpotlight`, not by the poster wall: the Upcoming
+  // card is **two poster cards**, each carrying its own title and release date.
+  const strip = contentStrip(c, row, tiles);
+  if (spotlight) {
+    strip.classList.add("spotlight-strip");
+    strip._job.spotlight = true;
+  }
   return el(
     "div",
     { class: `icon-box${spotlight ? " card-spotlight" : ""}` },
@@ -3584,69 +3998,67 @@ async function renderTitle(type, id) {
     "article",
     { class: "title-page" },
 
-    // **The banner is artwork and nothing else.** The name is in the bar above (see
-    // `renderTabs`) and Play and the pins moved down onto the page, so what is left up
-    // here is one picture — the title's own wide shot, or its poster over a blurred
-    // copy of itself when there is no wide shot to use.
+    // **The banner is the home screen's banner.** The same two-column card, in the
+    // same place at the top of the page: the title's own actions (Play, the pins),
+    // its ratings, its overview and its genres down the left, and the wide shot in
+    // the frame on the right — one treatment for the same banner.
     el(
       "header",
-      { class: "title-hero" },
-      poster && !backdrop ? el("img", { class: "title-hero-bg", src: poster, alt: "", "aria-hidden": "true" }) : null,
-      backdrop
-        ? el("img", { class: "title-hero-art", src: backdrop, alt: "", loading: "eager" })
-        : poster
-          // **A poster is drawn as a poster.** It used to be stretched `cover` across
-          // the 16:9 frame (cropped) or laid in as a `contain` strip at the right edge
-          // (a sharp slice beside a blurry smear). It is now its own plate, whole and
-          // at its own shape, on a dark wash — see `.title-hero-poster`.
-          ? el(
-              "div",
-              { class: "title-hero-poster" },
-              el("img", { src: poster, alt: "", loading: "eager" }),
+      { class: "hero title-hero" },
+      el(
+        "div",
+        { class: "hero-body" },
+        // **The overview leads the column**, then the actions, then the genres. What
+        // the title *is* comes before the buttons that ask you to do something with
+        // it. No kicker and no title here — the bar above the page already names it.
+        (data.tagline || meta.description)
+          ? el("section", { class: "title-row" },
+              el("h3", { class: "row-head", text: "Overview" }),
+              data.tagline ? el("p", { class: "title-tagline", text: data.tagline }) : null,
+              meta.description ? el("p", { class: "title-overview", text: meta.description }) : null,
             )
           : null,
-      // **No scrim.** It is a leftover from when the name and the buttons sat on the
-      // picture; the banner is artwork and nothing else now, so a gradient darkening it
-      // for text that is no longer there only made every banner read as murky.
+        el(
+          "div",
+          { class: "title-actions" },
+          el("button", {
+            class: "btn primary play-btn focusable",
+            type: "button",
+            id: "title-play",
+            text: "▶  Play",
+            // Play opens the add-on picker, so its tooltip says so.
+            title: "Choose which add-on plays this title",
+            onclick: () => openSources(meta),
+          }),
+          // The pin buttons live on the page now, not in a modal.
+          el("div", { class: "title-pins", id: "title-pins" }, ...pinButtons(meta)),
+        ),
+      ),
+      // **The wide shot, in the banner's own frame.** A title with no backdrop keeps
+      // its poster, whole, on the frame's plate — never stretched across it.
+      el(
+        "div",
+        { class: "hero-art title-hero-art-frame", "aria-hidden": "true" },
+        backdrop
+          ? el("img", { class: "title-hero-art", src: backdrop, alt: "", loading: "eager" })
+          : poster
+            ? el("div", { class: "title-hero-poster" },
+                el("img", { src: poster, alt: "", loading: "eager" }),
+              )
+            : null,
+      ),
     ),
 
     el(
       "div",
       { class: "title-body" },
-      // **Play and the pins come off the picture.** They sat over the artwork, which put
-      // the first thing you act on on top of the thing you are looking at — and on a
-      // poster-backed banner they sat on a blur. They are the page's first row now,
-      // under the banner and above the ratings.
-      el(
-        "div",
-        { class: "title-actions" },
-        el("button", {
-          class: "btn primary play-btn focusable",
-          type: "button",
-          id: "title-play",
-          text: "▶  Play",
-          // **Play and Sources were the same button.** The duplicate "Sources"
-          // button is gone; Play opens the add-on picker, so its tooltip says so.
-          title: "Choose which add-on plays this title",
-          onclick: () => openSources(meta),
-        }),
-        // The pin buttons live on the page now, not in a modal.
-        el("div", { class: "title-pins", id: "title-pins" }, ...pinButtons(meta)),
-      ),
-      // **The page reads top to bottom in one order**: Ratings → Overview → Genres →
-      // Trailers → Seasons → Collection → the credits.
-      // **No "add an MDBList key" line under the ratings.** The row is the ratings it
-      // has; a note about a service you have not connected is noise on a title page.
-      ratingsRow(data.ratings),
-
-      (data.tagline || meta.description)
-        ? el("section", { class: "title-row" },
-            el("h3", { class: "row-head", text: "Overview" }),
-            data.tagline ? el("p", { class: "title-tagline", text: data.tagline }) : null,
-            meta.description ? el("p", { class: "title-overview", text: meta.description }) : null,
-          )
-        : null,
-
+      // **The ratings sit on the page's own surface, above the trailer.** They were
+      // inside the banner, where the plates could not be told apart from the card
+      // behind them; here they are the first row the page reads after the banner.
+      // **Genres, then the ratings, then the trailer.** Both are short rows that say
+      // what the title is before the trailer plays, and taking them out of the banner
+      // keeps its left column — the overview and the buttons — as short as the home
+      // banner's, so the artwork on the right frames the way that one does.
       data.genres.length
         ? el("div", { class: "title-row" },
             el("h3", { class: "row-head", text: "Genres" }),
@@ -3660,6 +4072,8 @@ async function renderTitle(type, id) {
             )),
           )
         : null,
+
+      ratingsRow(data.ratings),
 
       trailersRow(data.trailers),
 
@@ -3910,8 +4324,20 @@ const listQuery = (type) => `?type=${encodeURIComponent(type)}${state.safe ? "" 
 function pinButtons(item) {
   const current = state.watchlist[watchKey(item)] || "";
   const customOn = inCustomRow(item);
+  // **The order the buttons are offered in**: Add to Custom, then Plan to Watch and
+  // Watched. There is no Watching pin — the three states read as one choice with a
+  // redundant middle, so the title page offers the two that differ.
   return [
-    ...WATCH_STATES.map(([sid, label]) =>
+    el("button", {
+      class: `btn pin focusable${customOn ? " active" : ""}`,
+      type: "button",
+      id: "pin-custom",
+      title: customOn ? `In ${customLabel()} — click to remove` : `Add to ${customLabel()}`,
+      "aria-pressed": String(customOn),
+      text: customOn ? `${customLabel()} · added` : `Add to ${customLabel()}`,
+      onclick: () => toggleCustomRow(item),
+    }),
+    ...PIN_STATES.map(([sid, label]) =>
       el("button", {
         class: `btn pin focusable${current === sid ? " active" : ""}`,
         type: "button",
@@ -3922,15 +4348,6 @@ function pinButtons(item) {
         onclick: () => setWatchState(item, current === sid ? null : sid),
       }),
     ),
-    el("button", {
-      class: `btn pin focusable${customOn ? " active" : ""}`,
-      type: "button",
-      id: "pin-custom",
-      title: customOn ? `In ${customLabel()} — click to remove` : `Add to ${customLabel()}`,
-      "aria-pressed": String(customOn),
-      text: customOn ? `${customLabel()} · added` : `Add to ${customLabel()}`,
-      onclick: () => toggleCustomRow(item),
-    }),
   ];
 }
 
@@ -4177,13 +4594,13 @@ function radioRow(checked, name, title, desc, onchange) {
   );
 }
 
-async function verifyKey(name, store, keyName) {
+async function verifyKey(name, store, keyName, path = "/providers/verify") {
   const entry = store[name] || (store[name] = {});
   entry.status = { ok: false, text: "Checking…" };
   writeJSON(keyName, store);
   render();
   try {
-    entry.status = (await post("/providers/verify", { name })) || { ok: false, text: "no response" };
+    entry.status = (await post(path, { name })) || { ok: false, text: "no response" };
   } catch (err) {
     entry.status = { ok: false, text: `could not reach the server — ${err.message}` };
   }
@@ -4191,7 +4608,7 @@ async function verifyKey(name, store, keyName) {
   render();
 }
 
-function keyRow(group, name, label, desc, store, keyName) {
+function keyRow(group, name, label, desc, store, keyName, verifyPath = "/providers/verify") {
   const entry = store[name] || (store[name] = {});
   const input = el("input", {
     class: "text-input focusable",
@@ -4210,7 +4627,7 @@ function keyRow(group, name, label, desc, store, keyName) {
       writeJSON(keyName, store);
       await pushSettings({ [group]: { [name]: { enabled: true, key } } });
       input.value = "";
-      await verifyKey(name, store, keyName);
+      await verifyKey(name, store, keyName, verifyPath);
     },
   });
   const clear = entry.hasKey
@@ -4251,11 +4668,571 @@ function keyRow(group, name, label, desc, store, keyName) {
     el("div", { class: "source-form" }, input, save, clear),
     entry.hasKey
       ? el("div", { class: "provider-check" },
-          el("button", { class: "btn subtle focusable", type: "button", text: "Check connection", onclick: () => verifyKey(name, store, keyName) }),
+          el("button", { class: "btn subtle focusable", type: "button", text: "Check connection", onclick: () => verifyKey(name, store, keyName, verifyPath) }),
           entry.status ? el("span", { class: `source-status ${entry.status.ok ? "ok" : "bad"}`, text: entry.status.text }) : null,
         )
       : null,
   );
+}
+
+/**
+ * Settings → Debrid.
+ *
+ * This pane exists because of a failure that had no explanation on screen: a torrent
+ * stream whose swarm a browser cannot join just sits at "looking for peers…". The
+ * account is the fix, so the pane says what it is for before it asks for a key.
+ */
+function paneDebrid() {
+  const active = debridActive();
+  return [
+    el("p", { class: "option-desc", text: "A torrent stream has no web address of its own — the add-on publishes an info hash, and the file lives in a swarm. A browser can only reach swarm peers that speak WebRTC, which is why a torrent without a debrid account usually never starts. A debrid service fetches the torrent on its own servers and hands back a direct link, so it plays like any other stream." }),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Services" }),
+      el("span", { class: "option-desc", text: active ? `Enabled services are tried in order; the first one that answers serves the stream. Right now: ${active[1]}.` : "Enable one and it takes over the torrent streams automatically. Paste a key, then press Check connection." }),
+    ),
+    ...DEBRID_SERVICES.map(([name, label, desc]) => keyRow("debrid", name, label, desc, state.debrid, KEY.debrid, "/debrid/verify")),
+    el("p", { class: "option-desc", text: "Cached torrents resolve in seconds. A torrent nobody has cached yet has to download on the service first — the player says so, and pressing Play again in a minute usually just works." }),
+  ];
+}
+
+/**
+ * Settings → Subtitles.
+ *
+ * The player's Audio & subtitles panel lists the tracks a stream **carries**, and a
+ * great many streams carry none — or carry one language and not the one you read.
+ * This pane is the catalogue those gaps are filled from. OpenSubtitles needs a key to
+ * look anything up at all, and its *download* step is the part that wants a signed-in
+ * account: a search works with the key alone, a download does not (a signed-out
+ * request gets a small daily quota and then stops). Both halves live here, and neither
+ * is ever sent back to the page — only whether one is set.
+ */
+function paneSubtitles() {
+  const store = state.subtitles || (state.subtitles = {});
+  const os = store.opensubtitles || (store.opensubtitles = { enabled: false, hasKey: false, hasLogin: false });
+
+  const keyInput = el("input", {
+    class: "text-input focusable",
+    type: "password",
+    id: "opensubtitles-key",
+    placeholder: os.hasKey ? "•••••••• (set — paste a new key to replace)" : "Paste your OpenSubtitles API key…",
+  });
+  const userInput = el("input", {
+    class: "text-input focusable",
+    type: "text",
+    id: "opensubtitles-username",
+    placeholder: os.hasLogin ? "Username (set)" : "Username",
+  });
+  const passInput = el("input", {
+    class: "text-input focusable",
+    type: "password",
+    id: "opensubtitles-password",
+    placeholder: os.hasLogin ? "•••••••• (set)" : "Password",
+  });
+
+  const save = el("button", {
+    class: "btn primary focusable",
+    type: "button",
+    text: os.hasKey ? "Save changes" : "Save key",
+    onclick: async () => {
+      const patch = {};
+      if (keyInput.value.trim()) patch.key = keyInput.value.trim();
+      if (userInput.value.trim()) patch.username = userInput.value.trim();
+      if (passInput.value.trim()) patch.password = passInput.value.trim();
+      if (!Object.keys(patch).length) return;
+      // Pasting a key is switching it on, exactly as it is for every other provider.
+      patch.enabled = true;
+      await pushSettings({ subtitles: { opensubtitles: patch } });
+      keyInput.value = "";
+      userInput.value = "";
+      passInput.value = "";
+      await checkSubtitles();
+    },
+  });
+  const clear = os.hasKey
+    ? el("button", {
+        class: "btn subtle focusable",
+        type: "button",
+        text: "Remove key",
+        onclick: async () => {
+          os.enabled = false;
+          os.hasKey = false;
+          os.hasLogin = false;
+          os.status = null;
+          writeJSON(KEY.subtitles, store);
+          await pushSettings({ subtitles: { opensubtitles: { enabled: false, key: "", username: "", password: "" } } });
+          render();
+        },
+      })
+    : null;
+
+  const languages = [["", `Follow the app's language (${String(state.language || "en-US").slice(0, 2)})`], ...(state.options.subtitleLanguages || [])];
+  const picker = dropdown(languages, store.language || "", (value) => {
+    store.language = value;
+    writeJSON(KEY.subtitles, store);
+    pushSettings({ subtitles: { language: value } });
+    render();
+  });
+
+  const active = subtitleActive();
+
+  return [
+    el("p", {
+      class: "option-desc",
+      text: "A stream's own subtitle tracks are listed in the player. When it carries none — or carries one language and not yours — the player searches the services enabled below and plays the one you pick like any other subtitle. Each needs its own free key; the more you enable, the more titles are covered.",
+    }),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Services" }),
+      el("span", {
+        class: "option-desc",
+        text: active.length
+          ? `Searched together, in the order below. Right now: ${active.join(", ")}.`
+          : "Enable one and paste its key — the player has nothing to offer until then but what the stream already carries.",
+      }),
+    ),
+    el("div", { class: "provider" },
+      el("div", { class: "provider-head" },
+        el("div", {},
+          el("span", { class: "option-title", text: "OpenSubtitles" }),
+          el("span", {
+            class: `badge ${os.enabled && os.hasKey ? "on" : "off"}`,
+            text: !os.hasKey ? "no key" : !os.enabled ? "key set · off" : os.hasLogin ? "enabled · signed in" : "enabled · search only",
+          }),
+        ),
+        el("label", { class: "switch" },
+          el("input", {
+            type: "checkbox",
+            checked: Boolean(os.enabled),
+            onchange: (e) => {
+              os.enabled = e.target.checked;
+              writeJSON(KEY.subtitles, store);
+              pushSettings({ subtitles: { opensubtitles: { enabled: e.target.checked } } });
+              render();
+            },
+          }),
+          el("span", { class: "slider" }),
+        ),
+      ),
+      el("p", {
+        class: "option-desc",
+        text: "The widest catalogue of the four, and the only one whose downloads want a signed-in account. The API key is free and is what searches it.",
+      }),
+      el("div", { class: "source-form" }, keyInput, save, clear),
+      el("p", {
+        class: "option-desc",
+        text: "A signed-in account is what downloads them. Without one OpenSubtitles allows a small daily quota of anonymous downloads per IP and then stops; with one the quota is your account's own, which is the limit a player runs into second. Searching works without it.",
+      }),
+      el("div", { class: "source-form" }, userInput, passInput),
+      os.hasKey
+        ? el("div", { class: "provider-check" },
+            el("button", { class: "btn subtle focusable", type: "button", text: "Check connection", onclick: () => checkSubtitles() }),
+            os.status ? el("span", { class: `source-status ${os.status.ok ? "ok" : "bad"}`, text: os.status.text }) : null,
+          )
+        : null,
+    ),
+    // The rest are key-only, so the shared provider row draws them.
+    ...SUBTITLE_SERVICES.map(([name, label, desc]) => keyRow("subtitles", name, label, desc, store, KEY.subtitles, "/subtitles/verify")),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Language" }),
+      el("span", { class: "option-desc", text: "Which language the player asks for. It follows what the app is browsed in until you pick one here." }),
+    ),
+    el("div", { class: "source-form" }, picker.node),
+  ];
+}
+
+/**
+ * Settings → DNS.
+ *
+ * One switch, one resolver, and it applies to the whole app: every request the server
+ * makes goes through `addon/net.mjs`, which reads this setting on each call. The pane says
+ * what that means rather than assuming it is obvious, and the Test button resolves the
+ * same name both ways so the answer is a pair of addresses rather than a claim.
+ */
+function paneDns() {
+  const dns = state.dns || (state.dns = {});
+  const presets = dns.presets?.length
+    ? dns.presets
+    : [
+        { name: "Google", servers: ["8.8.8.8", "8.8.4.4"] },
+        { name: "Cloudflare", servers: ["1.1.1.1", "1.0.0.1"] },
+        { name: "AdGuard", servers: ["94.140.14.14", "94.140.15.15"] },
+        { name: "Quad9", servers: ["9.9.9.9", "149.112.112.112"] },
+        { name: "OpenDNS", servers: ["208.67.222.222", "208.67.220.220"] },
+        { name: "Custom", servers: [] },
+      ];
+
+  const primaryInput = el("input", { class: "text-input focusable", type: "text", id: "dns-primary", placeholder: "8.8.8.8", value: dns.primary || "" });
+  const secondaryInput = el("input", { class: "text-input focusable", type: "text", id: "dns-secondary", placeholder: "8.8.4.4", value: dns.secondary || "" });
+  const status = el("span", { class: `source-status ${dns.status?.ok ? "ok" : dns.status ? "bad" : ""}`, text: dns.status?.text || "" });
+
+  const enabledSwitch = el("input", {
+    type: "checkbox",
+    id: "dns-enabled",
+    checked: Boolean(dns.enabled),
+    onchange: (e) => {
+      dns.enabled = e.target.checked;
+      saveDns({ enabled: e.target.checked });
+    },
+  });
+
+  const picker = dropdown(
+    presets.map((p) => [p.name, p.name]),
+    dns.provider || "Cloudflare",
+    (value) => {
+      const preset = presets.find((p) => p.name === value);
+      dns.provider = value;
+      if (preset?.servers.length) {
+        dns.primary = preset.servers[0];
+        dns.secondary = preset.servers[1] || "";
+        primaryInput.value = dns.primary;
+        secondaryInput.value = dns.secondary;
+      }
+      saveDns({ provider: value });
+    },
+  );
+
+  return [
+    el("p", {
+      class: "option-desc",
+      text: "Which resolver every request in this app asks. It changes how a domain turns into an address — nothing else. It is not a VPN and it does not hide anything.",
+    }),
+    el("div", { class: "provider" },
+      el("div", { class: "provider-head" },
+        el("div", {},
+          el("span", { class: "option-title", text: "Override System DNS" }),
+          el("span", { class: `badge ${dns.enabled ? "on" : "off"}`, text: dns.enabled ? `on · ${(dns.servers || []).join(", ") || "no servers"}` : "off" }),
+        ),
+        el("label", { class: "switch" }, enabledSwitch, el("span", { class: "slider" })),
+      ),
+      el("p", { class: "option-desc", text: "Off is the machine's own resolver. On, the app asks the resolver below and only this app is affected." }),
+    ),
+    el("div", { class: "group-head" }, el("span", { class: "option-title", text: "Resolver" })),
+    el("div", { class: "source-form" }, picker.node),
+    el("div", { class: "source-form" }, primaryInput, secondaryInput),
+    el("p", { class: "option-desc", text: "The two addresses are IPv4 or IPv6. A preset fills them in; Custom uses what you type." }),
+    el("div", { class: "source-form" },
+      el("button", { class: "btn primary focusable", type: "button", text: "Save", onclick: () => saveDns({ primary: primaryInput.value.trim(), secondary: secondaryInput.value.trim() }) }),
+      el("button", { class: "btn subtle focusable", type: "button", id: "dns-test", text: "Test DNS", onclick: () => testDnsNow(status) }),
+      status,
+    ),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "What it applies to" }),
+      el("span", { class: "option-desc", text: "Everything the server requests, because they all fetch through the same door." }),
+    ),
+    el("p", {
+      class: "option-desc",
+      text: "Metadata (TMDB, TVDB, MDBList, the trackers, posters), the AI providers, Stremio add-ons, subtitles, debrid APIs, Custom Websites, every scraper tier, the stream proxy, and catalog and stream fetches. The embedded player is a separate process and keeps the system resolver.",
+    }),
+    el("p", { class: "option-desc", text: "DNS changes how domains resolve." }),
+  ];
+}
+
+async function saveDns(patch) {
+  const dns = state.dns || (state.dns = {});
+  dns.status = { ok: false, text: "Saving…" };
+  render();
+  try {
+    const res = await post("/dns", { ...patch, enabled: dns.enabled });
+    if (res?.dns) state.dns = { ...state.dns, ...res.dns };
+    state.dns.status = { ok: true, text: res?.message || "Saved." };
+  } catch (err) {
+    state.dns.status = { ok: false, text: `Could not save — ${err.message}` };
+  }
+  writeJSON(KEY.dns, state.dns);
+  render();
+}
+
+async function testDnsNow(target) {
+  target.className = "source-status";
+  target.textContent = "Resolving…";
+  try {
+    const res = await post("/dns/test", { host: "google.com" });
+    target.className = `source-status ${res?.ok ? "ok" : "bad"}`;
+    target.textContent = res?.message || "no answer";
+  } catch (err) {
+    target.className = "source-status bad";
+    target.textContent = `Could not test — ${err.message}`;
+  }
+}
+
+/**
+ * Settings → Custom Websites.
+ *
+ * The sites you watch that no add-on covers: added once, searched automatically when Play
+ * is pressed. What is stored is the site, its search pattern and its category — never the
+ * streams, which are re-extracted every time because a stream URL expires.
+ */
+function paneCustomSites() {
+  const store = state.customSites || (state.customSites = { categories: [], repositories: [] });
+  const categories = store.categories?.length
+    ? store.categories
+    : [["movies", "Movies"], ["series", "Series"], ["anime", "Anime"], ["documentary", "Documentary"], ["sports", "Sports"], ["other", "Other"]].map(([key, label]) => ({ key, label, sites: [] }));
+
+  const rows = [];
+  for (const cat of categories) {
+    const addInput = el("input", { class: "text-input focusable", type: "text", placeholder: "https://site.example/", id: `site-add-${cat.key}` });
+    const addBtn = el("button", {
+      class: "btn primary focusable",
+      type: "button",
+      id: `site-add-btn-${cat.key}`,
+      text: "Add",
+      onclick: () => addCustomSite(cat.key, addInput),
+    });
+    addInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") addBtn.click();
+    });
+    // **The note lives in state, not only in the DOM.** Adding a site re-renders this
+    // pane, so a message written straight onto the element would be gone by the time the
+    // user read it — the same reason the DNS pane keeps its status on the state object.
+    const saved = (store.notes || {})[cat.key];
+    const note = el("p", {
+      class: `option-desc${saved ? (saved.ok ? " ok" : saved.text ? " bad" : "") : ""}`,
+      id: `site-note-${cat.key}`,
+      text: saved?.text || "",
+    });
+
+    const siteRows = (cat.sites || []).map((site) => siteRow(cat.key, site));
+
+    rows.push(
+      el("div", { class: "provider", id: `cat-${cat.key}` },
+        el("div", { class: "provider-head" },
+          el("div", {},
+            el("span", { class: "option-title", text: cat.label }),
+            el("span", { class: "badge", text: `${(cat.sites || []).length} site${(cat.sites || []).length === 1 ? "" : "s"}` }),
+          ),
+        ),
+        siteRows.length ? el("div", { class: "site-list" }, ...siteRows) : el("p", { class: "option-desc", text: "No sites in this category yet." }),
+        el("div", { class: "source-form" }, addInput, addBtn),
+        note,
+      ),
+    );
+  }
+
+  const repoInput = el("input", { class: "text-input focusable", type: "text", id: "repo-url", placeholder: "https://…/repository.json" });
+  const savedRepo = store.repoNote;
+  const repoNote = el("p", {
+    class: `option-desc${savedRepo ? (savedRepo.ok ? " ok" : savedRepo.text ? " bad" : "") : ""}`,
+    id: "repo-note",
+    text: savedRepo?.text || "",
+  });
+  const repoList = (store.repositories || []).map((r) =>
+    el("div", { class: "site-row" },
+      el("div", { class: "site-body" },
+        el("span", { class: "site-domain", text: r.name || r.url }),
+        el("span", { class: "site-pattern", text: `${r.count || 0} sites · ${r.url}` }),
+      ),
+      el("button", { class: "btn subtle focusable", type: "button", text: "Remove", onclick: () => removeRepository(r.url) }),
+    ),
+  );
+
+  return [
+    el("p", {
+      class: "option-desc",
+      text: "Sites the add-ons do not cover. Add a site once and it is searched automatically every time you press Play: the best-matching result page is read, the scraper's tiers run over it, and what they find is added to the Sources list tagged with the site's domain.",
+    }),
+    el("p", {
+      class: "option-desc",
+      text: "Only the site, its search pattern and its category are saved. The stream URLs are never stored — they carry a token and expire, so they are re-extracted on every play.",
+    }),
+    ...rows,
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Repositories" }),
+      el("span", { class: "option-desc", text: "A repository is a JSON list of sites: { name, websites: [{ url, category }] }." }),
+    ),
+    ...(repoList.length ? repoList : [el("p", { class: "option-desc", text: "No repositories added." })]),
+    el("div", { class: "source-form" }, repoInput,
+      el("button", { class: "btn primary focusable", type: "button", id: "repo-add", text: "Add Repository", onclick: () => addRepo(repoInput) }),
+    ),
+    repoNote,
+  ];
+}
+
+/** One added site: its domain, its search pattern, and edit/delete. */
+function siteRow(category, site) {
+  const domain = el("span", { class: "site-domain", text: site.domain });
+  const pattern = el("span", { class: "site-pattern", text: site.searchPattern ? `${site.searchPattern.action} · ${site.searchPattern.input}` : "no search pattern" });
+  const body = el("div", { class: "site-body" }, domain, pattern);
+  const row = el("div", { class: "site-row" }, body);
+  row.append(
+    el("button", {
+      class: "btn subtle focusable",
+      type: "button",
+      text: "Edit",
+      onclick: async () => {
+        const urlInput = el("input", { class: "text-input focusable", type: "text", value: site.url });
+        const sampleInput = el("input", { class: "text-input focusable", type: "text", placeholder: "a sample search URL (…/search?q=title)" });
+        const msg = el("p", { class: "option-desc", text: "" });
+        const editor = el("div", { class: "site-edit" }, urlInput, sampleInput,
+          el("div", { class: "source-form" },
+            el("button", {
+              class: "btn primary focusable",
+              type: "button",
+              text: "Save",
+              onclick: async () => {
+                const patch = { url: urlInput.value.trim() };
+                if (sampleInput.value.trim()) {
+                  const res = await post("/custom-sites/pattern", { sample: sampleInput.value.trim(), title: domain.textContent, url: patch.url, category });
+                  if (res?.pattern) patch.searchPattern = res.pattern;
+                  else msg.textContent = res?.message || "That sample URL had no query to copy.";
+                }
+                const res = await post("/custom-sites/update", { url: site.url, category, patch });
+                if (res?.sites) {
+                  state.customSites = { categories: categoriesToState(res.sites), repositories: state.customSites.repositories };
+                  writeJSON(KEY.customSites, state.customSites);
+                }
+                render();
+              },
+            }),
+            el("button", { class: "btn subtle focusable", type: "button", text: "Cancel", onclick: () => render() }),
+          ),
+          msg,
+        );
+        body.replaceChildren(editor);
+      },
+    }),
+    el("button", {
+      class: "btn subtle focusable",
+      type: "button",
+      text: "Delete",
+      onclick: async () => {
+        const res = await post("/custom-sites/remove", { url: site.url });
+        if (res?.sites) {
+          state.customSites = { categories: categoriesToState(res.sites), repositories: state.customSites.repositories };
+          writeJSON(KEY.customSites, state.customSites);
+        }
+        render();
+      },
+    }),
+  );
+  return row;
+}
+
+const CATEGORY_LABELS = [["movies", "Movies"], ["series", "Series"], ["anime", "Anime"], ["documentary", "Documentary"], ["sports", "Sports"], ["other", "Other"]];
+
+/** The server's per-category map into the pane's list shape. */
+const categoriesToState = (sites) =>
+  CATEGORY_LABELS.map(([key, label]) => ({ key, label, sites: sites[key] || [] }));
+
+/**
+ * Record a message for one category's add row — on the state object *and* on the element.
+ *
+ * The element is what the user is looking at; the state copy is what survives the
+ * `render()` that follows a successful add. Nothing here re-renders by itself, so the
+ * "paste a sample URL" step below can still append its own field to the live node.
+ */
+function setSiteNote(category, text, ok = false) {
+  const store = state.customSites || (state.customSites = { categories: [], repositories: [] });
+  store.notes = { ...(store.notes || {}), [category]: { text, ok } };
+  writeJSON(KEY.customSites, store);
+  const node = document.querySelector(`#site-note-${category}`);
+  if (node) {
+    node.className = `option-desc${ok ? " ok" : text ? " bad" : ""}`;
+    node.textContent = text;
+  }
+}
+
+async function addCustomSite(category, input) {
+  const url = input.value.trim();
+  if (!url) {
+    setSiteNote(category, "Paste a site URL first.");
+    return;
+  }
+  setSiteNote(category, "Reading the site's search form…");
+  const res = await post("/custom-sites/add", { url, category });
+  if (res?.sites) refreshCustomSites(res.sites);
+  if (!res?.ok && res?.needPattern) {
+    // **No search box in the markup.** Inventing one returns nothing, so the user is
+    // asked for a real search URL instead — from which the pattern is copied exactly.
+    setSiteNote(category, `${res.message || "The search form could not be read."} Open the site, search for anything, and paste that URL in the field below.`);
+    const note = document.querySelector(`#site-note-${category}`);
+    const sample = el("input", { class: "text-input focusable", type: "text", placeholder: "https://site.example/search?q=anything" });
+    const done = el("button", {
+      class: "btn primary focusable",
+      type: "button",
+      text: "Use this URL",
+      onclick: async () => {
+        const got = await post("/custom-sites/pattern", { sample: sample.value.trim(), title: "", url, category });
+        if (got?.sites) refreshCustomSites(got.sites);
+        setSiteNote(category, got?.ok ? got?.message || "The search pattern was saved." : got?.message || "That URL has no query parameters.", got?.ok === true);
+        render();
+      },
+    });
+    note?.after(el("div", { class: "source-form" }, sample, done));
+    return;
+  }
+  setSiteNote(category, res?.message || (res?.ok ? "Added." : "Could not add that site."), res?.ok === true);
+  render();
+}
+
+function refreshCustomSites(sites) {
+  // The stored notes and the repository list are kept: they are not part of the site
+  // list the server just answered with.
+  state.customSites = {
+    ...state.customSites,
+    categories: categoriesToState(sites),
+    repositories: state.customSites.repositories || [],
+  };
+  writeJSON(KEY.customSites, state.customSites);
+}
+
+/** The repository row's message, kept on the state for the same reason as a site's. */
+function setRepoNote(text, ok = false) {
+  const store = state.customSites || (state.customSites = { categories: [], repositories: [] });
+  store.repoNote = { text, ok };
+  writeJSON(KEY.customSites, store);
+  const node = document.querySelector("#repo-note");
+  if (node) {
+    node.className = `option-desc${ok ? " ok" : text ? " bad" : ""}`;
+    node.textContent = text;
+  }
+}
+
+async function addRepo(input) {
+  const url = input.value.trim();
+  if (!url) {
+    setRepoNote("Paste the repository's JSON URL first.");
+    return;
+  }
+  setRepoNote("Reading the repository…");
+  const res = await post("/custom-sites/repositories", { url });
+  if (res?.sites) refreshCustomSites(res.sites);
+  if (res?.repositories) {
+    state.customSites.repositories = res.repositories;
+    writeJSON(KEY.customSites, state.customSites);
+  }
+  setRepoNote(res?.message || (res?.ok ? "Added." : "Could not read that repository."), res?.ok === true);
+  render();
+}
+
+async function removeRepository(url) {
+  const res = await post("/custom-sites/repositories/remove", { url });
+  if (res?.sites) refreshCustomSites(res.sites);
+  if (res?.repositories) {
+    state.customSites.repositories = res.repositories;
+    writeJSON(KEY.customSites, state.customSites);
+  }
+  setRepoNote(res?.message || "The repository was removed.", res?.ok === true);
+  render();
+}
+
+/**
+ * Ask the server whether the OpenSubtitles setup actually works.
+ *
+ * The check is a **real search**, not a ping: a key that answers a ping and fails the
+ * search it exists for has told the user nothing.
+ */
+async function checkSubtitles() {
+  const os = state.subtitles?.opensubtitles;
+  if (!os) return;
+  os.status = { ok: false, text: "Checking…" };
+  writeJSON(KEY.subtitles, state.subtitles);
+  render();
+  try {
+    os.status = (await post("/subtitles/verify", { name: "opensubtitles" })) || { ok: false, text: "no response" };
+  } catch (err) {
+    os.status = { ok: false, text: `could not reach the server — ${err.message}` };
+  }
+  writeJSON(KEY.subtitles, state.subtitles);
+  render();
 }
 
 function aiAskRow() {
@@ -5039,7 +6016,9 @@ function sourceSection(title, hint, types, list) {
   return [
     el("p", { class: "option-desc", text: hint }),
     el("div", { class: "source-form" }, picker.node, urlInput, add),
-    list.length ? el("div", { class: "sources" }, ...list.map((s) => sourceRow(s, state.sources.indexOf(s)))) : el("p", { class: "option-desc", text: "None added yet." }),
+    list.length
+      ? el("div", { class: "sources" }, ...list.map((s, pos) => sourceRow(s, state.sources.indexOf(s), list, pos)))
+      : el("p", { class: "option-desc", text: "None added yet." }),
   ];
 }
 
@@ -5076,6 +6055,14 @@ async function inspectSource(index, { quiet = false } = {}) {
       post("/api/source", { type: source.type, url: source.url }),
       new Promise((_, reject) => setTimeout(() => reject(new Error("that source did not answer in time")), 20000)),
     ]);
+    if (res?.unreachable) {
+      // The app's own server did not answer. That is not the add-on's answer, and saying
+      // it was is what put "HTTP 503" on every source in the list at once.
+      source.status = { ok: false, text: `not read — the app's own server did not answer (${res.message})` };
+      saveSources();
+      if (!quiet) render();
+      return;
+    }
     source.providers = res.providers || [];
     // The same list, kept for the **Providers** button: a plugin's providers are its
     // scrapers, and an add-on's are its catalogs.
@@ -5145,7 +6132,57 @@ function sourceStatusText(source) {
   return `${providers.length} catalog${providers.length === 1 ? "" : "s"}${serves.length ? ` · ${serves.join(", ")}` : ""}`;
 }
 
-function sourceRow(source, index) {
+/**
+ * Move an add-on **up or down its own list**.
+ *
+ * This is not decoration: the order is the order the add-ons are **asked in** when you
+ * press Play, and what they answer is appended in that order, so the top row's streams
+ * are the first ones in the player's Sources drawer. The move is stored with the rest of
+ * the sources, on the server as well as in the page, so it is the order this device
+ * plays in.
+ */
+function moveSource(order, pos, delta) {
+  const to = pos + delta;
+  if (to < 0 || to >= order.length) return;
+  const moving = order[pos];
+  const target = order[to];
+  if (!moving || !target) return;
+  // **Found by what they are, not by which object they are.** Writing the order is a
+  // round trip, and the server's copy of the sources **replaces** this page's copy when
+  // the write comes back — so the rows on screen can hold older objects than the ones in
+  // `state.sources`, and an identity lookup then matches nothing and the arrow does
+  // nothing at all.
+  const key = (s) => `${s?.type || ""}|${s?.url || ""}`;
+  const i = state.sources.findIndex((s) => key(s) === key(moving));
+  const j = state.sources.findIndex((s) => key(s) === key(target));
+  if (i < 0 || j < 0 || i === j) return;
+  // Move the *stored* pair, so the copy that is written back is the one that is kept.
+  const held = state.sources[i];
+  state.sources[i] = state.sources[j];
+  state.sources[j] = held;
+  saveSources();
+  render();
+}
+
+/** The two arrows that set an add-on's position: first row cannot go up, last cannot go down. */
+function sourceMoveButtons(order, pos) {
+  const arrow = (delta, text, title) =>
+    el("button", {
+      class: "btn subtle focusable source-move",
+      type: "button",
+      text,
+      disabled: delta < 0 ? pos <= 0 : pos >= order.length - 1,
+      title,
+      "aria-label": title,
+      onclick: () => moveSource(order, pos, delta),
+    });
+  return [
+    arrow(-1, "\u2191", pos <= 0 ? "Already first in the order" : "Move up \u2014 ask this add-on earlier"),
+    arrow(1, "\u2193", pos >= order.length - 1 ? "Already last in the order" : "Move down \u2014 ask this add-on later"),
+  ];
+}
+
+function sourceRow(source, index, order = [], pos = 0) {
   const list = Array.isArray(source.allProviders) && source.allProviders.length ? source.allProviders : null;
   return el("div", { class: "source" },
     el("div", { class: "source-main" },
@@ -5167,6 +6204,9 @@ function sourceRow(source, index) {
         : null,
     ),
     el("div", { class: "source-actions" },
+      // **Position.** Two arrows instead of removing an add-on and adding it again to
+      // put it where you want it in the play order.
+      ...sourceMoveButtons(order, pos),
       el("button", {
         class: "btn subtle focusable",
         type: "button",
@@ -5197,71 +6237,13 @@ function sourceRow(source, index) {
  * Settings → Add-ons & plugins, one pane: both kinds of source, each with its own
  * form, so "where do I add a source?" has one answer.
  */
-/**
- * **Add an add-on by pasting a website address.**
- *
- * The same mechanism the list below uses — the URL is read on the server, its
- * `manifest.json` is fetched and the catalogs, streams and subtitles it declares are
- * listed — but the box takes a bare website address too, fills in `/manifest.json`
- * for you and reads it in the background, so adding an add-on never means knowing
- * which file to ask for. Nothing here scrapes a page: an add-on has to *publish* a
- * manifest, which is what makes this the same protocol Stremio itself speaks (for
- * example the public-domain film archives and the many lawful catalogue add-ons).
- */
-function websiteAddonBox() {
-  const input = el("input", {
-    class: "text-input focusable",
-    type: "text",
-    id: "addon-website-url",
-    placeholder: "https://example.com — or …/manifest.json",
-    autocomplete: "off",
-  });
-  const note = el("p", { class: "option-desc", text: "Paste a website address and this app reads its add-on manifest on the server, then lists what it serves. Once it is added, its streams are read when you press Play, and appear in the player's Sources drawer." });
-
-  const add = async () => {
-    let url = input.value.trim();
-    if (!url) return;
-    if (!/^https?:/i.test(url)) url = `https://${url}`;
-    // A bare site address becomes its manifest path; a full one is left alone.
-    if (!/manifest\.json$/i.test(url)) url = `${url.replace(/\/+$/, "")}/manifest.json`;
-    const source = { type: "stremio", url, status: { ok: false, text: "Reading the manifest…" } };
-    state.sources.unshift(source);
-    input.value = "";
-    saveSources();
-    render();
-    await inspectSource(0, { quiet: true });
-    render();
-  };
-
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
-
-  return el("div", { class: "provider" },
-    el("span", { class: "option-title", text: "Add an add-on from a website" }),
-    note,
-    el("div", { class: "source-form" }, input,
-      el("button", { class: "btn primary focusable", type: "button", text: "Add & read", onclick: add }),
-    ),
-  );
-}
-
 function paneAddonsPlugins() {
   const addons = state.sources.filter((s) => ADDON_TYPES.some(([t]) => t === s.type));
   // **Add-ons only.** The Nuvio plugin half of this pane is gone: a plugin is code
   // the Nuvio app runs itself, and the server-side runner for it was removed with it.
   return [
-    websiteAddonBox(),
-    ...sourceSection("Stremio add-ons", "A Stremio add-on URL is read on the server (manifest.json), so it works even when the host sends no CORS headers — its catalogs, metadata, streams and subtitles are listed as providers. A stream the add-on publishes as a torrent is played in the app, not left as a link.", ADDON_TYPES, addons),
+    ...sourceSection("Stremio add-ons", "A Stremio add-on URL is read on the server (manifest.json), so it works even when the host sends no CORS headers — its catalogs, metadata, streams and subtitles are listed as providers. A stream the add-on publishes as a torrent is played through your debrid account when one is set up in Settings → Debrid — a browser cannot join a public swarm on its own, so that account is what makes those streams play.", ADDON_TYPES, addons),
   ];
-}
-
-/**
- * Settings → Trackers & providers, one pane.
- *
- * The trackers come **first**, in their three groups, then the providers that supply
- * the content and the keys that make them work.
- */
-function paneTrackersProviders() {
-  return [...paneTracking(), el("div", { class: "h-divider tracking-divider", "aria-hidden": "true" }), ...paneProviders()];
 }
 
 function renderSettings() {
@@ -5274,11 +6256,15 @@ function renderSettings() {
     liverefresh: paneLiveRefresh,
     profile: paneProfile,
     posters: panePosters,
-    providers: paneTrackersProviders,
+    // Trackers and providers are their own panes now — the two halves of the old
+    // "Trackers & providers" tab, each under its own name.
+    tracking: paneTracking,
+    providers: paneProviders,
+    debrid: paneDebrid,
+    subtitles: paneSubtitles,
+    dns: paneDns,
+    customsites: paneCustomSites,
     ratings: paneRatings,
-    // The old tabs are kept as aliases so a section id remembered in localStorage
-    // still lands on the pane it named instead of falling back to the first one.
-    tracking: paneTrackersProviders,
     ai: paneAi,
     content: paneContent,
     addons: paneAddonsPlugins,
@@ -5503,6 +6489,7 @@ async function render() {
     main.classList.add("view-in");
   }
   renderTabs();
+  syncProfileMark();
   window.scrollTo({ top: restore });
 
   // Only Home has a banner: the ten-second rotation runs there, and any other screen
@@ -5634,7 +6621,9 @@ function setupInput() {
   document.addEventListener("keydown", (e) => {
     const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName ?? "");
     if (typing) return;
-    const list = [...document.querySelectorAll(".focusable")].filter((n) => n.offsetParent !== null);
+    // A **disabled** control is not somewhere the D-pad can land: focusing it does
+    // nothing, so the cursor would appear stuck on it.
+    const list = [...document.querySelectorAll(".focusable")].filter((n) => n.offsetParent !== null && !n.disabled);
     const cur = document.activeElement;
     let i = list.indexOf(cur);
 
@@ -7010,17 +7999,42 @@ let torrentClient = null;
 
 const IS_HLS = (url) => /\.m3u8(\?|#|$)/i.test(String(url || ""));
 
+/**
+ * The path a scraped stream is played through.
+ *
+ * A site that serves its file only to a request carrying `Referer` and its session cookie
+ * cannot be satisfied by a `<video>` element — a browser forbids script from setting
+ * `Referer`, and cannot attach another site's cookies. So the server fetches it instead
+ * (addon/proxy.mjs) and the browser points here. The manifest's own segment URLs are
+ * rewritten server-side to come back the same way.
+ */
+const proxyPath = (url, referer = "") =>
+  `/stream/proxy?url=${encodeURIComponent(String(url))}${referer ? `&ref=${encodeURIComponent(String(referer))}` : ""}`;
+
+/** A `blob:`/`data:` URL exists only inside the page that made it: nothing can play it. */
+const isUnplayableUrl = (url) => /^(?:blob|data|filesystem):/i.test(String(url || "").trim());
+
 /** The torrent engine, loaded once and kept. */
 function loadWebTorrent() {
   if (window.WebTorrent) return Promise.resolve(window.WebTorrent);
   if (!torrentLoader) {
-    torrentLoader = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "./vendor/webtorrent.min.js";
-      script.onload = () => (window.WebTorrent ? resolve(window.WebTorrent) : reject(new Error("WebTorrent did not load")));
-      script.onerror = () => reject(new Error("WebTorrent is not available"));
-      document.head.append(script);
-    });
+    // **The vendored build is an ES module, not a classic script.** It ends in
+    // `export { WebTorrent as default }` and never assigns a global, so loading it
+    // through a `<script>` tag resolved to `undefined` and every torrent failed with
+    // "WebTorrent did not load" — the engine was there the whole time, attached to
+    // nothing. A dynamic import is what actually hands back the constructor.
+    torrentLoader = import("./vendor/webtorrent.min.js")
+      .then((mod) => {
+        const WebTorrent = mod?.default || mod?.WebTorrent;
+        if (typeof WebTorrent !== "function") throw new Error("the module did not export WebTorrent");
+        window.WebTorrent = WebTorrent;
+        return WebTorrent;
+      })
+      .catch((err) => {
+        // A failed load must not be cached: the next Play deserves a fresh attempt.
+        torrentLoader = null;
+        throw new Error(`WebTorrent is not available — ${err?.message || err}`);
+      });
   }
   return torrentLoader;
 }
@@ -7042,14 +8056,64 @@ const fileForTorrent = (torrent, fileIdx) => {
 };
 
 /**
- * Play a torrent: the magnet goes to WebTorrent, the file it names is streamed into
- * the `<video>` element, and the swarm's own numbers ride in a note over the picture
- * while it fills in — a torrent that has found no peers must look different from one
- * that is playing, or the player just sits black.
+ * Play a torrent.
+ *
+ * **Debrid first, and that is not an optimisation — it is the difference between
+ * working and not.** The engine below runs *in the page*, and a page can only reach
+ * swarm peers that speak WebRTC; the public swarms speak TCP/UDP, so a magnet
+ * handed straight to it usually reports "looking for peers" forever and never
+ * shows a frame. A debrid account turns the torrent into a plain HTTPS URL, which is
+ * an ordinary stream to the `<video>` element.
+ *
+ * When a debrid service is set up the magnet goes there, and the app's own engine is
+ * the fallback if that service cannot serve this particular torrent. With no service
+ * configured the engine is still tried, and the note over the picture says plainly
+ * what is missing and where to add it — an unexplained black rectangle is the thing
+ * worth avoiding.
  */
 async function playTorrent(node, video, magnet, opts, seq) {
   const note = el("p", { class: "player-note player-torrent-note", text: "Starting the torrent…" });
-  node.append(note);
+  // A second line that is **not** touched by the swarm's own readout, so the reason
+  // a torrent is not playing cannot be overwritten by "looking for peers…" a second
+  // later.
+  const hint = el("p", { class: "player-note player-torrent-hint", hidden: true });
+  node.append(note, hint);
+  const say = (text) => { hint.textContent = text || ""; hint.hidden = !text; };
+
+  const service = debridActive();
+  if (service) {
+    note.textContent = `Resolving this torrent through ${service[1]}…`;
+    try {
+      const res = await post("/debrid/resolve", {
+        magnet,
+        infoHash: opts.infoHash || "",
+        // The add-on's own label for this stream ("S02E04 1080p") is what picks the
+        // right file out of a season pack.
+        name: opts.streamName || opts.title || "",
+      });
+      if (seq !== playerSeq) return;
+      if (res?.ok && res.url) {
+        note.textContent = `Playing through ${res.label || service[1]}${res.file ? ` — ${res.file}` : ""}`;
+        video.src = res.url;
+        await video.play().catch(() => { /* autoplay refused: the controls are there */ });
+        return;
+      }
+      // Still downloading on the service is not a failure: waiting is the answer,
+      // and the engine below would only add a swarm that never fills in.
+      if (res?.pending) {
+        note.textContent = "Not playing yet";
+        say(res.message || `${service[1]} is still fetching this torrent — try again shortly.`);
+        return;
+      }
+      say(`${res?.message || `${service[1]} could not resolve this torrent`} — falling back to the app's own torrent engine.`);
+    } catch (err) {
+      if (seq !== playerSeq) return;
+      say(`Could not ask ${service[1]} — ${err.message}. Falling back to the app's own torrent engine.`);
+    }
+  } else {
+    say("No debrid service is set up, so this torrent needs WebRTC peers — which most public torrents do not have. Add one in Settings → Debrid and press Play again.");
+  }
+
   try {
     const WebTorrent = await loadWebTorrent();
     if (seq !== playerSeq) return;
@@ -7062,9 +8126,14 @@ async function playTorrent(node, video, magnet, opts, seq) {
     torrent.on("error", (err) => { if (alive()) note.textContent = `Torrent error — ${err?.message || err}`; });
     const timer = setInterval(() => {
       if (!alive()) return clearInterval(timer);
-      note.textContent = torrent.numPeers
-        ? `${torrent.numPeers} peers · ${Math.round((torrent.progress || 0) * 100)}% · ${Math.round((torrent.downloadSpeed || 0) / 1e5) / 10} MB/s`
-        : "Looking for peers…";
+      if (torrent.numPeers) {
+        // Real peers are arriving: the explanation of *why it might not work* has
+        // done its job and would only sit over the picture.
+        say("");
+        note.textContent = `${torrent.numPeers} peers · ${Math.round((torrent.progress || 0) * 100)}% · ${Math.round((torrent.downloadSpeed || 0) / 1e5) / 10} MB/s`;
+      } else {
+        note.textContent = "Looking for peers…";
+      }
     }, 1000);
     let started = false;
     const start = () => {
@@ -7169,12 +8238,15 @@ const timecode = (seconds) => {
 /**
  * The player.
  *
- * **Always full screen** — the overlay is the window and the picture fills it, with a
- * compact control strip floating at the bottom (settings, sources, play/pause, a seek
- * bar, the time, volume, playback speed, aspect ratio and fullscreen) and, for a
- * title, a **Sources** drawer: every stream the add-ons you added answered with, one
- * click to play. There is no title bar over the picture. Keyboard: space/k play,
- * ←/→ seek 10s, ↑/↓ volume, m mute, Esc close.
+ * **Always full screen** — opening it asks the device for its own full screen, and
+ * the overlay fills the window whatever the answer is. A compact control strip floats
+ * at the bottom: the stream's own options on the left of a rule (settings, sources),
+ * the transport on the right (play/pause, seek, time, volume, speed, aspect ratio),
+ * and no fullscreen control, because pressing play already went full screen. For a
+ * title there is also a **Sources** drawer: every stream the add-ons answered with,
+ * one click to switch — and clicking one re-points the picture in place rather than
+ * opening a second player. There is no title bar over the picture. Keyboard: space/k
+ * play, ←/→ seek 10s, ↑/↓ volume, m mute, Esc close.
  */
 async function openPlayer(url, title, opts = {}) {
   const src = String(url || "").trim();
@@ -7232,37 +8304,213 @@ async function openPlayer(url, title, opts = {}) {
     if (d) video.currentTime = (Number(seek.value) / 1000) * d;
   });
 
-  // **Volume is the icon, not a slider.** A bar in the middle of a player this app
-  // draws was one control the platform still painted; the icon now takes the
-  // gesture the reference uses — left press steps it down, right press steps it up,
-  // holding either ramps it — and the figure sits right beside it.
-  const volNote = el("span", { class: "player-vol-note", text: "100%" });
+  // **One volume control, and no bar.** There were two buttons — a mute and a
+  // ramp — drawn with the same speaker, with a "100%" figure beside them: three
+  // things that together read as a volume slider this player does not have.
   const setVolume = (value) => {
     const next = Math.min(1, Math.max(0, Math.round(value * 100) / 100));
     video.volume = next;
     video.muted = next === 0;
-    volNote.textContent = `${Math.round(next * 100)}%`;
   };
-  const stepVolume = (delta) => setVolume((video.muted ? 0 : video.volume) + delta);
 
   // The speed ramp's readout, and the rate the speed button says is in force.
   const speedNote = el("span", { class: "player-speed-note", text: "" });
 
-  // The player is **always full screen**: the overlay covers the window, and it asks
-  // the browser for real fullscreen on the way in (it may refuse without a user
-  // gesture — the overlay still fills the screen either way). There is no fullscreen
-  // button, and no title sitting over the picture.
+  // Full screen is asked for once, below, in the same synchronous run as the click
+  // that opened this player — and there is no fullscreen button anywhere in the strip,
+  // because there is nothing left for one to do.
 
   // The Sources drawer: which add-on this stream came from, and the others on offer.
   const drawer = el("aside", { class: "player-sources", hidden: true });
+  // **The list the drawer is showing**, so switching a source can redraw it with the
+  // new one marked active without rebuilding anything.
+  let shown = Array.isArray(opts.streams) ? opts.streams.slice() : [];
+  // Which stream the picture is on right now — the drawer marks it, and a switch
+  // moves it.
+  let currentSource = src;
   // **Which add-ons answered.** The stream list says where each stream came from, but
   // not which add-on stayed quiet — so an add-on you just pasted could look absent
   // from the player while it was simply the one with nothing to say about this title
   // (or the one that timed out). One line per add-on, with what it returned.
   const addonLines = Array.isArray(opts.addonStatus) ? opts.addonStatus : [];
+
+  /**
+   * **Custom Sites: the streams from the sites you added.**
+   *
+   * There is no paste-a-URL box here any more. A site is added once in
+   * Settings → Custom Websites — with its search form detected from its homepage — and
+   * from then on pressing Play searches it for the title, reads the best-matching page,
+   * runs the scraper's tiers over it and adds what they found, tagged with the site's
+   * domain. Search-on-play either works or it says why, on one line per site.
+   *
+   * The rows are **kept for as long as the app is running** (a module-level map, not a
+   * file): closing the player and reopening it keeps them, and a restart clears them. A
+   * stream URL carries a token and expires within hours, so persisting one would only
+   * store a broken link.
+   */
+  const customKey = String(opts.meta?.id || opts.title || title || "unknown");
+  const customBox = () => (state.customStreams[customKey] ||= { streams: [], sites: [], at: 0 });
+  const customNote = el("p", { class: "drawer-extract-note" });
+  const customSummary = el("div", { class: "drawer-summary", hidden: true });
+  let customBusy = false;
+
+  const fileNameOf = (url) => {
+    try {
+      return decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() || "");
+    } catch {
+      return "";
+    }
+  };
+
+  /** One line per site, so a site that failed says why instead of adding nothing. */
+  const drawCustomSummary = () => {
+    const box = customBox();
+    const rows = box.streams || [];
+    if (!state.prefs?.sourcesSummary || (!rows.length && !box.sites?.length)) {
+      customSummary.hidden = true;
+      customSummary.replaceChildren();
+      return;
+    }
+    const failed = (box.sites || []).filter((x) => x.error);
+    customSummary.hidden = false;
+    customSummary.replaceChildren(
+      el("span", { class: "drawer-summary-line", text: `Custom Sites: ${rows.length} stream${rows.length === 1 ? "" : "s"}` }),
+      failed.length
+        ? el("span", { class: "drawer-summary-note", text: failed.map((x) => `${x.domain}: ${x.error}`).join(" · ") })
+        : null,
+      el("button", {
+        class: "btn subtle focusable",
+        type: "button",
+        text: "Clear",
+        onclick: () => {
+          state.customStreams[customKey] = { streams: [], sites: [], at: 0 };
+          drawSources(shown.filter((r) => !r.custom), currentSource);
+        },
+      }),
+    );
+  };
+
+  /** Ask the sites for this title. Runs once when the player opens. */
+  const runSearchOnPlay = async (intro = "") => {
+    if (customBusy || !state.prefs?.searchOnPlay) return;
+    const meta = opts.meta || {};
+    // Whatever happened just before — cookies saved for a site the user verified by hand —
+    // stays readable under the search's own line instead of being overwritten by it.
+    const lead = intro ? `${intro} ` : "";
+    customBusy = true;
+    customNote.className = "drawer-extract-note";
+    customNote.replaceChildren(el("span", { class: "drawer-spinner", "aria-hidden": "true" }), el("span", { text: " Searching your sites…" }));
+    try {
+      const res = await post("/custom-sites/streams.json", {
+        title: meta.name || opts.title || title || "",
+        year: meta.releaseInfo || "",
+        type: meta.type === "series" ? "series" : "movie",
+      });
+      // A dead app server answers with this envelope rather than throwing, and "HTTP 503"
+      // on its own does not say what failed.
+      if (res?.unreachable) throw new Error(res.message);
+      const box = customBox();
+      box.streams = (res?.streams || []).map((r) => ({ ...r, custom: true, name: r.title || r.name || "Stream" }));
+      box.sites = res?.sites || [];
+      box.at = Date.now();
+      customNote.className = `drawer-extract-note${box.streams.length ? " ok" : ""}`;
+      customNote.textContent = lead + (res?.message || (box.streams.length ? `Custom Sites: ${box.streams.length} streams.` : "Custom Sites: nothing found."));
+      const merged = [...shown.filter((r) => !r.custom), ...box.streams];
+      drawSources(merged, currentSource);
+    } catch (err) {
+      customNote.className = "drawer-extract-note bad";
+      customNote.textContent = `${lead}Custom Sites could not be searched — ${err.message}`;
+      drawSources(shown, currentSource);
+    } finally {
+      customBusy = false;
+      drawCustomSummary();
+    }
+  };
+
+  /**
+   * A site that answered with a bot check is asking for a person. The server opens a
+   * visible window on the machine that runs it; the user solves the challenge and presses
+   * Done, and the cookies it earned are kept for every later fetch of that domain.
+   */
+  const offerVerification = async (domain) => {
+    const res = await post("/scraper/verify", { url: `https://${domain}/` });
+    customNote.className = `drawer-extract-note${res?.ok ? " ok" : " bad"}`;
+    customNote.textContent = res?.message || "No answer.";
+    if (!res?.ok) return;
+    const done = el("button", {
+      class: "btn primary focusable",
+      type: "button",
+      text: "Done",
+      onclick: async () => {
+        const finished = await post("/scraper/verify/done", { sessionId: res.sessionId });
+        customNote.className = `drawer-extract-note${finished?.ok ? " ok" : " bad"}`;
+        customNote.textContent = finished?.message || "Cookies saved.";
+        // The cookies are the point: with them the site can be searched for real, so the
+        // search is run again straight away — and the line above is kept above its answer.
+        if (finished?.ok) runSearchOnPlay(finished.message || "Cookies saved.");
+      },
+    });
+    customNote.after(el("div", { class: "source-form" }, done));
+  };
+
+
+  /**
+   * One stream row.
+   *
+   * A **scraped** row is drawn as the three-line card a Stremio add-on produces — the
+   * identity, the name, the provenance — with the format as a chip. The domain appears
+   * once, on the first line: it used to be printed twice, which is noise. An add-on's own
+   * row keeps the one-line shape it always had.
+   */
+  const streamRow = (s, currentUrl) => {
+    const active = (s.torrent ? s.magnet : s.url) === currentUrl;
+    const classes = `stream focusable${active ? " active" : ""}${isExternalStream(s) ? " stream-external" : ""}${s.torrent ? " stream-torrent" : ""}${s.custom ? " stream-custom" : ""}`;
+    const click = async () => {
+      drawer.hidden = true;
+      if (isExternalStream(s)) {
+        window.open(s.url, "_blank", "noopener");
+        return;
+      }
+      await attach(s);
+      drawSources(shown, currentSource);
+    };
+    if (s.scraped || s.custom) {
+      const card = s.card || { line1: [s.domain, s.quality, s.format].filter(Boolean).join(" · "), line2: s.title || s.name || "Stream", line3: s.protocol || s.source || "" };
+      return el("button", { class: classes, type: "button", title: s.url, onclick: click },
+        el("span", { class: "stream-card" },
+          el("span", { class: "stream-line1", text: card.line1 || "stream" }),
+          el("span", { class: "stream-line2", text: card.line2 || s.title || "Stream" }),
+          el("span", { class: "stream-line3", text: card.line3 || "" }),
+        ),
+        el("span", { class: "stream-tag", text: s.tag || "direct" }),
+      );
+    }
+    return el("button", { class: classes, type: "button", onclick: click },
+      el("span", { class: "stream-name", text: s.name || s.source || "Stream" }),
+      el("span", { class: "stream-detail", text: [s.quality, s.source, s.title].filter(Boolean).join(" · ") }),
+      isExternalStream(s) ? el("span", { class: "stream-flag", text: "opens externally" }) : null,
+      s.torrent
+        ? el("span", {
+            class: "stream-flag",
+            text: `torrent · ${debridLabel() ? `via ${debridLabel()}` : s.seeders ? `${s.seeders} seeders` : "needs debrid"}`,
+          })
+        : null,
+    );
+  };
+
   const drawSources = (list, currentUrl) => {
+    if (Array.isArray(list)) shown = list;
+    const blocked = (customBox().sites || []).filter((x) => x.needsVerification);
     drawer.replaceChildren(
       el("h3", { class: "row-head", text: "Sources" }),
+      customSummary,
+      customNote,
+      blocked.length
+        ? el("div", { class: "source-form" },
+            el("span", { class: "option-desc", text: `${blocked[0].domain} wants manual verification.` }),
+            el("button", { class: "btn subtle focusable", type: "button", text: "Open a window", onclick: () => offerVerification(blocked[0].domain) }),
+          )
+        : null,
       addonLines.length
         ? el("div", { class: "drawer-addons" }, ...addonLines.map((s) =>
             el("p", {
@@ -7272,35 +8520,17 @@ async function openPlayer(url, title, opts = {}) {
             })))
         : null,
       list && list.length
-        ? el("div", { class: "stream-list" }, ...list.map((s) =>
-            el("button", {
-              class: `stream focusable${(s.torrent ? s.magnet : s.url) === currentUrl ? " active" : ""}${isExternalStream(s) ? " stream-external" : ""}${s.torrent ? " stream-torrent" : ""}`,
-              type: "button",
-              onclick: async () => {
-                drawer.hidden = true;
-                // An external stream is a page, not a video: it opens in the
-                // browser instead of being handed to the player's `<video>`.
-                if (isExternalStream(s)) {
-                  window.open(s.url, "_blank", "noopener");
-                  return;
-                }
-                // A torrent stream has no address of its own: its magnet is what the
-                // player opens, and `torrent` is what tells it to build the picture
-                // from the swarm instead of pointing the element at a file.
-                const target = s.torrent ? s.magnet : s.url;
-                await openPlayer(target, opts.title || title, { ...opts, current: target, torrent: Boolean(s.torrent), fileIdx: s.fileIdx });
-              },
-            },
-              el("span", { class: "stream-name", text: s.name || s.source || "Stream" }),
-              el("span", { class: "stream-detail", text: [s.quality, s.source, s.title].filter(Boolean).join(" · ") }),
-              isExternalStream(s) ? el("span", { class: "stream-flag", text: "opens externally" }) : null,
-              s.torrent ? el("span", { class: "stream-flag", text: s.seeders ? `torrent · ${s.seeders} seeders` : "torrent" }) : null,
-            )
-          ))
+        ? el("div", { class: "stream-list" }, ...list.map((s) => streamRow(s, currentUrl)))
         : el("p", { class: "empty", text: "No streams returned. Add or fix an add-on in Settings → Add-ons & plugins, then press Sources again." }),
     );
   };
-  drawSources(opts.streams || [], src);
+  // The rows already extracted for this title are re-seated: they survive closing the
+  // player, and are gone on a restart, which is the lifetime a stream URL deserves.
+  drawSources([...shown.filter((r) => !r.custom), ...(customBox().streams || [])], currentSource);
+  drawCustomSummary();
+  // **Search-on-play.** The sites are asked once, in the background, so the picture is
+  // playing while the drawer fills in.
+  Promise.resolve().then(runSearchOnPlay);
   // **More sources, on the way.** A channel starts playing on the lineup's own URL and
   // the add-ons are asked after that, so a tap is instant and the drawer fills in when
   // they answer — the alternative was holding the whole channel behind a scraping
@@ -7311,8 +8541,8 @@ async function openPlayer(url, title, opts = {}) {
       .then((more) => {
         const extra = more?.streams || [];
         if (more?.sources) addonLines.push(...more.sources);
-        const list = [...(opts.streams || []), ...extra];
-        if (list.length) drawSources(list, src);
+        const list = [...shown, ...extra];
+        if (list.length) drawSources(list, currentSource);
       })
       .catch(() => {
         /* the drawer simply keeps what it had */
@@ -7396,11 +8626,21 @@ async function openPlayer(url, title, opts = {}) {
   const isRampingFwd = holdable(fwdBtn, 0.25, speedRamp, speedRelease);
   fwdBtn.addEventListener("click", () => { if (!isRampingFwd()) video.currentTime = (video.currentTime || 0) + 10; });
 
-  // Volume: left press steps down, right press steps up, holding either ramps.
-  const volBtn = el("button", { class: "player-icon focusable", type: "button", title: "Volume — left click lowers, right click raises, hold to ramp", id: "player-volume" },
+  // Volume: the one icon. Left click mutes, right click and the wheel step it, and
+  // the mark dims while the picture is silent — so the state is readable without a
+  // figure sitting next to it.
+  const volBtn = el("button", { class: "player-icon focusable", type: "button", title: "Mute", id: "player-volume" },
     playerGlyph([svgNode("path", { d: "M4 9.5h3.3L11 6.6v10.8L7.3 14.5H4z" }), svgNode("path", { d: "M14.8 9.6a3.6 3.6 0 0 1 0 4.8" }), svgNode("path", { d: "M17.3 7.4a7 7 0 0 1 0 9.2" })]));
-  volBtn.addEventListener("contextmenu", (e) => e.preventDefault());
-  holdable(volBtn, -0.01, (dir) => stepVolume(dir), null);
+  const syncVolume = () => {
+    const silent = video.muted || video.volume === 0;
+    volBtn.classList.toggle("muted", silent);
+    volBtn.title = silent ? "Unmute" : "Mute";
+  };
+  volBtn.addEventListener("click", () => { video.muted = !video.muted; syncVolume(); });
+  volBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); setVolume((video.muted ? 0 : video.volume) + 0.05); syncVolume(); });
+  volBtn.addEventListener("wheel", (e) => { e.preventDefault(); setVolume((video.muted ? 0 : video.volume) + (e.deltaY < 0 ? 0.05 : -0.05)); syncVolume(); }, { passive: false });
+  video.addEventListener("volumechange", syncVolume);
+  syncVolume();
 
   // **The aspect-ratio mark replaces Picture-in-picture.** It cycles how the picture
   // fills its stage: fit, fill, then two fixed shapes.
@@ -7423,37 +8663,268 @@ async function openPlayer(url, title, opts = {}) {
     aspect.title = `Aspect ratio: ${label}`;
   });
 
-  // **Audio and subtitle tracks live behind a gear, left of Sources.** The tracks
-  // are the `<video>` element's own, so the list is whatever the stream carries.
+  // **Audio and subtitle tracks live behind a gear, left of Sources.**
+  //
+  // The list is the stream's *real* tracks, gathered from both places they can live:
+  // an HLS manifest's own track lists — which is where a multi-language IPTV channel
+  // keeps its audios — and the element's native `audioTracks`/`textTracks`, which is
+  // what a progressive file (or Safari) exposes. Reading only `video.textTracks` is
+  // why this panel looked permanently empty: an hls.js stream keeps its tracks on the
+  // Hls instance, not on the `<video>` element at all.
   const gearPanel = el("aside", { class: "player-settings-menu", hidden: true });
+  const trackLabel = (t, i) => `${t.name || t.label || t.lang || t.language || `Track ${i + 1}`}${t.forced ? " (forced)" : ""}`;
+
+  /**
+   * **The subtitle services: the subtitles this stream does not carry.**
+   *
+   * The list below is what the manifest and the element *have*; this is where one
+   * comes from when they have nothing. Every service enabled in Settings → Subtitles is
+   * searched at once for the title you are watching — an episode is the show's IMDb id
+   * plus its season and episode, which is the shape the catalogues index — and the pick
+   * is fetched as **WebVTT from this app's own server**, so the `<track>` element reads
+   * it with no CORS in the way and can seek inside it. The service a result came from
+   * leads its row.
+   *
+   * Nothing is searched until the panel is opened: a subtitle lookup for every stream
+   * you start would spend the quota on titles you never asked about — which, with
+   * several keys in play, is several quotas.
+   */
+  const OS_TRACK_ID = "opensubtitles-track";
+  const osState = { loading: false, note: "", error: "", results: [], active: null, busy: null };
+  const osList = el("div", { class: "stream-list" });
+  let osBlob = "";
+
+  const osReady = () => Boolean(state.subtitles?.ready) || subtitleActive().length > 0;
+
+  const osQuery = () => {
+    const meta = opts.meta || {};
+    const params = new URLSearchParams();
+    if (meta.id) params.set("id", String(meta.id).replace(/^tmdb:/, ""));
+    params.set("type", meta.type === "series" ? "series" : "movie");
+    if (meta.season && meta.episode) {
+      params.set("season", meta.season);
+      params.set("episode", meta.episode);
+    }
+    // A live channel has no id to look up, so the name is the only handle there is.
+    params.set("name", String(meta.name || opts.title || title || ""));
+    if (state.subtitles?.language) params.set("lang", state.subtitles.language);
+    return params.toString();
+  };
+
+  /** The service each result can come from — shown on the row, and in the track's label. */
+  const OS_PROVIDER_LABELS = { opensubtitles: "OpenSubtitles", subdl: "SubDL", subsource: "SubSource", wyzie: "Wyzie" };
+  /** A result's identity across services: two services can each hand out id 5. */
+  const osKey = (r) => `${r.provider || "opensubtitles"}:${r.id}`;
+  const osLabel = (r) => {
+    // The service leads the row: with several enabled, "which catalogue is this from" is
+    // the first thing the eye needs.
+    const bits = [
+      OS_PROVIDER_LABELS[r.provider || "opensubtitles"] || r.provider || "Subtitle",
+      String(r.language || "").toUpperCase(),
+      r.release || "Subtitle",
+    ];
+    if (r.hearingImpaired) bits.push("HI");
+    if (r.automatic) bits.push("auto-translated");
+    if (r.downloads) bits.push(`${Number(r.downloads).toLocaleString()}↓`);
+    return bits.join(" · ");
+  };
+
+  const drawOpenSubtitles = () => {
+    const list = [];
+    if (!osReady()) {
+      list.push(el("p", { class: "empty", text: "Subtitles are not set up — add a key for a service in Settings → Subtitles and this stream gets whatever language it does not carry." }));
+      osList.replaceChildren(...list);
+      return;
+    }
+    // "Off" leads the list, exactly as the stream's own subtitle list is written.
+    list.push(el("button", {
+      class: `stream focusable${osState.active ? "" : " active"}`,
+      type: "button",
+      text: "Off",
+      onclick: () => osOff(),
+    }));
+    if (osState.loading) {
+      list.push(el("p", { class: "empty", text: osState.note || "Searching for subtitles…" }));
+    } else {
+      if (osState.error) list.push(el("p", { class: "empty", text: osState.error }));
+      else if (!osState.results.length) list.push(el("p", { class: "empty", text: osState.note || "None of the services has a subtitle for this title." }));
+      for (const r of osState.results) {
+        list.push(el("button", {
+          class: `stream focusable${osState.active === osKey(r) ? " active" : ""}`,
+          type: "button",
+          // "fetching…" is the feedback for the second or two between the pick and the
+          // picture having subtitles; without it the panel looks like the click missed.
+          text: osState.busy === osKey(r) ? `${osLabel(r)} — fetching…` : osLabel(r),
+          onclick: () => osPick(r),
+        }));
+      }
+      list.push(el("button", {
+        class: "btn subtle focusable",
+        type: "button",
+        text: osState.results.length ? "Search again" : "Search for subtitles",
+        onclick: () => osSearch(true),
+      }));
+    }
+    osList.replaceChildren(...list);
+  };
+
+  /** Take the fetched subtitle off the picture. */
+  const osOff = () => {
+    for (const t of Array.from(video.textTracks || [])) {
+      if (t.id === OS_TRACK_ID) t.mode = "disabled";
+    }
+    for (const node of Array.from(video.querySelectorAll(`#${OS_TRACK_ID}`))) node.remove();
+    if (osBlob) {
+      URL.revokeObjectURL(osBlob);
+      osBlob = "";
+    }
+    osState.active = null;
+    drawOpenSubtitles();
+  };
+
+  /**
+   * Attach one fetched subtitle to the picture.
+   *
+   * **One at a time.** Picking a second one replaces the first rather than stacking two
+   * lines of dialogue, and the manifest's own subtitle display is switched off — a
+   * stream that carries its own English subtitles would otherwise draw both.
+   */
+  const osAttach = (vtt, result) => {
+    osOff();
+    const track = el("track", {
+      id: OS_TRACK_ID,
+      kind: "subtitles",
+      label: `${OS_PROVIDER_LABELS[result.provider || "opensubtitles"] || "Subtitle"} · ${String(result.language || "").toUpperCase()}`,
+      srclang: result.language || "en",
+    });
+    osBlob = URL.createObjectURL(new Blob([vtt], { type: "text/vtt;charset=utf-8" }));
+    track.setAttribute("src", osBlob);
+    track.addEventListener("load", () => {
+      if (track.track) track.track.mode = "showing";
+    });
+    video.append(track);
+    if (track.track) track.track.mode = "showing";
+    if (playerHls) {
+      try { playerHls.subtitleDisplay = false; } catch { /* not loaded yet */ }
+    }
+    osState.active = osKey(result);
+  };
+
+  const osPick = async (result) => {
+    const key = osKey(result);
+    osState.busy = key;
+    osState.error = "";
+    drawOpenSubtitles();
+    try {
+      // The **service** is part of the path: the same subtitle id exists in several
+      // catalogues, so the server has to be told which one to fetch from.
+      const provider = encodeURIComponent(result.provider || "opensubtitles");
+      const vtt = await getText(`/subtitles/${provider}/${encodeURIComponent(result.id)}.vtt`);
+      osAttach(vtt, result);
+    } catch (err) {
+      osState.error = `Could not load that subtitle — ${err.message}`;
+    } finally {
+      osState.busy = null;
+      drawOpenSubtitles();
+    }
+  };
+
+  const osSearch = async (force = false) => {
+    if (!osReady()) return;
+    osState.loading = true;
+    osState.error = "";
+    osState.results = [];
+    osState.note = "Searching for subtitles…";
+    drawOpenSubtitles();
+    try {
+      const res = await get(`/subtitles/search.json?${osQuery()}${force ? `&_=${Date.now()}` : ""}`);
+      if (!res?.ok) osState.error = res?.message || "No subtitle service answered.";
+      else {
+        osState.results = res.results || [];
+        osState.note = res.message || "";
+      }
+    } catch (err) {
+      osState.error = `Could not search for subtitles — ${err.message}`;
+    } finally {
+      osState.loading = false;
+      drawOpenSubtitles();
+    }
+  };
+
   const drawTracks = () => {
-    const tracks = Array.from(video.textTracks || []).filter((t) => t.kind === "subtitles" || t.kind === "captions");
-    const audio = Array.from(video.audioTracks || []);
+    const hlsAudio = Array.from(playerHls?.audioTracks || []);
+    const hlsSubs = Array.from(playerHls?.subtitleTracks || []);
+    const nativeAudio = Array.from(video.audioTracks || []);
+    // The OpenSubtitles track is a `<track>` element too, but it is listed in its own
+    // section below — showing it twice would make the panel look like it had found
+    // the same subtitle in two places.
+    const nativeSubs = Array.from(video.textTracks || []).filter(
+      (t) => (t.kind === "subtitles" || t.kind === "captions") && t.id !== OS_TRACK_ID,
+    );
+
+    // Subtitles: HLS tracks when the manifest declares them, the element's own
+    // otherwise. Only one of the two can be in force, so they are one list.
+    const subs = [];
+    if (hlsSubs.length) {
+      const active = Number(playerHls.subtitleTrack);
+      subs.push(el("button", {
+        class: `stream focusable${active < 0 ? " active" : ""}`, type: "button", text: "Off",
+        onclick: () => { playerHls.subtitleDisplay = false; playerHls.subtitleTrack = -1; gearPanel.hidden = true; },
+      }));
+      hlsSubs.forEach((t, i) => subs.push(el("button", {
+        class: `stream focusable${active === i ? " active" : ""}`, type: "button", text: trackLabel(t, i),
+        onclick: () => { playerHls.subtitleDisplay = true; playerHls.subtitleTrack = i; gearPanel.hidden = true; },
+      })));
+    } else if (nativeSubs.length) {
+      subs.push(el("button", {
+        class: `stream focusable${nativeSubs.every((t) => t.mode !== "showing") ? " active" : ""}`, type: "button", text: "Off",
+        onclick: () => { for (const t of nativeSubs) t.mode = "disabled"; gearPanel.hidden = true; },
+      }));
+      nativeSubs.forEach((t, i) => subs.push(el("button", {
+        class: `stream focusable${t.mode === "showing" ? " active" : ""}`, type: "button", text: trackLabel(t, i),
+        onclick: () => { for (const x of nativeSubs) x.mode = "disabled"; t.mode = "showing"; gearPanel.hidden = true; },
+      })));
+    }
+
+    // Audio: a chooser only when there is a choice to make. With one track the panel
+    // says which one it is instead of offering a button that changes nothing — and
+    // when the browser exposes none, it says that too, because "Default" on its own
+    // is the answer that made this screen look broken.
+    const audios = [];
+    if (hlsAudio.length > 1) {
+      const active = Number(playerHls.audioTrack);
+      hlsAudio.forEach((t, i) => audios.push(el("button", {
+        class: `stream focusable${active === i ? " active" : ""}`, type: "button", text: trackLabel(t, i),
+        onclick: () => { playerHls.audioTrack = i; gearPanel.hidden = true; },
+      })));
+    } else if (nativeAudio.length > 1) {
+      nativeAudio.forEach((a, i) => audios.push(el("button", {
+        class: `stream focusable${a.enabled ? " active" : ""}`, type: "button", text: trackLabel(a, i),
+        onclick: () => { for (const x of nativeAudio) x.enabled = false; a.enabled = true; gearPanel.hidden = true; },
+      })));
+    }
+    const only = hlsAudio[0] || nativeAudio[0];
+    const audioNote = only
+      ? `${trackLabel(only, 0)} — the stream's only audio track.`
+      : "This stream declares one audio track, and the browser does not list it — so there is nothing here to choose between.";
+
     gearPanel.replaceChildren(
       el("h3", { class: "row-head", text: "Subtitles" }),
       el("div", { class: "stream-list" },
-        el("button", { class: "stream focusable", type: "button", text: "Off", onclick: () => { for (const t of tracks) t.mode = "disabled"; gearPanel.hidden = true; } }),
-        ...(tracks.length
-          ? tracks.map((t, i) => el("button", {
-              class: `stream focusable${t.mode === "showing" ? " active" : ""}`,
-              type: "button",
-              text: t.label || t.language || `Track ${i + 1}`,
-              onclick: () => { for (const x of tracks) x.mode = "disabled"; t.mode = "showing"; gearPanel.hidden = true; },
-            }))
-          : [el("p", { class: "empty", text: "This stream carries no subtitles." })]),
+        ...(subs.length ? subs : [el("p", { class: "empty", text: "This stream carries no subtitles." })]),
       ),
       el("h3", { class: "row-head", text: "Audio" }),
       el("div", { class: "stream-list" },
-        ...(audio.length
-          ? audio.map((a, i) => el("button", {
-              class: `stream focusable${a.enabled ? " active" : ""}`,
-              type: "button",
-              text: a.label || a.language || `Track ${i + 1}`,
-              onclick: () => { for (const x of audio) x.enabled = false; a.enabled = true; gearPanel.hidden = true; },
-            }))
-          : [el("button", { class: "stream focusable active", type: "button", text: "Default", onclick: () => { gearPanel.hidden = true; } })]),
+        ...(audios.length ? audios : [el("p", { class: "empty", text: audioNote })]),
       ),
+      el("h3", { class: "row-head", text: "Subtitle services" }),
+      el("p", {
+        class: "option-desc",
+        text: "A subtitle this stream does not carry, fetched from the services set up in Settings → Subtitles for the title — and the episode — you are watching.",
+      }),
+      osList,
     );
+    drawOpenSubtitles();
   };
 
   // A finished episode is followed by the season it belongs to: the row is drawn
@@ -7500,7 +8971,14 @@ async function openPlayer(url, title, opts = {}) {
           // to them.
           el("button", {
             class: "player-icon focusable", type: "button", id: "player-settings", title: "Audio & subtitles",
-            onclick: () => { const opening = gearPanel.hidden; drawTracks(); gearPanel.hidden = !opening; },
+            onclick: () => {
+              const opening = gearPanel.hidden;
+              drawTracks();
+              gearPanel.hidden = !opening;
+              // The lookup is a live API call with a daily quota, so it happens when the
+              // panel is opened for the first time — not for every stream that starts.
+              if (opening && osReady() && !osState.loading && !osState.results.length && !osState.active && !osState.error) osSearch();
+            },
           }, playerGlyph([svgNode("circle", { cx: "12", cy: "12", r: "3.2" }), svgNode("path", { d: "M12 3.4v2.2M12 18.4v2.2M20.6 12h-2.2M5.6 12H3.4M18.1 5.9l-1.6 1.6M7.5 16.5l-1.6 1.6M18.1 18.1l-1.6-1.6M7.5 7.5L5.9 5.9" })])),
           opts.streams?.length
             ? el("button", {
@@ -7508,6 +8986,10 @@ async function openPlayer(url, title, opts = {}) {
                 onclick: () => { drawer.hidden = !drawer.hidden; },
               }, playerGlyph([svgNode("path", { d: "M3.5 7.5a2 2 0 0 1 2-2h3.3l1.8 2h6.9a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" })]))
             : null,
+          // **The rule that splits the bar.** Options on the left (what this stream
+          // is), transport on the right of the line (what the picture is doing) —
+          // without it the two groups read as one long row of unrelated buttons.
+          opts.streams?.length ? el("span", { class: "player-rule", "aria-hidden": "true" }) : null,
           backBtn,
           playBtn,
           fwdBtn,
@@ -7517,66 +8999,142 @@ async function openPlayer(url, title, opts = {}) {
         ),
         el("div", { class: "player-group end" },
           total,
-          el("button", { class: "player-icon focusable", type: "button", title: "Mute", onclick: () => { video.muted = !video.muted; volNote.textContent = video.muted ? "0%" : `${Math.round(video.volume * 100)}%`; } },
-            playerGlyph([svgNode("path", { d: "M4 9.5h3.3L11 6.6v10.8L7.3 14.5H4z" }), svgNode("path", { d: "M14.8 9.6a3.6 3.6 0 0 1 0 4.8" }), svgNode("path", { d: "M17.3 7.4a7 7 0 0 1 0 9.2" })])),
           volBtn,
-          volNote,
           rate,
           aspect,
-          el("button", {
-            class: "player-icon focusable", type: "button", id: "player-full", title: "Full screen",
-            onclick: () => {
-              // **Real fullscreen.** The overlay fills the window either way; this
-              // asks the browser for the device's own full screen so the picture
-              // reaches the panel edges, and leaves it the same way.
-              if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
-              else node.requestFullscreen?.().catch(() => {});
-            },
-          }, playerGlyph([svgNode("path", { d: "M4 9V5h4" }), svgNode("path", { d: "M20 9V5h-4" }), svgNode("path", { d: "M4 15v4h4" }), svgNode("path", { d: "M20 15v4h-4" })])),
+          // **No fullscreen button:** pressing Play already opened the picture in
+          // full screen, so a control to enter it would be a button that does nothing
+          // the moment you would use it. Escape and the close mark both leave.
           el("button", { class: "player-icon focusable", type: "button", title: "Close player", onclick: stopPlayer },
             playerGlyph([svgNode("path", { d: "M6.5 6.5l11 11" }), svgNode("path", { d: "M17.5 6.5l-11 11" })])),
         ),
       ),
     ),
   );
+  // The failure line is **one element**, not one per attempt: switching sources
+  // several times must not stack four copies of the same complaint.
+  const errorNote = el("p", { class: "player-error", hidden: true });
+  node.append(errorNote);
+  const sayError = (text) => { errorNote.textContent = text || ""; errorNote.hidden = !text; };
+
   document.body.append(node);
   playerNode = node;
   document.addEventListener("keydown", playerKey);
-  // The overlay is **always full screen**: it covers the window, and the fullscreen
-  // control above is what asks the device for its own full screen.
   node.focus?.();
-  try {
-    const native = video.canPlayType("application/vnd.apple.mpegurl");
+  // **Play means full screen.** The device's own full screen used to be one more
+  // button to find after pressing play. It is asked for here, and **synchronously**:
+  // a fullscreen request is only honoured while the click that caused it is still on
+  // the stack, and the first `await` below would spend it. The overlay fills the
+  // window either way, so a refusal costs nothing.
+  if (opts.fullscreen !== false) node.requestFullscreen?.().catch(() => { /* the overlay still fills the window */ });
+
+  const native = video.canPlayType("application/vnd.apple.mpegurl");
+
+  /** Take down the current picture: the swarm, the manifest, and the element's source. */
+  const clearPicture = () => {
+    stopTorrent();
+    if (playerHls) {
+      try { playerHls.destroy(); } catch { /* already gone */ }
+      playerHls = null;
+    }
+    video.pause();
+    video.removeAttribute("src");
+    // The torrent notes belong to the source being left behind.
+    for (const stale of Array.from(node.querySelectorAll(".player-torrent-note, .player-torrent-hint"))) stale.remove();
+    sayError("");
+    seek.value = "0";
+    clock.textContent = "0:00";
+    total.textContent = "0:00";
+  };
+
+  /**
+   * **The one place a source becomes a picture.**
+   *
+   * The stream the player opened with and a source picked in the Sources drawer both
+   * come through here, which is what makes switching instant: the picture is
+   * re-pointed in place. Clicking a source used to call `openPlayer` again — tearing
+   * the overlay down, re-asking every add-on through `loadStreams`, and asking for
+   * fullscreen a second time — so a different source took seconds to appear on the
+   * thing you were already watching.
+   *
+   * `seq` supersedes: a slow resolve or a slow manifest from a source you left must
+   * not paint over the one you picked afterwards.
+   */
+  const attach = async (source) => {
+    const s = typeof source === "string" ? { url: source } : source || {};
+    const target = s.torrent ? s.magnet : s.url;
+    if (!target) return;
     const seq = (playerSeq += 1);
-    // **A torrent is not a URL.** `src` here is the magnet, and the picture comes
-    // from the swarm — the element is handed the file, not the address.
-    if (opts.torrent) {
-      await playTorrent(node, video, src, opts, seq);
+    currentSource = target;
+    clearPicture();
+    // **The extracted URL, on the record.** When a stream will not play, the first
+    // question is always *what was actually handed to the element* — and that answer
+    // has to be visible without a debugger.
+    console.log("[player] playing", target, s.scraped || s.custom ? `(scraped${s.source ? ` by ${s.source}` : ""})` : "");
+    // **A `blob:` / `data:` URL is a page-local object.** It exists only inside the tab
+    // that created it and no other element, process or fetch can reach it, so it is
+    // called out instead of being set on the element for a black frame.
+    if (!s.torrent && isUnplayableUrl(target)) {
+      sayError(`This stream is a ${String(target).split(":")[0]}: URL — a page-local object that no player can open. Pick another source.`);
       return;
     }
-    if (IS_HLS(src) && !native) {
-      const Hls = await loadHls();
-      // A newer player was opened while the hls.js loader was on its way: this one is
-      // stale, and attaching it would point the new element at the old stream.
-      if (seq !== playerSeq) return;
-      if (Hls.isSupported()) {
-        playerHls = new Hls({ lowLatencyMode: true });
-        playerHls.loadSource(src);
-        playerHls.attachMedia(video);
-      } else {
-        // No MSE either: the browser's own HLS is the only thing left to try.
-        video.src = src;
-      }
-    } else {
-      video.src = src;
+    // **A scraped file is played through the server.** A site that serves only to a
+    // request carrying its own `Referer` and its session cookie cannot be satisfied by a
+    // `<video>` element; the proxy adds both and rewrites an HLS manifest's segments to
+    // come back the same way. Anything the extractor produced takes this path.
+    const needsProxy = !s.torrent && (s.scraped || s.custom || s.referer);
+    const playUrl = needsProxy ? proxyPath(target, s.referer || s.page || "") : target;
+    const hlsTarget = IS_HLS(target);
+    if (needsProxy) console.log("[player] via proxy", playUrl);
+    // **A torrent is not a URL.** The picture comes from the swarm — or from a
+    // debrid account's direct link — so the element is handed a file, not an address.
+    if (s.torrent) {
+      await playTorrent(node, video, target, {
+        fileIdx: s.fileIdx,
+        infoHash: s.infoHash || "",
+        streamName: s.title || s.name || "",
+        title,
+      }, seq);
+      return;
     }
-    if (seq !== playerSeq) return;
-    await video.play().catch(() => {
-      /* autoplay refused: the controls are right there */
-    });
-  } catch (err) {
-    node.append(el("p", { class: "player-error", text: `Could not play this stream — ${err.message}` }));
-  }
+    try {
+      if (hlsTarget && !native) {
+        const Hls = await loadHls();
+        if (seq !== playerSeq) return;
+        if (Hls.isSupported()) {
+          playerHls = new Hls({ lowLatencyMode: true });
+          // **The Audio & subtitles panel reads this instance.** A manifest's tracks
+          // are parsed after `loadSource`, so the panel is redrawn as they arrive —
+          // otherwise it is filled from a list that did not exist yet, which is what
+          // made it look permanently empty.
+          const redrawTracks = () => { if (!gearPanel.hidden) drawTracks(); };
+          for (const event of [Hls.Events.MANIFEST_PARSED, Hls.Events.AUDIO_TRACKS_UPDATED, Hls.Events.SUBTITLE_TRACKS_UPDATED]) {
+            if (event) playerHls.on(event, redrawTracks);
+          }
+          playerHls.loadSource(playUrl);
+          playerHls.attachMedia(video);
+        } else {
+          // No MSE either: the browser's own HLS is the only thing left to try.
+          video.src = playUrl;
+        }
+      } else {
+        // **`.mp4` (and everything not a playlist) goes to the element directly** — the
+        // element is the standard player, and it seeks without an engine.
+        video.src = playUrl;
+      }
+      if (seq !== playerSeq) return;
+      await video.play().catch(() => {
+        /* autoplay refused: the controls are right there */
+      });
+    } catch (err) {
+      if (seq !== playerSeq) return;
+      sayError(`Could not play this stream — ${err.message}`);
+    }
+  };
+
+  await attach(opts.torrent
+    ? { torrent: true, magnet: src, fileIdx: opts.fileIdx, infoHash: opts.infoHash, title: opts.streamName }
+    : { url: src });
 }
 
 /**

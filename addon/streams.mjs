@@ -74,7 +74,32 @@ export const listSources = () => (Array.isArray(getSettings().sources) ? getSett
 function pluginNote(source, status) {
   const scrapers = Array.isArray(source.scrapers) ? source.scrapers.length : 0;
   if (scrapers) return `${scrapers} scrapers — run on the server, not at a stream URL`;
+  // **A 5xx is the add-on's own host failing, not a bad request from here.** It is the
+  // one case worth naming, because a bare "HTTP 502" in the Sources drawer reads like
+  // this app broke — and the reader needs to know it is the add-on's side, not theirs.
+  if (status >= 500) return `HTTP ${status} — the add-on's own server is failing`;
   return `HTTP ${status}`;
+}
+
+/**
+ * **A 5xx from an add-on is usually transient.**
+ *
+ * A Cloudflare-fronted add-on answers `502` while its origin restarts and works again
+ * on the very next request — and this is the one case where the user is looking at an
+ * empty Sources list, so a single retry after a short pause is worth far more than it
+ * costs. Only 5xx is retried: a 404 is an answer (an add-on with no `/stream` endpoint
+ * means exactly that), and retrying it would only double every legitimate miss.
+ */
+const TRANSIENT_STATUS = new Set([502, 503, 504]);
+const ADDON_HEADERS = { accept: "application/json", "user-agent": "NuvioCollections/1.0" };
+
+async function addonFetch(url, ms, { retry = true } = {}) {
+  const send = () => fetch(url, { headers: ADDON_HEADERS, signal: AbortSignal.timeout(ms) });
+  const res = await send();
+  if (res.ok || !retry || !TRANSIENT_STATUS.has(res.status)) return res;
+  // Let the origin come back before asking again.
+  await new Promise((r) => setTimeout(r, 700));
+  return send();
 }
 
 /** Add-ons that can answer a stream request at their own `/stream/…` endpoint. */
@@ -213,10 +238,7 @@ export async function streamsFor(type, tmdbId, { name = "", force = false, seaso
 
   const askAddon = async (source, idPart) => {
     const url = streamUrl(source.url, media, idPart);
-    const res = await fetch(url, {
-      headers: { accept: "application/json", "user-agent": "NuvioCollections/1.0" },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    const res = await addonFetch(url, TIMEOUT_MS);
     if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
     const data = await res.json();
     return readStreams(source.name || source.url, Array.isArray(data?.streams) ? data.streams : []);
@@ -307,10 +329,7 @@ const addonBase = (url) =>
     .replace(/\/(manifest|configure)\.json$/i, "");
 
 const jsonFetch = async (url, ms = 20000) => {
-  const res = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "NuvioCollections/1.0" },
-    signal: AbortSignal.timeout(ms),
-  });
+  const res = await addonFetch(url, ms);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 };
