@@ -4245,6 +4245,59 @@ function renderSources(id, name) {
  * franchise it belongs to, its rating, its seasons, and what else is like it — and
  * every one of those is a way into its own catalog, not a label.
  */
+/**
+ * Settings that are not one pane's own: the page-level preferences the server keeps in
+ * `user-preferences.json`.
+ *
+ * Written locally first so the page redraws at once, then posted — the answer is only
+ * ever the same value back, so there is nothing to wait for.
+ */
+function savePrefs(patch) {
+  state.prefs = { ...state.prefs, ...patch };
+  writeJSON(KEY.prefs, state.prefs);
+  post("/prefs", patch).catch(() => { /* offline — the local copy still applies */ });
+  render();
+}
+
+/** The resolutions Play may reach for. A number is a ceiling; `auto` is no ceiling. */
+const QUALITY_CHOICES = [
+  ["auto", "Auto"],
+  ["2160", "4K"],
+  ["1080", "1080p"],
+  ["720", "720p"],
+  ["480", "480p"],
+];
+
+/** The subtitle languages, as Settings → Subtitles offers them. */
+const subtitleChoices = () => [
+  ["", `Follow the app (${String(state.language || "en-US").slice(0, 2)})`],
+  ...(state.options.subtitleLanguages || []),
+];
+
+/**
+ * The two choices that belong beside Play.
+ *
+ * **Subtitle** writes the same language Settings → Subtitles writes, and **Quality**
+ * writes the ceiling the source picker reads (see `openSources`), so a title page can
+ * answer "which subtitles?" and "how big?" without a trip to Settings first.
+ */
+function subtitlePick() {
+  const pick = dropdown(subtitleChoices(), state.subtitles?.language || "", (value) => {
+    state.subtitles = { ...state.subtitles, language: value };
+    writeJSON(KEY.subtitles, state.subtitles);
+    pushSettings({ subtitles: { language: value } });
+    render();
+  }, "Subtitle");
+  pick.node.classList.add("title-pick");
+  return pick.node;
+}
+
+function qualityPick() {
+  const pick = dropdown(QUALITY_CHOICES, state.prefs?.quality || "auto", (value) => savePrefs({ quality: value }), "Quality");
+  pick.node.classList.add("title-pick");
+  return pick.node;
+}
+
 async function renderTitle(type, id) {
   const media = type === "series" ? "series" : "movie";
   setRow(media);
@@ -4328,6 +4381,12 @@ async function renderTitle(type, id) {
             title: "Ask about this title",
             onclick: () => openAssistant({ ...meta, description: meta.description || (data.tagline || "") }),
           }),
+          // **Subtitle and Quality sit with Play.** Both answer a question about
+          // *this* play — which language the subtitles come in, which resolution to
+          // reach for — so they belong beside the button that starts it rather than
+          // three screens into Settings.
+          subtitlePick(),
+          qualityPick(),
           // The pin buttons live on the page now, not in a modal.
           el("div", { class: "title-pins", id: "title-pins" }, ...pinButtons(meta)),
         ),
@@ -4885,8 +4944,8 @@ function trailersRow(trailers) {
       el("button", {
         class: "trailer-card focusable",
         type: "button",
-        title: `${t.name} — open on YouTube`,
-        onclick: () => window.open(t.url, "_blank", "noopener"),
+        title: `${t.name} — play in the app`,
+        onclick: () => openTrailer(t),
       },
         el("img", { class: "trailer-thumb", src: `https://img.youtube.com/vi/${t.key}/hqdefault.jpg`, alt: "", loading: "lazy" }),
         el("span", { class: "trailer-name", text: t.name }),
@@ -4894,6 +4953,45 @@ function trailersRow(trailers) {
       )
     )),
   );
+}
+
+/**
+ * **The trailer plays in the app.**
+ *
+ * A trailer card used to hand the clip to a browser tab, which left the app, lost the
+ * fullscreen it was in and came back to a page that had scrolled. A floating overlay
+ * keeps it here: the same 16:9 frame, one Close button, Escape or a click on the
+ * backdrop to leave. The YouTube player is the no-cookie embed, and the clip is only
+ * requested when a card is pressed — nothing loads for a page that is merely open.
+ */
+function openTrailer(t) {
+  const close = () => {
+    document.removeEventListener("keydown", onKey);
+    overlay.remove();
+  };
+  const onKey = (e) => {
+    if (e.key === "Escape") close();
+  };
+  const overlay = el("div", { class: "trailer-overlay", role: "dialog", "aria-modal": "true", "aria-label": `${t.name} trailer` },
+    el("div", { class: "trailer-shell" },
+      el("div", { class: "trailer-bar" },
+        el("span", { class: "trailer-heading", text: t.name || "Trailer" }),
+        el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: close }),
+      ),
+      el("div", { class: "trailer-frame" },
+        el("iframe", {
+          src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(t.key)}?autoplay=1&rel=0&modestbranding=1`,
+          title: t.name || "Trailer",
+          allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
+          allowfullscreen: true,
+        }),
+      ),
+    ),
+  );
+  // A press on the backdrop — never on the frame — is the other way out.
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.append(overlay);
 }
 
 /**
@@ -5917,12 +6015,14 @@ function panePosters() {
 
   return [
     toggleRow(stored.enabled === true, "Upgrade posters everywhere", "Replace the artwork with the poster service's version for every title; titles it cannot cover keep theirs.", (e) => savePosters({ enabled: e.target.checked })),
-    el("div", { class: "provider" },
-      el("span", { class: "option-title", text: "Poster service" }),
-      el("p", { class: "option-desc", text: "Which service supplies the artwork. Its pattern is filled in below; edit the pattern to use anything else — {imdb_id}, {tmdb_id}, {type} and {rpdb_key} are filled in per title." }),
-      ...POSTER_SERVICES.map(([id, label, url, desc]) =>
-        radioRow(current === id, "posterservice", label, desc, () => savePosters({ source: id, pattern: url, enabled: id !== "none" })),
-      ),
+    // **One box per service, the same shape Content uses.** These were stacked rows
+    // inside one "Poster service" panel, which read as a list inside a list; as boxes
+    // they sit in the pane's own board, two to a row, and the chosen one wears the
+    // accent like every other choice in Settings.
+    el("p", { class: "option-title", text: "Poster service" }),
+    el("p", { class: "option-desc", text: "Which service supplies the artwork. Its pattern is filled in below; edit the pattern to use anything else — {imdb_id}, {tmdb_id}, {type} and {rpdb_key} are filled in per title." }),
+    ...POSTER_SERVICES.map(([id, label, url, desc]) =>
+      radioRow(current === id, "posterservice", label, desc, () => savePosters({ source: id, pattern: url, enabled: id !== "none" })),
     ),
     current === "custom" || current === "rpdb"
       ? el("div", { class: "provider" },
@@ -6479,7 +6579,7 @@ function paneNotifications() {
  * own markup, so there is nothing left for the OS to draw — no appearance override,
  * no drawn chevron hack, no cached sheet that can lose the race.
  */
-function dropdown(options, initial, onPick) {
+function dropdown(options, initial, onPick, caption = "") {
   let value = options.some(([v]) => v === initial) ? initial : (options[0] || ["", ""])[0];
   const shown = options.find(([v]) => v === value) || ["", ""];
   const label = el("span", { class: "dropdown-value", text: shown[1] });
@@ -6503,7 +6603,7 @@ function dropdown(options, initial, onPick) {
   }
   root.append(
     el("button", {
-      class: "dropdown-btn focusable",
+      class: `dropdown-btn focusable${caption ? " with-label" : ""}`,
       type: "button",
       "aria-haspopup": "listbox",
       onclick: (e) => {
@@ -6512,7 +6612,14 @@ function dropdown(options, initial, onPick) {
         close();
         if (opening) { menu.hidden = false; root.classList.add("open"); }
       },
-    }, label, el("span", { class: "dropdown-caret", "aria-hidden": "true" })),
+    },
+      // **The caption names the choice, not just the chosen value.** A picker on a
+      // title page says "Subtitle · English" rather than "English", which could be
+      // the language, the audio or the country.
+      caption ? el("span", { class: "dropdown-label", text: caption }) : null,
+      label,
+      el("span", { class: "dropdown-caret", "aria-hidden": "true" }),
+    ),
     menu,
   );
   // A press anywhere else closes it, the way a menu should behave. This listens in
@@ -7177,6 +7284,13 @@ async function render() {
   const onHome = view === "home";
   document.getElementById("tabs").hidden = !browsing;
   document.getElementById("back").hidden = view === "home" || view === "profiles";
+  // **The arrow's own rule.** Only the screens reached *from* a title page wear it —
+  // the lists a name on a title opens (a credit, a studio, a network, a genre) and the
+  // season screen — so the back arrow reads as the head of that page rather than one
+  // control floating in the bar. Home and the rest keep the bare arrow.
+  document.getElementById("back-divider").hidden = !(
+    view === "list" && ["person", "company", "network", "genre", "season"].includes(parseHash().kind)
+  );
   document.getElementById("settings").hidden = !onHome;
   document.getElementById("search").hidden = !onHome;
   document.getElementById("calendar").hidden = !onHome;
@@ -10149,7 +10263,32 @@ async function openSources(meta) {
 
   // The first stream that is not a trailer/cam rip plays straight away; the rest are
   // one click away in the Sources drawer.
-  const best = playable.find((s) => !/cam|trailer|sample/i.test(`${s.name} ${s.title}`)) || playable[0];
+  // **The Quality choice is a ceiling, not a demand.** The stream that plays is the
+  // highest the list offers at or below it; a list with nothing that low falls back to
+  // its *lowest* stream rather than refusing to play, and "Auto" is the old behaviour —
+  // the first stream that is not a cam rip or a trailer.
+  const ceiling = Number(state.prefs?.quality || 0);
+  const heightOf = (s) => {
+    const text = `${s.name || ""} ${s.title || ""} ${s.quality || ""} ${s.resolution || ""}`.toLowerCase();
+    const hit = text.match(/\b(2160|1440|1080|720|576|480|360)p?\b/) || text.match(/\b(4k|uhd)\b/);
+    if (!hit) return 0;
+    return hit[1] === "4k" || hit[1] === "uhd" ? 2160 : Number(hit[1]);
+  };
+  const clean = playable.filter((s) => !/cam|trailer|sample/i.test(`${s.name} ${s.title}`));
+  const pool = clean.length ? clean : playable;
+  const best = ceiling
+    ? [...pool].sort((a, b) => {
+        const ha = heightOf(a);
+        const hb = heightOf(b);
+        const fitA = ha && ha <= ceiling ? ha : 0;
+        const fitB = hb && hb <= ceiling ? hb : 0;
+        if (fitA !== fitB) return fitB - fitA;
+        // Nothing at or below the ceiling: the smallest stream is the nearest fit, and
+        // a stream that does not state a height sorts after the ones that do.
+        if (!fitA && !fitB) return (ha || Infinity) - (hb || Infinity);
+        return 0;
+      })[0]
+    : pool[0];
   // The add-on lines ride along into the player, so its Sources drawer can say which
   // of the add-ons you pasted answered for this title — and which stayed quiet.
   const bestSrc = best.torrent ? best.magnet : best.url;

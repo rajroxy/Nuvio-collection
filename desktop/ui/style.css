@@ -221,6 +221,11 @@ body {
   background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.06), var(--rule) 50%, rgba(var(--accent-rgb), 0.06));
 }
 
+/* **The arrow's rule sits closer than the bar's own gap.** The topbar spaces its
+   groups 20px apart; a 1px stroke hanging that far off the arrow would read as its
+   own object rather than the arrow's, so this one pulls in on both sides. */
+.back-divider { margin: 0 -10px; }
+
 .icon-btn {
   width: 38px;
   height: 38px;
@@ -1156,6 +1161,34 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .option-body { display: block; flex: 1; }
 .option-title { display: block; font-size: 15px; font-weight: 700; }
 .option-desc { display: block; margin: 4px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+/* ------------------------------------------------------------- the trailer */
+
+/* **The clip plays over the page.** A floating overlay rather than a trip to the
+   browser: the app stays where it is (fullscreen included) and one Escape comes back. */
+.trailer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 4vh 4vw;
+  background: rgba(4, 5, 8, 0.86);
+  backdrop-filter: blur(8px);
+}
+.trailer-shell { display: flex; flex-direction: column; gap: 12px; width: min(1120px, 94vw); }
+.trailer-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.trailer-heading { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; color: var(--text); }
+.trailer-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+.trailer-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
 /* -------------------------------------------------------------- focus ring */
 
@@ -3144,6 +3177,18 @@ select.player-rate { padding: 7px 30px 7px 10px !important; border-radius: 9px !
 .dropdown-btn:hover { background: rgba(255, 255, 255, 0.11); }
 .dropdown.open .dropdown-btn { background: rgba(255, 255, 255, 0.15); }
 .dropdown-caret { flex: none; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--muted); }
+/* **A label turns the picker into a named button.** Left as the pickers are, the two on
+   a title page would read as "English" and "1080p" with nothing saying what they choose,
+   so the label takes the left and the value the right.
+   **Neither class may end in `-caption` or `-subtext`**: the stylesheet hides those names
+   (`[class$="-caption"] { display: none !important }`), which blanked the whole control. */
+.dropdown-btn.with-label { justify-content: flex-start; gap: 8px; padding: 11px 14px; }
+.dropdown-label { flex: none; color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.dropdown-btn.with-label .dropdown-value { margin-left: auto; font-weight: 700; }
+/* The pickers beside Play are buttons in that row, not the full-width settings
+   pickers — so they take their own width and drop the 200px floor. */
+.title-actions .title-pick { flex: none; min-width: 0; }
+.title-actions .title-pick .dropdown-btn { background: rgba(255, 255, 255, 0.07); }
 .dropdown-menu {
   position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; right: 0;
   display: flex; flex-direction: column; gap: 2px; padding: 6px;

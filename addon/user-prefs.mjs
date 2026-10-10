@@ -21,6 +21,10 @@ const DEFAULTS = {
   sourcesSummary: true,
   // Remember which Custom Websites category the Settings pane last showed.
   lastCategory: "movies",
+  // The resolution Play reaches for when it picks a stream for the title page. "auto"
+  // takes the first good stream; a number is a **ceiling** — the highest stream at or
+  // below it — so 1080p never hands you a 4K file on a screen that cannot show it.
+  quality: "auto",
   // The subtitle language-picker choice is stored with the subtitle settings; this is a
   // place for the few remaining page-level switches.
   showTierBadges: true,
