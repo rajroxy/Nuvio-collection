@@ -330,6 +330,10 @@ const SETTINGS_GROUPS = [
       ["content", "Content"],
       ["posters", "Posters"],
       ["appearance", "Appearance & layout"],
+      // **The custom rows, where the cards can be managed.** The card's own row is
+      // filled from a title page, so this is the one place that answers "what is in
+      // there?" and "how do I empty it?" without hunting for the titles.
+      ["customrows", "Custom Rows"],
     ],
   },
   {
@@ -6246,6 +6250,155 @@ function paneAddonsPlugins() {
   ];
 }
 
+/* --------------------------------------------------------------- Custom Rows */
+
+/** How a row id is named to a person. */
+function customRowLabel(id) {
+  if (id === CUSTOM_ROW) return `${customLabel()} card`;
+  if (id === CAL_ROW) return "Calendar plans";
+  return id;
+}
+
+/** When the rows were last read, so the pane's own redraw cannot loop. */
+let customRowsFetchedAt = 0;
+
+async function clearCustomRow(rowId) {
+  const res = await post("/customrows", { row: rowId, clearRow: true }).catch(() => null);
+  if (res && Array.isArray(res.items)) applyCustomRows(res);
+  render();
+}
+
+async function dropFromCustomRow(rowId, item) {
+  const res = await post("/customrows", { row: rowId, item: pinOf(item), remove: true }).catch(() => null);
+  if (res && Array.isArray(res.items)) applyCustomRows(res);
+  render();
+}
+
+/**
+ * Settings → Custom Rows: the card's name, and every card it holds.
+ *
+ * The cards get **into** a row from a title page (the Custom button beside the watch
+ * states, and the calendar's plan button) — there is deliberately no way to add one from
+ * here, because a card with no title behind it is not a card. What this pane is for is the
+ * other direction: seeing the list, taking one out, and emptying a row you have finished
+ * with. The rows are read fresh when the pane is opened, so a card added a moment ago on a
+ * title page is already in the list.
+ */
+function paneCustomRows() {
+  if (Date.now() - customRowsFetchedAt > 2000) {
+    customRowsFetchedAt = Date.now();
+    get("/customrows.json")
+      .then((res) => {
+        applyCustomRows(res);
+        if (state.settingsSection === "customrows") render();
+      })
+      .catch(() => { /* offline: the pane still shows what the app already knows */ });
+  }
+
+  const grouped = new Map();
+  for (const item of state.customItems || []) {
+    if (!grouped.has(item.row)) grouped.set(item.row, []);
+    grouped.get(item.row).push(item);
+  }
+  // The card's own row is drawn even while empty, so where its cards come from is
+  // explained before there are any rather than only after.
+  if (!grouped.has(CUSTOM_ROW)) grouped.set(CUSTOM_ROW, []);
+
+  const nameInput = el("input", { class: "text-input focusable", type: "text", id: "custom-label", maxlength: "40", value: customLabel() });
+  // **The verdict is kept on the state, not only in the DOM.** Saving the name re-renders
+  // this pane, so a message written straight onto the element would be wiped before it
+  // could be read — the same reason the DNS pane keeps its status on `state.dns`. It is
+  // dropped as soon as the field is edited again.
+  const saved = state.customLabelNote;
+  const nameNote = el("span", { class: `source-status${saved ? (saved.ok ? " ok" : " bad") : ""}`, text: saved?.text || "" });
+  nameInput.addEventListener("input", () => {
+    if (!state.customLabelNote) return;
+    state.customLabelNote = null;
+    nameNote.className = "source-status";
+    nameNote.textContent = "";
+  });
+
+  const order = [...grouped.keys()].sort((a, b) => (a === CUSTOM_ROW ? -1 : b === CUSTOM_ROW ? 1 : a.localeCompare(b)));
+  const rowCards = order.map((rowId) => {
+    const items = grouped.get(rowId) || [];
+    return el("div", { class: "provider", id: `customrow-${rowId}` },
+      el("div", { class: "provider-head" },
+        el("div", {},
+          el("span", { class: "option-title", text: customRowLabel(rowId) }),
+          el("span", { class: "badge", text: `${items.length} card${items.length === 1 ? "" : "s"}` }),
+        ),
+        items.length
+          ? el("button", {
+              class: "btn subtle focusable",
+              type: "button",
+              id: `customrow-clear-${rowId}`,
+              text: "Clear row",
+              onclick: () => clearCustomRow(rowId),
+            })
+          : null,
+      ),
+      items.length
+        ? el("div", { class: "site-list" }, ...items.map((item) =>
+            el("div", {
+                class: "site-row",
+                // A card row: the poster as its thumbnail, so the list reads as the row
+                // does on the home screen rather than as a list of names.
+              },
+              item.poster ? el("img", { class: "site-art", src: item.poster, alt: "", loading: "lazy" }) : null,
+              el("div", { class: "site-body" },
+                el("span", { class: "site-domain", text: item.name || "Untitled" }),
+                el("span", { class: "site-pattern", text: [item.type === "series" ? "Series" : "Movie", item.releaseInfo].filter(Boolean).join(" · ") }),
+              ),
+              el("button", {
+                class: "btn subtle focusable",
+                type: "button",
+                text: "Remove",
+                onclick: () => dropFromCustomRow(rowId, item),
+              }),
+            )))
+        : el("p", { class: "option-desc", text: "Nothing in this row yet." }),
+    );
+  });
+
+  return [
+    el("p", {
+      class: "option-desc",
+      text: `The ${customLabel()} card holds your own list — one row that is neither a watch state nor a catalog. Cards go in from a title page (the “Add to ${customLabel()}” button beside the watch states, and the plan button on the calendar); this is where they come out.`,
+    }),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Card name" }),
+      el("span", { class: "option-desc", text: "What the card is called everywhere it appears." }),
+    ),
+    el("div", { class: "source-form" },
+      nameInput,
+      el("button", {
+        class: "btn primary focusable",
+        type: "button",
+        id: "custom-label-save",
+        text: "Save name",
+        onclick: async () => {
+          const value = nameInput.value.trim().slice(0, 40);
+          if (!value) {
+            state.customLabelNote = { text: "A name is needed.", ok: false };
+            nameNote.className = "source-status bad";
+            nameNote.textContent = "A name is needed.";
+            return;
+          }
+          state.customLabel = value;
+          state.customLabelNote = { text: "Saving…", ok: false };
+          nameNote.className = "source-status";
+          nameNote.textContent = "Saving…";
+          await pushSettings({ customLabel: value });
+          state.customLabelNote = { text: `The card is now called ${value}.`, ok: true };
+          render();
+        },
+      }),
+      nameNote,
+    ),
+    ...rowCards,
+  ];
+}
+
 function renderSettings() {
   const section = state.settingsSection;
 
@@ -6264,6 +6417,7 @@ function renderSettings() {
     subtitles: paneSubtitles,
     dns: paneDns,
     customsites: paneCustomSites,
+    customrows: paneCustomRows,
     ratings: paneRatings,
     ai: paneAi,
     content: paneContent,
@@ -8110,9 +8264,10 @@ async function playTorrent(node, video, magnet, opts, seq) {
       if (seq !== playerSeq) return;
       say(`Could not ask ${service[1]} — ${err.message}. Falling back to the app's own torrent engine.`);
     }
-  } else {
-    say("No debrid service is set up, so this torrent needs WebRTC peers — which most public torrents do not have. Add one in Settings → Debrid and press Play again.");
   }
+  // **Nothing is said when there is no service.** The engine below is still tried, and a
+  // paragraph explaining what debrid would have done sat over the picture of every torrent
+  // played without one.
 
   try {
     const WebTorrent = await loadWebTorrent();
@@ -8501,7 +8656,10 @@ async function openPlayer(url, title, opts = {}) {
   const drawSources = (list, currentUrl) => {
     if (Array.isArray(list)) shown = list;
     const blocked = (customBox().sites || []).filter((x) => x.needsVerification);
-    drawer.replaceChildren(
+    // **The children are filtered.** `replaceChildren` stringifies anything that is not
+    // a node, so the `null`s this used to pass for "no add-on lines" came out as the
+    // word "null" printed under the heading — `el()` drops them, this did not.
+    const parts = [
       el("h3", { class: "row-head", text: "Sources" }),
       customSummary,
       customNote,
@@ -8522,7 +8680,8 @@ async function openPlayer(url, title, opts = {}) {
       list && list.length
         ? el("div", { class: "stream-list" }, ...list.map((s) => streamRow(s, currentUrl)))
         : el("p", { class: "empty", text: "No streams returned. Add or fix an add-on in Settings → Add-ons & plugins, then press Sources again." }),
-    );
+    ].filter(Boolean);
+    drawer.replaceChildren(...parts);
   };
   // The rows already extracted for this title are re-seated: they survive closing the
   // player, and are gone on a restart, which is the lifetime a stream URL deserves.

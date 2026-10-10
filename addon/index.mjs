@@ -47,6 +47,7 @@ import {
   items as customItems,
   list as customList,
   rows as customRows,
+  clearRow as customClearRow,
   counts as customCounts,
   add as customAdd,
   remove as customRemove,
@@ -2010,7 +2011,9 @@ export async function handleAddon(req, res, pathname, origin) {
         const body = await readBody(req);
         const row = body.row || DEFAULT_ROW;
         const item = body.item || {};
-        if (body.remove) json(res, 200, { ...customRemove(row, item), ...customPayload() });
+        // One card, or the whole row (Settings → Custom Rows clears a row in one go).
+        if (body.clearRow) json(res, 200, { ...customClearRow(row), ...customPayload() });
+        else if (body.remove) json(res, 200, { ...customRemove(row, item), ...customPayload() });
         else json(res, 200, { ...customAdd(row, item), ...customPayload() });
       } catch (err) {
         json(res, 400, { ok: false, text: String(err?.message || err) });

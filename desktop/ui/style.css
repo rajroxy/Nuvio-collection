@@ -944,6 +944,28 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .source-move[disabled] { opacity: 0.32; cursor: default; }
 .source-move[disabled]:hover { border-color: rgba(255, 255, 255, 0.14); }
 
+/* **One added thing in a Settings list** — a Custom Website, a card in a Custom Row.
+   The same shape as an add-on's row above, so the panes that list things you added all
+   read as one list rather than three. The optional thumbnail (`.site-art`) is what a
+   card row carries and a website does not. */
+.site-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
+.site-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.site-art { width: 38px; aspect-ratio: 2 / 3; border-radius: 6px; object-fit: cover; flex: none; background: rgba(255, 255, 255, 0.05); }
+.site-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.site-domain { font-size: 13.5px; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-pattern { font-size: 12px; color: var(--muted); word-break: break-all; }
+.site-row .btn { flex: none; }
+/* The editor a site's Edit button opens, inside its row. */
+.site-edit { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+
 /* No scrollbar is drawn on a row: the row scrolls with the wheel (see
    `horizontalWheel` in app.js) and with the D-pad, and a chunky bar under every
    row was the busiest thing on Home. */
@@ -1476,14 +1498,16 @@ button:focus-visible,
   color: #f8f3e8;
   text-shadow: 0 3px 22px rgba(var(--accent-rgb), 0.3);
 }
-.boot-mark { width: 100px; height: 100px; display: grid; place-items: center; }
+/* The mark is a touch smaller than the wordmark it sits beside: at 100px it read as
+   the subject of the screen rather than the logo next to the name. */
+.boot-mark { width: 76px; height: 76px; display: grid; place-items: center; }
 /* The logo mark: the whole classic anime black cat, drawn inline in index.html.
    The SVG owns its gradients (iris-purple inner ears, white eyes with black
    pupils); the halo behind it is the one themed part. Everything here is motion
    only, and `motion-off` / prefers-reduced-motion already stop all of it. */
 .boot-cat {
-  width: 100px;
-  height: 100px;
+  width: 76px;
+  height: 76px;
   overflow: visible;
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
   animation: boot-float 3.8s ease-in-out infinite;
@@ -1497,6 +1521,27 @@ button:focus-visible,
 /* The tail flicks from where it meets the body. */
 .cat-tail { transform-box: view-box; transform-origin: 74px 92px; animation: boot-tail 6.2s ease-in-out infinite; }
 .cat-whisk { animation: boot-whisk 3.8s ease-in-out infinite; }
+/* The boot loader: a dot that grows into a line and settles back, on its own track.
+   The resting width is a short line, so with motion off it still reads as a bar rather
+   than a single pixel. */
+.boot-loader {
+  width: 128px; height: 4px; border-radius: 3px; margin-top: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  display: grid; place-items: center; justify-items: center;
+  overflow: hidden;
+}
+.boot-loader-bar {
+  width: 34%; height: 4px; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.35), var(--accent));
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
+  animation: boot-load 1.7s ease-in-out infinite;
+}
+@keyframes boot-load {
+  0% { width: 4px; opacity: 0.85; }
+  42% { width: 100%; opacity: 1; }
+  58% { width: 100%; opacity: 1; }
+  100% { width: 4px; opacity: 0.85; }
+}
 @keyframes boot-float { 0%, 100% { transform: translateY(2px); } 50% { transform: translateY(-2.5px); } }
 @keyframes boot-glow { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.85; } }
 @keyframes boot-blink { 0%, 89% { transform: scaleY(1); } 93%, 95.5% { transform: scaleY(0.07); } 100% { transform: scaleY(1); } }
@@ -2513,10 +2558,22 @@ select.player-rate option { background: #14161c; color: var(--text); }
 .player-volume::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--accent); }
 
 /* The sources drawer sits over the video, so choosing one does not lose your place. */
+/*
+ * **Both player panels rise from the control bar.**
+ *
+ * They used to be pinned to the top of the stage (`top: 14px; bottom: 96px`), so the
+ * Sources drawer and the Audio & subtitles panel hung from the ceiling, hundreds of
+ * pixels from the buttons that opened them and from the strip those buttons live in.
+ * They are anchored to the **bottom** now, just clear of the bar, and capped at a
+ * share of the height so opening one reads as a panel coming out of its own button
+ * rather than a second screen arriving.
+ */
 .player-sources {
-  position: absolute; top: 14px; right: 14px; bottom: 96px; width: min(420px, 46%);
+  position: absolute; right: 14px; bottom: 96px; width: min(420px, 46%);
+  max-height: min(62vh, 540px);
   display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto;
   border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
+  box-shadow: 0 -8px 34px rgba(0, 0, 0, 0.45);
 }
 .player-sources[hidden] { display: none; }
 
@@ -2553,9 +2610,11 @@ select.player-rate option { background: #14161c; color: var(--text); }
  * unaligned. Same inset, same width, same bottom: one panel, reflected.
  */
 .player-settings-menu {
-  position: absolute; top: 14px; left: 14px; bottom: 96px; width: min(420px, 46%);
+  position: absolute; left: 14px; bottom: 96px; width: min(420px, 46%);
+  max-height: min(62vh, 540px);
   display: flex; flex-direction: column; gap: 8px; padding: 16px; overflow-y: auto;
   border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
+  box-shadow: 0 -8px 34px rgba(0, 0, 0, 0.45);
 }
 .player-settings-menu[hidden] { display: none; }
 

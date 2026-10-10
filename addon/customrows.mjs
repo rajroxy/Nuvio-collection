@@ -132,6 +132,19 @@ export function metasFor(rowId, type, skip = 0, limit = 40) {
     .map((i) => ({ ...i }));
 }
 
+/**
+ * Empty one row, keeping the others.
+ *
+ * Settings → Custom Rows offers this per row: taking a card out one at a time is fine
+ * for one card, and the wrong tool for clearing the list you have stopped using.
+ */
+export function clearRow(rowId = DEFAULT_ROW) {
+  const id = String(rowId || DEFAULT_ROW);
+  const had = (load().get(id) || new Map()).size;
+  write(id, new Map());
+  return { ok: true, row: id, removed: had, count: 0 };
+}
+
 /** Test/diagnostic helper — drop everything. */
 export function clear() {
   cache = new Map();

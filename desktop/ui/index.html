@@ -23,7 +23,7 @@
 </script>
 <!-- `?v=` is the cache-buster: bump it whenever style.css or app.js changes, or
      browsers keep showing the old UI long after the server has moved on. -->
-<link rel="stylesheet" href="./style.css?v=20261010d">
+<link rel="stylesheet" href="./style.css?v=20261010e">
 </head>
 <body>
   <!-- Boot screen. It covers the app until the first screen is drawn, then fades
@@ -118,6 +118,13 @@
         </svg>
       </span>
     </div>
+    <!-- The progress mark: one line that starts as a dot and stretches into a line,
+         over and over. It is drawn rather than a percent figure — this screen waits on
+         the first catalog read, and a number that has to be invented would be a lie.
+         CSS-only, so `motion-off` / reduced-motion stop it like everything else. -->
+    <div class="boot-loader" role="progressbar" aria-label="Loading">
+      <span class="boot-loader-bar" aria-hidden="true"></span>
+    </div>
     <p class="boot-note">Preparing your collections…</p>
   </div>
 
@@ -186,6 +193,6 @@
   </div>
 
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=20261010d"></script>
+  <script type="module" src="./app.js?v=20261010e"></script>
 </body>
 </html>
