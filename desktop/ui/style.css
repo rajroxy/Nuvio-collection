@@ -1991,11 +1991,12 @@ textarea:focus-visible {
 /* **A live card's logos are a 3 × 2 wall of squares.** Six channel logos strung out
    as portrait strips read as a poster row; the profile's cards use this instead, and
    each logo keeps its own square so a wide wordmark and a tall mark agree. */
-/* **Even cells, one gap.** The tiles were sized to `height: 100%` with a width from
-   `aspect-ratio`, so a wordmark and a square mark came out at different widths inside
-   cells that were all the same size — which is the ragged gap between the six logos.
-   The cells are the frame now: three columns, two rows, one 6px gap, and every tile
-   fills its own cell so the wall reads as a grid. */
+/* **Even cells, one gap.** The tiles were sized to `height: 100%` and stretched by
+   `flex`, so a wordmark and a square mark came out at different widths inside cells that
+   were all the same size — which is the ragged gap between the six logos. The cells are
+   the frame now: three columns, two rows, one 6px gap, and every tile fills its own cell
+   so the wall reads as a grid. (A grid item ignores `flex`, so the poster rule above —
+   `flex: 1 1 0` — is simply not in play here.) */
 .content-strip.logo-wall {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2008,7 +2009,6 @@ textarea:focus-visible {
 .content-strip.logo-wall .content-tile.logo-text {
   width: 100%;
   height: 100%;
-  aspect-ratio: auto;
 }
 /* A Live TV card's wall is **channel logos**, not posters: they are drawn whole on
    their own plate instead of being cropped to fill the slot. */
