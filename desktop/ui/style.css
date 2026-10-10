@@ -1550,10 +1550,14 @@ button:focus-visible,
 /* The tail flicks from where it meets the body. */
 .cat-tail { transform-box: view-box; transform-origin: 74px 92px; animation: boot-tail 6.2s ease-in-out infinite; }
 .cat-whisk { animation: boot-whisk 3.8s ease-in-out infinite; }
-/* The boot line: a bar that fills its track **from the left to the right**, again and
-   again. `scaleX` from a left origin rather than a changing `width`, so the sweep is
-   composited instead of re-laid-out on every frame. The track is exactly the width of
-   the wordmark above it. */
+/* **The boot sequence, in one pass.** The line fills from the left to the right and
+   **stays full** — it used to fill and empty on a loop, so "loading" and "loaded" looked
+   the same and the sweep restarted under a wordmark that had not changed. When it is full
+   the cat settles in beside the name and curls into the C, and the last two letters arrive
+   after it: the screen says AutoCAT exactly when the catalog is in hand.
+   `scaleX` from a left origin rather than a changing `width`, so the sweep is composited
+   instead of re-laid-out on every frame. The track is exactly the width of the wordmark
+   above it. */
 .boot-loader {
   position: relative; display: block; width: 100%; height: 4px; border-radius: 3px;
   background: rgba(255, 255, 255, 0.07); overflow: hidden;
@@ -1563,12 +1567,35 @@ button:focus-visible,
   border-radius: 3px;
   background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.4), var(--accent));
   box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
-  animation: boot-load 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: boot-load 1.6s cubic-bezier(0.35, 0, 0.25, 1) forwards;
 }
 @keyframes boot-load {
-  0% { transform: scaleX(0); opacity: 0.9; }
-  55% { transform: scaleX(1); opacity: 1; }
-  100% { transform: scaleX(0); opacity: 0.9; }
+  from { transform: scaleX(0); opacity: 0.85; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+/* The cat settles against the wordmark once the line is full — a small lean and press,
+   not a hop — and stays there. The float and the glow keep going on the SVG itself, so a
+   boot that waits still looks alive. */
+.boot-mark { animation: boot-settle 1s ease-out 1.5s both; }
+@keyframes boot-settle {
+  from { transform: none; }
+  to { transform: translate(-7px, 4px) rotate(-10deg) scale(0.9); }
+}
+/* The last two letters: drawn in the wordmark's own face and colour so "CAT" is the same
+   word as "Auto", arriving after the cat has taken its place. */
+.boot-letters {
+  margin: 0;
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #f8f3e8;
+  text-shadow: 0 3px 22px rgba(var(--accent-rgb), 0.3);
+  animation: boot-letters 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 2.2s both;
+}
+@keyframes boot-letters {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
 }
 @keyframes boot-float { 0%, 100% { transform: translateY(2px); } 50% { transform: translateY(-2.5px); } }
 @keyframes boot-glow { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.85; } }
@@ -2544,43 +2571,58 @@ html:fullscreen, body:fullscreen { overflow: hidden; height: 100%; }
    (`min-width: 36px; height: 34px; radius: 9px`, the same fill) — it was a thinner
    outlined box, which is why it looked like a control from another player. Both marks
    ramp while held; the figure is the mute button. */
+/* **A row of chips, all the same.** Each of −, the figure and + is a control-bar chip of
+   its own (`min-width: 36px; height: 34px; radius: 9px`), so the volume is not the one
+   thing in the bar wearing a different shape. The row itself draws nothing. */
 .player-vol {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 8px;
   flex: none;
   height: 34px;
-  padding: 0 6px;
+  padding: 0;
   border: 0;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.09);
+  background: transparent;
   color: var(--text);
 }
 .player-vol-btn, .player-vol-value {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  min-width: 36px;
+  height: 34px;
+  padding: 0 9px;
   border: 0;
-  background: transparent;
-  color: inherit;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
   font: inherit;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
-.player-vol-btn { min-width: 22px; padding: 0 4px; border-radius: 7px; }
-.player-vol-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.player-vol-btn:hover, .player-vol-value:hover { background: rgba(255, 255, 255, 0.16); }
 .player-vol-btn[disabled] { opacity: 0.35; cursor: default; }
+/* The figure wears the same chip as the two marks; only its colour and its figures are
+   its own. */
 .player-vol-value {
-  min-width: 40px;
-  padding: 0 4px;
-  border-radius: 7px;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
-.player-vol-value:hover { background: rgba(255, 255, 255, 0.12); }
 .player-vol-value.muted { color: var(--muted); }
+/* **The seek bar in its own card**, the same chip as the buttons beside it: it was a bare
+   line on the bar with the round thumb sitting on nothing, which is what "the seek bar has
+   no card" was. The card is the control; the input inside it is only the track. */
+.player-seek-box {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 140px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.09);
+}
 .player-seek { flex: 1; min-width: 120px; height: 4px; accent-color: var(--accent); }
 .player-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 

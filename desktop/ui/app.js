@@ -674,8 +674,24 @@ const rowOf = (c) => {
  */
 const titleOf = (c, row = rowKey()) => c?.[row]?.title || c?.title || "";
 
-const get = async (path) => {
-  const res = await fetch(API + path);
+/**
+ * A read from the app server.
+ *
+ * **Every one of them has a deadline.** With no deadline a request to a server that is
+ * restarting (or a tunnel in front of it that has stopped answering) hangs until the
+ * browser gives up, and a screen waiting on it is a screen with nothing on it: the boot
+ * screen fades after its own few seconds and what is left is the top bar over black —
+ * "the app opens on a blank page instead of anything". Answering in `ms` turns that into
+ * a message the screen already knows how to show.
+ */
+const GET_TIMEOUT_MS = Number(globalThis.NUVIO_GET_TIMEOUT_MS) || 25000;
+const get = async (path, { timeoutMs = GET_TIMEOUT_MS } = {}) => {
+  let res;
+  try {
+    res = await fetch(API + path, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    throw new Error(err?.name === "TimeoutError" ? `the app server did not answer in ${Math.round(timeoutMs / 1000)}s` : String(err?.message || err));
+  }
   if (!res.ok) throw new Error(`${res.status} ${path}`);
   return res.json();
 };
@@ -6791,9 +6807,28 @@ function renderTabs() {
  * appears behind the splash is a finished screen rather than an empty shell. The
  * node is hidden once the fade is over so it cannot swallow a click.
  */
+/** When the splash went up, so the opening sequence is always seen once. */
+const bootShownAt = Date.now();
+/**
+ * **The sequence is not cut off by a warm server.** The splash comes down when the first
+ * screen is drawn, which on a warm catalog is a few hundred milliseconds — the line would
+ * barely start to fill and the wordmark would never finish. So it is held for the length
+ * of the opening (the fill, the cat settling, the last two letters), and no longer.
+ */
+const BOOT_MIN_MS = 3000;
+
 function endBoot() {
   const bootScreen = document.getElementById("boot");
   if (!bootScreen || bootScreen.classList.contains("done")) return;
+  const left = BOOT_MIN_MS - (Date.now() - bootShownAt);
+  // Still inside the opening: come back when it is over, rather than shortening it.
+  if (left > 0) {
+    if (!endBoot.pending) {
+      endBoot.pending = true;
+      setTimeout(() => { endBoot.pending = false; endBoot(); }, left);
+    }
+    return;
+  }
   bootScreen.classList.add("done");
   setTimeout(() => { bootScreen.hidden = true; }, 700);
 }
@@ -6805,7 +6840,13 @@ const routeOf = (r) => [r.view, r.key || "", r.id || "", r.name || "", r.group |
 const scrollMemory = new Map();
 let lastRoute = "";
 
+/** Which render is the newest, so a watchdog cannot report on a screen already left. */
+let renderSeq = 0;
+
 async function render() {
+  const seq = ++renderSeq;
+  // Armed before the first await: the screen's own request is what can hang.
+  watchRender(seq);
   const parsed = parseHash();
   const { view, key, id, name, group, type, kind, extra } = parsed;
   const browsing = ["home", "card", "explore"].includes(view);
@@ -6882,6 +6923,8 @@ async function render() {
   renderTabs();
   syncProfileMark();
   window.scrollTo({ top: restore });
+  // The screen is drawn: nothing to warn about.
+  clearTimeout(renderWatchdog);
 
   // Only Home has a banner: the ten-second rotation runs there, and any other screen
   // stops it rather than leaving a timer redrawing a banner that is not on screen.
@@ -9169,6 +9212,14 @@ async function openPlayer(url, title, opts = {}) {
   volDown.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.05 : -0.05); syncVolume(); }, { passive: false });
   volUp.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.05 : -0.05); syncVolume(); }, { passive: false });
   video.addEventListener("volumechange", syncVolume);
+  // **Three buttons, not one box with three things in it.** The volume used to be a
+  // single bordered box holding −, the figure and +, which made it the one control in the
+  // bar that was not shaped like a control. Each mark is the same chip as its neighbours
+  // now (`.player-icon`'s fill, height and radius), and the figure between them is the
+  // mute button — which is what the app's other values look like too.
+  volDown.className = "player-icon player-vol-btn focusable";
+  volUp.className = "player-icon player-vol-btn focusable";
+  volValue.className = "player-icon player-vol-value";
   const volBox = el("div", { class: "player-vol", id: "player-volume" }, volDown, volValue, volUp);
   syncVolume();
 
@@ -9535,7 +9586,7 @@ async function openPlayer(url, title, opts = {}) {
           fwdBtn,
           speedNote,
           clock,
-          seek,
+          el("div", { class: "player-seek-box" }, seek),
         ),
         el("div", { class: "player-group end" },
           total,
@@ -9799,6 +9850,47 @@ async function openSources(meta) {
     torrent: Boolean(best.torrent),
     addonStatus: payload?.sources || [],
   });
+}
+
+/**
+ * **A screen that never arrives must say so.**
+ *
+ * The boot screen takes itself away on a timer — it has to, or a boot that cannot reach
+ * the server would sit over the app for ever. But the screen underneath is only drawn
+ * when its own request comes back, so a request that hangs leaves the top bar over an
+ * empty page and nothing to read. This watches the newest render: if it is still pending
+ * after `ms`, the app draws what it knows (the server is not answering) and offers the one
+ * thing that can help — the button that asks again.
+ */
+let renderWatchdog = 0;
+function watchRender(seq) {
+  clearTimeout(renderWatchdog);
+  renderWatchdog = setTimeout(() => {
+    if (renderSeq !== seq) return;
+    const main = document.getElementById("main");
+    if (!main || main.childElementCount) return;
+    main.replaceChildren(
+      el("div", { class: "empty-panel" },
+        el("p", { text: "The app server is not answering, so this screen has nothing to draw yet." }),
+        el("button", {
+          class: "btn focusable", type: "button", text: "Try again",
+          onclick: () => { bootRetry(); },
+        }),
+      ),
+    );
+  }, Number(globalThis.NUVIO_RENDER_WATCHDOG_MS) || 12000);
+}
+
+/** The same boot read, without the splash: used by the watchdog's button. */
+async function bootRetry() {
+  const main = document.getElementById("main");
+  if (main) main.replaceChildren(el("p", { class: "empty", text: "Asking again…" }));
+  try {
+    state.collections = await get(`/collections.json?_=${Date.now()}`, { timeoutMs: 15000 });
+  } catch {
+    /* the panel below says it for us */
+  }
+  await render().catch(() => {});
 }
 
 async function boot() {

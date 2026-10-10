@@ -34,7 +34,7 @@
 </script>
 <!-- `?v=` is the cache-buster: bump it whenever style.css or app.js changes, or
      browsers keep showing the old UI long after the server has moved on. -->
-<link rel="stylesheet" href="./style.css?v=20261010i">
+<link rel="stylesheet" href="./style.css?v=20261010j">
 </head>
 <body>
   <!-- Boot screen. It covers the app until the first screen is drawn, then fades
@@ -140,6 +140,12 @@
           </g>
         </svg>
       </span>
+      <!-- **The last two letters of the wordmark.** The line fills first; when it is full the
+           cat settles against the "Auto" and curls — it *is* the C — and then these arrive
+           beside it, so the name reads **AutoCAT** at the moment the app is ready. They are
+           ordinary text with their own styles, so with motion off (or reduced motion) they
+           are simply there. -->
+      <span class="boot-letters" aria-hidden="true">AT</span>
     </div>
     <p class="boot-note">Preparing your collections…</p>
   </div>
@@ -209,6 +215,6 @@
   </div>
 
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=20261010i"></script>
+  <script type="module" src="./app.js?v=20261010j"></script>
 </body>
 </html>
