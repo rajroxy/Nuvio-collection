@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchStaticHTML } from "../scraper/tier1.js";
 import { extractStreams } from "../scraper/index.js";
+import { cookieHeader } from "../scraper/sessions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FILE = process.env.NUVIO_CUSTOM_SITES_FILE || path.join(__dirname, "custom-sites.json");
@@ -155,6 +156,10 @@ export function pickPage(html, base, title, year = "", threshold = 0.6) {
 export function buildSearchUrl(site, query) {
   const p = site?.searchPattern;
   if (p?.action && p?.input) {
+    // A path template (`/search/{q}/top-results`) is filled in place, not as a query.
+    if (p.style === "path" || p.action.includes("{q}")) {
+      return p.action.replace(/\{q\}/g, encodeURIComponent(query));
+    }
     try {
       const u = new URL(p.action, site.url);
       u.searchParams.set(p.input, query);
@@ -205,15 +210,45 @@ export async function detectSearchPattern(url) {
 }
 
 /** A sample search URL into a pattern: the action and input name of a real search. */
+/** The words a site uses for the search segment itself, not for what was searched. */
+const SEARCH_WORDS = /^(?:search|s|find|query|q|browse|explore|keyword|results?)$/i;
+
 export function patternFromSample(sampleUrl, title = "") {
   try {
     const u = new URL(sampleUrl);
     const params = [...u.searchParams.entries()];
-    if (!params.length) return null;
-    // Prefer a parameter that carried the query term, else the first non-empty one.
-    const wanted = params.find(([, v]) => v && title && v.toLowerCase().includes(String(title).toLowerCase().slice(0, 6))) || params.find(([, v]) => v) || params[0];
-    u.searchParams.delete(wanted[0]);
-    return { action: `${u.origin}${u.pathname}`, input: wanted[0], method: "get" };
+    if (params.length) {
+      // Prefer a parameter that carried the query term, else the first non-empty one.
+      const wanted = params.find(([, v]) => v && title && v.toLowerCase().includes(String(title).toLowerCase().slice(0, 6))) || params.find(([, v]) => v) || params[0];
+      u.searchParams.delete(wanted[0]);
+      return { action: `${u.origin}${u.pathname}`, input: wanted[0], method: "get" };
+    }
+    // **The term can be in the path instead of the query string.** A site like
+    // dailymotion searches with `…/search/<words>/top-results` — no `?q=` anywhere — and
+    // this used to answer "no query parameters", which is why a perfectly good search URL
+    // was refused. The segment is found by looking for the word `search` and taking the
+    // one after it, or by matching the title that was actually searched for.
+    const segments = u.pathname.split("/");
+    const want = String(title || "").trim().toLowerCase();
+    let at = -1;
+    if (want && want.length > 2) {
+      at = segments.findIndex((seg) => seg && !SEARCH_WORDS.test(seg) && seg.toLowerCase().includes(want));
+    }
+    if (at < 0) {
+      const anchor = segments.findIndex((seg) => SEARCH_WORDS.test(seg));
+      if (anchor >= 0 && segments[anchor + 1]) at = anchor + 1;
+    }
+    if (at < 0) return null;
+    const head = segments.slice(0, at).join("/");
+    const tail = segments.slice(at + 1).filter(Boolean).join("/");
+    return {
+      action: `${u.origin}${head}/{q}${tail ? `/${tail}` : ""}`,
+      input: "q",
+      method: "get",
+      // How the placeholder is used: `query` (the default) sets `?q=`, `path` substitutes
+      // into the path itself.
+      style: "path",
+    };
   } catch {
     return null;
   }
@@ -372,9 +407,17 @@ export function removeRepository({ url } = {}) {
 /* ------------------------------------------------------------------- play time */
 
 /** Follow a site's redirects for real: a moved site should not need re-adding. */
-async function refreshSite(site) {
+async function refreshSite(site, timeoutMs = 6000) {
   try {
-    const res = await fetch(site.url, { redirect: "follow", headers: { "user-agent": "NuvioCollections/1.0" } });
+    // **A deadline on this one too.** This fetch had none, so a site that accepted the
+    // connection and then said nothing held the whole search open until the browser (or
+    // the tunnel in front of it) gave up with an HTTP 502 — which is what the player
+    // showed as "Custom Sites could not be searched".
+    const res = await fetch(site.url, {
+      redirect: "follow",
+      headers: { "user-agent": "NuvioCollections/1.0" },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     const final = res.url;
     if (final && final !== site.url) {
       return { ...site, url: normalizeUrl(final) || site.url, domain: domainOf(final) || site.domain, moved: true };
@@ -395,7 +438,7 @@ async function refreshSite(site) {
  * failure is visible instead of silent. A site that throws is logged and skipped — a
  * Custom Website must never be able to take the Play button down with it.
  */
-export async function searchOnPlay({ title = "", year = "", type = "movie", trace = null, limitPerSite = 4 } = {}) {
+export async function searchOnPlay({ title = "", year = "", type = "movie", trace = null, limitPerSite = 4, budgetMs = 18000 } = {}) {
   const say = (m) => trace?.push(m);
   const name = String(title || "").trim();
   if (!name) return { ok: false, streams: [], sites: [], message: "No title to search with." };
@@ -406,38 +449,58 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
   const candidates = [...s[category], ...s.other];
   if (!candidates.length) return { ok: true, streams: [], sites: [], message: "No Custom Websites are added for this category yet." };
 
-  const streams = [];
-  const sites = [];
-  for (const candidate of candidates) {
-    const site = await refreshSite(candidate);
-    if (site.moved) {
-      updateSite({ url: candidate.url, patch: { url: site.url } });
-      say(`${site.domain} moved to ${site.url} — the stored URL was updated`);
-    }
-    try {
-      const searchUrl = buildSearchUrl(site, name);
-      if (!searchUrl) {
-        sites.push({ domain: site.domain, count: 0, error: "no search URL could be built" });
-        continue;
+  // **Every site at once, and each one on a clock.**
+  //
+  // The sites were asked one after another, each with its own unbounded waits, so four
+  // sites could hold the Play press open for a minute — long past the point where the
+  // tunnel in front of the app answers 502. They run together now, each site gets a slice
+  // of the budget, and the extraction is told its deadline and its highest tier. A site
+  // with **no verified session** is not sent to tier 3 at all: a browser launch per site
+  // per play is minutes of work for a page that usually answers to a plain fetch.
+  const deadline = Date.now() + budgetMs;
+  const perSite = Math.max(1500, Math.round(budgetMs / 2));
+  const results = await Promise.all(
+    candidates.map(async (candidate) => {
+      const streams = [];
+      let site = candidate;
+      try {
+        site = await refreshSite(candidate, perSite);
+        if (site.moved) {
+          updateSite({ url: candidate.url, patch: { url: site.url } });
+          say(`${site.domain} moved to ${site.url} — the stored URL was updated`);
+        }
+        const searchUrl = buildSearchUrl(site, name);
+        if (!searchUrl) return { streams, report: { domain: site.domain, count: 0, error: "no search URL could be built" } };
+        const html = await fetchStaticHTML(searchUrl, { referer: site.url, timeout: perSite });
+        if (!html) return { streams, report: { domain: site.domain, count: 0, error: "the search page could not be fetched" } };
+        const hit = pickPage(html, searchUrl, name, year);
+        if (!hit) return { streams, report: { domain: site.domain, count: 0, error: "no matching result on the search page" } };
+        const verified = Boolean(cookieHeader(hit.url));
+        const rows = await extractStreams(hit.url, {
+          trace: null,
+          timeout: perSite,
+          deadline: Math.min(deadline, Date.now() + perSite * 2),
+          maxTier: verified ? "browser" : "js",
+        });
+        const tagged = rows.slice(0, limitPerSite).map((r) => ({ ...r, site: site.domain, domain: site.domain }));
+        streams.push(...tagged);
+        const out = Date.now() > deadline && !tagged.length;
+        return {
+          streams,
+          report: {
+            domain: site.domain,
+            count: tagged.length,
+            page: hit.url,
+            error: tagged.length ? "" : out ? "ran out of time" : "the page held no playable stream",
+          },
+        };
+      } catch (err) {
+        return { streams, report: { domain: site.domain, count: 0, error: String(err?.message || err) } };
       }
-      const html = await fetchStaticHTML(searchUrl, { referer: site.url });
-      if (!html) {
-        sites.push({ domain: site.domain, count: 0, error: "the search page could not be fetched" });
-        continue;
-      }
-      const hit = pickPage(html, searchUrl, name, year);
-      if (!hit) {
-        sites.push({ domain: site.domain, count: 0, error: "no matching result on the search page" });
-        continue;
-      }
-      const rows = await extractStreams(hit.url, { trace: null });
-      const tagged = rows.slice(0, limitPerSite).map((r) => ({ ...r, site: site.domain, domain: site.domain }));
-      streams.push(...tagged);
-      sites.push({ domain: site.domain, count: tagged.length, page: hit.url, error: tagged.length ? "" : "the page held no playable stream" });
-    } catch (err) {
-      sites.push({ domain: site.domain, count: 0, error: String(err?.message || err) });
-    }
-  }
+    }),
+  );
+  const sites = results.map((r) => r.report);
+  const streams = results.flatMap((r) => r.streams);
   const message = streams.length
     ? `Custom Sites: ${streams.length} stream${streams.length === 1 ? "" : "s"} from ${sites.filter((x) => x.count).map((x) => x.domain).join(", ")}`
     : "Custom Sites: nothing found on the sites you added.";

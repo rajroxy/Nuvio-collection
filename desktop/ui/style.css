@@ -20,6 +20,23 @@
 
 /* ------------------------------------------------------------------- motion */
 
+/* **Every rule in the app follows the accent.**
+   The horizontal and vertical lines — the one in the player's control bar, the ones
+   between settings rows and detail lines, the top bar's own edge — were drawn in white
+   at 5–8%, which read as a faint grey scratch whatever colour the app was wearing. They
+   are tinted from `--accent-rgb` now, so the whole app's ruling changes with the accent
+   the way the chips and buttons already do. Panels keep their neutral hairline: a
+   border around a box is a box's edge, not a rule across the page. */
+:root { --rule: rgba(var(--accent-rgb), 0.3); --rule-soft: rgba(var(--accent-rgb), 0.16); }
+hr { border: 0; height: 1px; background: var(--rule); }
+.topbar { border-bottom-color: var(--rule-soft); }
+.detail-row { border-bottom-color: var(--rule-soft); }
+.guide-head { border-bottom-color: var(--rule-soft); }
+.guide-row { border-bottom-color: var(--rule-soft); }
+
+/* The sample line in Settings → Appearance, drawn in the face being chosen. */
+.font-sample { font-size: 14px; color: rgba(255, 255, 255, 0.86); }
+
 /* Settings → Appearance. `motion-off` stops everything; `motion-full` animates
    even on a device that asks for reduced motion; the default follows the system. */
 .motion-off *,
@@ -53,7 +70,10 @@ body {
   min-height: 100vh;
   background: var(--ink);
   color: var(--text);
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* **The typeface is a setting.** `--font` is set on :root by Settings →
+     Appearance; the stack above it is the default, so nothing changes for anyone who
+     never opens the pane. */
+  font-family: var(--font, Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
   overflow-x: hidden;
 }
 
@@ -401,15 +421,25 @@ body {
   align-items: stretch;
   justify-content: center;
   gap: 8px;
+  align-items: center;
   pointer-events: none;
   animation: content-in 0.5s ease both;
 }
 /* Nothing loaded (yet) → nothing drawn, so the cover reads on its own. */
 .content-strip:empty { display: none; }
+/* **A poster slot is 2:3, so a poster is not cropped.** The tiles used to be `flex: 1`
+   stretched to the frame's own shape (~0.43:1 on the taller cards), and `object-fit:
+   cover` then took about a third off the width of a 2:3 poster — including the title
+   lettering in the art. The slot now has the poster's own ratio and the count comes from
+   the frame's measurement (`tilesThatFit` in app.js, published as `--tiles`), so three at
+   the usual card width. `max-height` is the safety net for a frame shorter than the tiles. */
 .content-tile {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
-  height: 100%;
+  width: calc((100% - (var(--tiles, 3) - 1) * 8px) / var(--tiles, 3));
+  aspect-ratio: 2 / 3;
+  height: auto;
+  max-height: 100%;
   object-fit: cover;
   object-position: 50% 20%;
   border-radius: 10px;
@@ -1489,6 +1519,8 @@ button:focus-visible,
 .boot[hidden] { display: none; }
 /* The wordmark and the cat sit side by side: "Auto" then the mark to its right. */
 .boot-brand { display: flex; align-items: center; gap: 9px; }
+/* The name and the progress line, stacked: the line is exactly as wide as the word. */
+.boot-name-col { display: flex; flex-direction: column; align-items: stretch; gap: 9px; }
 .boot-name {
   margin: 0;
   font-size: 42px;
@@ -1521,26 +1553,25 @@ button:focus-visible,
 /* The tail flicks from where it meets the body. */
 .cat-tail { transform-box: view-box; transform-origin: 74px 92px; animation: boot-tail 6.2s ease-in-out infinite; }
 .cat-whisk { animation: boot-whisk 3.8s ease-in-out infinite; }
-/* The boot loader: a dot that grows into a line and settles back, on its own track.
-   The resting width is a short line, so with motion off it still reads as a bar rather
-   than a single pixel. */
+/* The boot line: a bar that fills its track **from the left to the right**, again and
+   again. `scaleX` from a left origin rather than a changing `width`, so the sweep is
+   composited instead of re-laid-out on every frame. The track is exactly the width of
+   the wordmark above it. */
 .boot-loader {
-  width: 128px; height: 4px; border-radius: 3px; margin-top: 4px;
-  background: rgba(255, 255, 255, 0.07);
-  display: grid; place-items: center; justify-items: center;
-  overflow: hidden;
+  position: relative; display: block; width: 100%; height: 4px; border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07); overflow: hidden;
 }
 .boot-loader-bar {
-  width: 34%; height: 4px; border-radius: 3px;
-  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.35), var(--accent));
+  position: absolute; inset: 0; transform-origin: left center;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.4), var(--accent));
   box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
-  animation: boot-load 1.7s ease-in-out infinite;
+  animation: boot-load 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 @keyframes boot-load {
-  0% { width: 4px; opacity: 0.85; }
-  42% { width: 100%; opacity: 1; }
-  58% { width: 100%; opacity: 1; }
-  100% { width: 4px; opacity: 0.85; }
+  0% { transform: scaleX(0); opacity: 0.9; }
+  55% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(0); opacity: 0.9; }
 }
 @keyframes boot-float { 0%, 100% { transform: translateY(2px); } 50% { transform: translateY(-2.5px); } }
 @keyframes boot-glow { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.85; } }
@@ -2124,6 +2155,8 @@ textarea:focus-visible {
    Home card draws. One picture fills the whole 16:9 box: no inset, no gap, and the
    frame's own radius clips it. */
 .content-strip.backdrop { inset: 0; gap: 0; border-radius: 0; }
+/* A backdrop is one landscape still, not a wall of posters: it fills the frame whole. */
+.content-strip.backdrop .content-tile { width: 100%; height: 100%; aspect-ratio: auto; max-height: none; object-fit: cover; }
 .content-strip.backdrop .content-tile { border-radius: 0; box-shadow: none; }
 
 /* --------------------------------------------------- held-in-place screens */
@@ -2159,7 +2192,9 @@ textarea:focus-visible {
    middle of a tall card, which is what made the detail banner stop reading like the
    home banner; stretched, the wide shot fills the frame edge to edge. */
 .title-hero .hero-art { aspect-ratio: auto; height: 100%; min-height: 260px; }
-.title-hero .title-actions { margin: 0 0 18px; }
+/* **A breath under the synopsis.** Play and the pin row sat flush against the last
+   line of the overview, so the buttons read as part of the paragraph. */
+.title-hero .title-actions { margin: 20px 0 22px; }
 .title-hero .title-row { margin: 0 0 16px; }
 .title-hero .title-row:last-child { margin-bottom: 0; }
 /* The wide shot fills the banner's frame exactly the way the home banner's does:
@@ -2451,7 +2486,9 @@ textarea:focus-visible {
   left: 50%;
   transform: translateX(-50%);
   bottom: 18px;
-  width: min(1180px, calc(100% - 36px));
+  /* **A longer strip.** It stopped short of the stage's own edges, which put the
+     transport in the middle of an empty row; it runs nearly edge to edge now. */
+  width: min(1420px, calc(100% - 22px));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2493,10 +2530,47 @@ textarea:focus-visible {
   width: 1px;
   height: 20px;
   margin: 0 3px;
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--rule);
 }
+
+/* **The volume, as one box: − | 100% | +.** Two marks and the figure between them,
+   inside a single bordered control so the group reads as one thing to adjust rather
+   than three loose icons. Both marks ramp while held; the figure is the mute button. */
+.player-vol {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+}
+.player-vol-btn, .player-vol-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.player-vol-btn { padding: 0 3px; border-radius: 7px; }
+.player-vol-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.player-vol-btn[disabled] { opacity: 0.3; cursor: default; }
+.player-vol-value {
+  min-width: 40px;
+  padding: 0 4px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.player-vol-value:hover { background: rgba(255, 255, 255, 0.08); }
+.player-vol-value.muted { color: var(--muted); }
 .player-seek { flex: 1; min-width: 120px; height: 4px; accent-color: var(--accent); }
-.player-volume { width: 76px; height: 4px; accent-color: var(--accent); }
 .player-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* The centre play target — the picture is clickable, and this is what says so. */
@@ -2547,15 +2621,11 @@ select.player-rate option { background: #14161c; color: var(--text); }
 
 /* The bars are drawn with the accent rather than left to the browser's own slider
    colour, so the player is tinted by the same setting the rest of the app uses. */
-.player-seek, .player-volume { appearance: none; -webkit-appearance: none; background: transparent; }
+.player-seek { appearance: none; -webkit-appearance: none; background: transparent; }
 .player-seek::-webkit-slider-runnable-track,
-.player-volume::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.24); }
 .player-seek::-webkit-slider-thumb,
-.player-volume::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--accent); }
 .player-seek::-moz-range-track,
-.player-volume::-moz-range-track { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.24); }
 .player-seek::-moz-range-thumb,
-.player-volume::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--accent); }
 
 /* The sources drawer sits over the video, so choosing one does not lose your place. */
 /*

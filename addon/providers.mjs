@@ -37,10 +37,28 @@ const RATINGS_TTL_MS = Number(process.env.RATINGS_CACHE_TTL_MS) || 12 * 60 * 60 
 let limitedUntil = 0;
 let limitedText = "";
 
+/** The ratings services Settings offers. `free` needs no key of its own. */
+export const RATING_SOURCES = ["none", "free", "mdblist"];
+
+/** Which one the settings file names, with `free` as the fallback. */
+export const ratingsSource = () => {
+  const src = getSettings().ratings?.source;
+  return RATING_SOURCES.includes(src) ? src : "free";
+};
+
 /** Whether the extra ratings can be asked for right now, and if not, why. */
 export function ratingsState() {
-  if (!providerKeys().mdblist) return { available: false, reason: "no-key", text: "" };
-  if (Date.now() < limitedUntil) return { available: false, reason: "limited", text: limitedText };
+  const source = ratingsSource();
+  if (source === "none") {
+    return { available: false, reason: "off", text: "Extra ratings are switched off in Settings → Ratings." };
+  }
+  if (source === "mdblist") {
+    if (!providerKeys().mdblist) {
+      return { available: false, reason: "no-key", text: "MDBList is chosen but no key is saved — add one in Settings → Ratings." };
+    }
+    if (Date.now() < limitedUntil) return { available: false, reason: "limited", text: limitedText };
+    return { available: true, reason: "", text: "" };
+  }
   return { available: true, reason: "", text: "" };
 }
 
@@ -121,6 +139,10 @@ export async function enrichFromTmdb(metas, limit = 10) {
 export async function enrichRatings(metas, limit = 12) {
   // The ratings half of `enrich.tmdb`: off, a row keeps the rating it came with.
   if (getSettings().enrich?.tmdb === false) return metas;
+  // **Only the aggregate does this.** The keyless scores are read per title on its own
+  // page, so a row of twelve asking three public sites each would be a crawl; MDBList
+  // answers all of them in one call, which is why this half is keyed.
+  if (ratingsSource() !== "mdblist") return metas;
   const { mdblist } = providerKeys();
   if (!mdblist || !Array.isArray(metas) || !metas.length) return metas;
   // The breaker is up: return the rows untouched rather than asking a key that is
@@ -269,16 +291,23 @@ async function freeRatings(meta) {
 }
 
 /**
- * **Ratings, from every service that answered.** MDBList aggregates them, so when
- * its key is set this returns one entry per source it knows — IMDb, TMDB, Trakt,
- * Letterboxd, Rotten Tomatoes, Metacritic and the rest — which is what the title
- * page shows as a row of its own. **With no key the row is still real**: IMDb,
- * Rotten Tomatoes and Metacritic are read from their own public pages instead of
- * from an aggregator's key, so the title page has the same shape either way.
+ * **Ratings, from the service Settings names.**
+ *
+ * - `none` — the row is not built at all (TMDB's own score still arrives with the title).
+ * - `free` — **no key**: IMDb, Rotten Tomatoes and Metacritic are read from their own
+ *   public pages, so the row is real with nothing to configure.
+ * - `mdblist` — one key, every source the aggregate knows (IMDb, TMDB, Trakt,
+ *   Letterboxd, Rotten Tomatoes, Metacritic and the rest).
+ *
+ * Chosen with no key saved, `mdblist` answers nothing rather than quietly falling back
+ * to the public pages — a setting that silently does something else is worse than no
+ * setting at all, and `ratingsState()` says what is missing.
  */
 export async function titleRatings(meta) {
+  const source = ratingsSource();
+  if (source === "none") return [];
   const { mdblist } = providerKeys();
-  if (!mdblist) {
+  if (source === "free") {
     const freeKey = `free:${kindOf(meta)}:${tmdbId(meta)}`;
     const hit = ratingsCache.get(freeKey);
     if (hit && Date.now() - hit.at < RATINGS_TTL_MS) return hit.value;
@@ -287,6 +316,7 @@ export async function titleRatings(meta) {
     if (ratingsCache.size > 500) ratingsCache.delete(ratingsCache.keys().next().value);
     return value;
   }
+  if (!mdblist) return [];
   const key = `${kindOf(meta)}:${tmdbId(meta)}`;
   const cached = ratingsCache.get(key);
   if (cached && Date.now() - cached.at < RATINGS_TTL_MS) return cached.value;

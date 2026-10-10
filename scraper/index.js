@@ -112,8 +112,23 @@ export async function extractStreams(url, options = {}) {
     return rows;
   }
 
+  // **A budget, for callers that cannot wait.** Search-on-play asks on the Play press,
+  // so it cannot let three tiers run to their own timeouts one after another: it passes a
+  // deadline (and, with no verified cookies for the site, a highest tier to try). Every
+  // tier above the ceiling is skipped rather than run and discarded.
+  const deadline = Number(options.deadline) || 0;
+  const ceiling = String(options.maxTier || "") ;
+  const ceilingAt = ceiling ? TIERS.findIndex(([t]) => t === ceiling) : TIERS.length - 1;
   let blocked = null;
   for (const [name, read] of TIERS) {
+    if (TIERS.findIndex(([t]) => t === name) > ceilingAt) {
+      say(`tier "${name}" skipped — past this caller's ceiling (${ceiling})`);
+      continue;
+    }
+    if (deadline && Date.now() >= deadline) {
+      say(`tier "${name}" skipped — out of time`);
+      continue;
+    }
     let html = null;
     try {
       html = await read(page, { cookies: options.cookies, referer: page, timeout: options.timeout });

@@ -869,7 +869,14 @@ const buildCollections = () => {
     key: "custom",
     lines: ["Custom"],
     scene: "on-the-board",
-    catalogs: { movie: [customRow("My List", "add-cards")], show: [customRow("My List", "add-cards")] },
+    // **Six row slots, named per request.** The card's rows come from
+    // `addon/customrows.mjs` (Settings → Custom Rows adds, renames, deletes and orders
+    // them); the slots are declared here so every row has a stable catalog id, and the
+    // payload keeps only the ones that exist and names them what the user called them.
+    catalogs: {
+      movie: Array.from({ length: 6 }, (_, i) => customRow("My List", i === 0 ? "add-cards" : `add-cards-${i + 1}`)),
+      show: Array.from({ length: 6 }, (_, i) => customRow("My List", i === 0 ? "add-cards" : `add-cards-${i + 1}`)),
+    },
   },
   ];
 };

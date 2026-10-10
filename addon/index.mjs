@@ -41,6 +41,7 @@ import {
   pin as watchlistPin,
   unpin as watchlistUnpin,
   metasFor as watchlistMetas,
+  watchedKeys,
 } from "./watchlist.mjs";
 import {
   DEFAULT_ROW,
@@ -48,6 +49,12 @@ import {
   list as customList,
   rows as customRows,
   clearRow as customClearRow,
+  listRows as customRowList,
+  addRow as customAddRow,
+  renameRow as customRenameRow,
+  deleteRow as customDeleteRow,
+  moveRow as customMoveRow,
+  MAX_ROWS as MAX_CUSTOM_ROWS,
   counts as customCounts,
   add as customAdd,
   remove as customRemove,
@@ -55,7 +62,7 @@ import {
 } from "./customrows.mjs";
 import { catalogSpecs, activeRegion, catalogDefs, CATALOG_ID_PREFIX, findCatalog, primeTrendingSeeds, isOttSort } from "./catalogs.mjs";
 import { activeCountry, activeContentSource, activeLanguage, getSettings, updateSettings, publicSettings, tmdbKey, providerKeys } from "./settings.mjs";
-import { enrichRatings, titleRatings, verifyProvider } from "./providers.mjs";
+import { enrichRatings, ratingsState, titleRatings, verifyProvider } from "./providers.mjs";
 import { applyPosters, postersEnabled, checkPosterService, imdbId } from "./posters.mjs";
 import { applyContentSource, contentSourceActive, contentSourceStats } from "./tvdb.mjs";
 import { inspectSource } from "./sources.mjs";
@@ -68,6 +75,7 @@ import { startManualVerification, finishManualVerification, cancelManualVerifica
 import { installDnsFetch } from "./net.mjs";
 import { publicDns, updateDns, testDns, activeDnsServers, dnsScope } from "./dns.mjs";
 import { handleProxy } from "./proxy.mjs";
+import { handleTorrentStream, torrentStatus, torrentState } from "./torrent.mjs";
 import { publicSites, addSite, updateSite, removeSite, detectSearchPattern, patternFromSample, addRepository, removeRepository, searchOnPlay, listSites } from "./custom-sites.mjs";
 import { getPrefs, updatePrefs } from "./user-prefs.mjs";
 
@@ -548,11 +556,21 @@ function collectionsPayload(root) {
       // `kind`/`state` let the app explain an empty row properly (a watchlist row
       // says how to fill it, a TMDB row says the catalog came back empty), and
       // `row` names the custom row so the app can add a title to it.
-      catalogs: defs
-        .filter((d) => d.type === type)
-        // `divider` on a row draws a horizontal rule *before* it on the card page
-        // (the Watchlist's Watching → Plan to Watch boundary).
-        .map((d) => ({ id: d.id, name: d.name, kind: d.entry?.kind || "", state: d.entry?.state || "", row: d.entry?.row || "", divider: Boolean(d.entry?.divider) })),
+      // `divider` on a row draws a horizontal rule *before* it on the card page
+      // (the Watchlist's Watching → Plan to Watch boundary).
+      catalogs: c.key === "custom"
+        // **The Custom card publishes the rows that exist.** Six slots are declared in the
+        // card set; this keeps the managed ones, in the order Settings shows them, and
+        // names each one what the user called it.
+        ? customRowList()
+            .map((r) => {
+              const def = defs.find((d) => d.type === type && d.entry?.row === r.id);
+              return def ? { id: def.id, name: r.name, kind: "custom", state: "", row: r.id, divider: false } : null;
+            })
+            .filter(Boolean)
+        : defs
+            .filter((d) => d.type === type)
+            .map((d) => ({ id: d.id, name: d.name, kind: d.entry?.kind || "", state: d.entry?.state || "", row: d.entry?.row || "", divider: Boolean(d.entry?.divider) })),
     });
     // `divider` marks the card that is preceded by a vertical rule in the app;
     // `hidden` marks a card the grid does not draw (the banner's own source) — and
@@ -636,6 +654,11 @@ async function titlePayload(type, id, adult = false) {
     ...(tmdbScore ? [{ source: "tmdb", label: "TMDB", value: tmdbScore }] : []),
     ...(await titleRatings(meta).catch(() => [])),
   ];
+  // **Why the row holds only what it holds.** A chosen service with no key, or one
+  // over its daily limit, used to leave a row that quietly held TMDB alone; the page
+  // says which it is now.
+  const rState = ratingsState();
+  const ratingsNote = !rState.available && rState.text ? rState.text : "";
 
   // Where the title is from, and in what language it was made.
   const originCountry = (detail.production_countries || []).map((c) => c.name).filter(Boolean).join(", ") || (detail.origin_country || []).join(", ");
@@ -678,6 +701,7 @@ async function titlePayload(type, id, adult = false) {
     originCountryCodes: Array.isArray(detail.origin_country) ? detail.origin_country : [],
     trailers,
     ratings,
+    ratingsNote,
     tagline: detail.tagline || "",
     creators: (detail.created_by || []).map((c) => personCard(c, "Creator")),
     directors: byJob("Director"),
@@ -1365,6 +1389,11 @@ function appOptions() {
     // different vocabulary from the locale above, so it is published rather than
     // guessed at on the page.
     subtitleLanguages: SUBTITLE_LANGUAGES.map(([code, label]) => [code, label]),
+    // **Whether the server can play a magnet itself.** The player reads this once: with
+    // the engine the magnet is streamed from here (real TCP peers, real progress), and
+    // without it the page's own WebTorrent is tried and the debrid account is the only
+    // thing that makes a public swarm work.
+    torrent: torrentState(),
   };
 }
 
@@ -1381,8 +1410,32 @@ function watchlistPayload() {
  * The custom rows as the app reads them: every stored title (tagged with its
  * row so one read is enough), plus how many titles each row holds.
  */
+/**
+ * **Watched titles belong in two places, and this is the rule that keeps them there.**
+ *
+ * A title you have watched appears in the Watchlist card's **Watched** row and in a
+ * **Custom** row you put it in — and nowhere else: not in another Home card, not in
+ * another catalog row, not in search. Search in particular has **no filter to reveal
+ * them**: the answer for "show me that film again" is the Watched row, and a search that
+ * silently hid titles with no way to ask for them back would be the worse trade.
+ *
+ * The watchlist and custom rows are kept whole (they *are* the two places), so the
+ * filter is applied where a row came from TMDB.
+ */
+export function withoutWatched(metas, keep = false) {
+  if (keep) return metas;
+  const watched = watchedKeys();
+  if (!watched.length) return metas;
+  const set = new Set(watched);
+  const keyOf = (m) => `${m?.type === "series" ? "series" : "movie"}:${String(m?.id || "")}`;
+  return metas.filter((m) => !set.has(keyOf(m)));
+}
+
 function customPayload() {
-  return { rows: customRows(), counts: customCounts(), items: customItems() };
+  // `rows` carries each row's name and order as well as its count: the title page draws
+  // one "Add to …" button per row, so the names are needed on every read, not only in the
+  // settings pane. (`rows` used to be counts alone, which is a subset of this.)
+  return { rows: customRowList(), counts: customCounts(), items: customItems() };
 }
 
 /**
@@ -1416,7 +1469,7 @@ export async function handleAddon(req, res, pathname, origin) {
         // ratings are built from TMDB answers held in memory, so toggling enrichment
         // (or picking a different poster service / provider) rewrites nothing until
         // those answers are dropped — which is exactly "enrichment does nothing".
-        if (patch && ("enrich" in patch || "posters" in patch || "providers" in patch)) clearTmdbCache();
+        if (patch && ("enrich" in patch || "posters" in patch || "providers" in patch || "ratings" in patch)) clearTmdbCache();
         json(res, 200, { ...publicSettings(), options: appOptions(), dns: publicDns(), customSites: publicSites(), prefs: getPrefs() });
       } catch (err) {
         json(res, 400, { error: String(err?.message || err) });
@@ -1800,6 +1853,28 @@ export async function handleAddon(req, res, pathname, origin) {
     return true;
   }
 
+  // **A torrent, played by the server.** The magnet is resolved here and the file is
+  // piped to the browser with range support, because a page cannot join a TCP swarm and
+  // a `<video>` element seeks by asking for a byte range. Nothing is stored: the swarm is
+  // dropped when it has been idle. A debrid account is still tried first by the player —
+  // a cached torrent there starts instantly, while this has to find real peers.
+  if (pathname === "/stream/torrent") {
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    await handleTorrentStream(req, res, {
+      magnet: params.get("magnet") || "",
+      infoHash: params.get("ih") || "",
+      fileIdx: params.get("idx"),
+    });
+    return true;
+  }
+
+  // The player's live readout for a swarm it started: peers, progress, speed.
+  if (pathname === "/torrent/status") {
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    json(res, 200, { ok: true, status: torrentStatus(params.get("ih") || "") });
+    return true;
+  }
+
   /* --------------------------------------------------- manual verification */
 
   // When every tier was stopped by a bot check, the site is asking for a person. This
@@ -2024,6 +2099,35 @@ export async function handleAddon(req, res, pathname, origin) {
     return true;
   }
 
+  /**
+   * **Settings → Custom Rows: the rows themselves.**
+   *
+   * The rows the Custom card publishes — add one, rename it, delete it, move it up or
+   * down. What is *inside* a row is deliberately not part of this API: a card goes into a
+   * row from a title page, and this is where the row's name and place are kept.
+   */
+  if (pathname === "/custom-rows.json") {
+    json(res, 200, { ok: true, rows: customRowList(), max: MAX_CUSTOM_ROWS });
+    return true;
+  }
+
+  if (pathname.startsWith("/custom-rows/") && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const action = pathname.slice("/custom-rows/".length);
+      const result =
+        action === "add" ? customAddRow(body.name)
+        : action === "rename" ? customRenameRow(body.id, body.name)
+        : action === "delete" ? customDeleteRow(body.id)
+        : action === "move" ? customMoveRow(body.id, Number(body.delta) || 0)
+        : { ok: false, message: `Unknown action “${action}”.` };
+      json(res, 200, { ...result, rows: customRowList(), max: MAX_CUSTOM_ROWS });
+    } catch (err) {
+      json(res, 400, { ok: false, message: String(err?.message || err) });
+    }
+    return true;
+  }
+
   // The AI provider state (never the keys) and its two live calls.
   if (pathname === "/ai.json") {
     json(res, 200, aiState());
@@ -2079,7 +2183,9 @@ export async function handleAddon(req, res, pathname, origin) {
       const { metas, next } = query
         ? await searchTitles(query, filters, { adult, start })
         : await browseTitles(filters, { adult, start });
-      const kept = stripAdult(metas, adult);
+      // **Search never shows a watched title**, and there is deliberately no filter to
+      // bring them back: the Watched row on the Watchlist card is where they are.
+      const kept = withoutWatched(stripAdult(metas, adult));
       metas.length = 0;
       metas.push(...kept);
       await applyPosters(metas);
@@ -2344,9 +2450,16 @@ export async function handleAddon(req, res, pathname, origin) {
   const open = params.get("open") || "";
 
   try {
-    const metas = parsed.shuffle
-      ? await catalogShuffle(parsed.type, parsed.def, parsed.shuffle, { adult, language, sort })
-      : await catalogMetas(parsed.type, parsed.def, parsed.skip, { adult, language, sort, exclude, open, count: Number(params.get("count")) || 0 });
+    const kind = parsed.def.entry?.kind || "";
+    // A watchlist row and a custom row are the two places watched titles live, so they
+    // are served whole; every other row drops them.
+    const keepWatched = kind === "watchlist" || kind === "custom";
+    const metas = withoutWatched(
+      parsed.shuffle
+        ? await catalogShuffle(parsed.type, parsed.def, parsed.shuffle, { adult, language, sort })
+        : await catalogMetas(parsed.type, parsed.def, parsed.skip, { adult, language, sort, exclude, open, count: Number(params.get("count")) || 0 }),
+      keepWatched,
+    );
     // Better posters first (it may replace `poster`), then the chosen content
     // source (which owns the poster when it is TVDB), then extra metadata.
     await applyPosters(metas);

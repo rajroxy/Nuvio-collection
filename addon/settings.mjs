@@ -127,13 +127,24 @@ const DEFAULTS = {
   // headers, which most add-ons do not. Nothing here is a secret — a source is a
   // URL — so they travel back to the page verbatim.
   sources: [],
-  // Poster artwork. BetterPosters (bttr.cc) serves enhanced, tagged posters keyed
-  // by IMDb id; the pattern is editable so another service can be dropped in.
+  // Poster artwork. **Off by default, and the choice is one of three.** The artwork
+  // the providers serve is already 2:3 and tagged with the year — a poster service is
+  // for the people who want the artwork *replaced* by one carrying its ratings, so it
+  // is a deliberate pick rather than something already on. The pattern is still free
+  // text, so a service this app has never heard of can be dropped in; `{imdb_id}`,
+  // `{tmdb_id}`, `{type}` and `{rpdb_key}` are filled in per title.
   posters: {
-    enabled: true,
-    source: "bttr",
-    pattern: "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg",
+    enabled: false,
+    source: "none",
+    pattern: "",
     apiKey: "",
+  },
+  // Which ratings the title page shows. `none` hides the row, `free` reads IMDb /
+  // Rotten Tomatoes / Metacritic from their public pages with no key, and `mdblist`
+  // adds the aggregate (one key, many sources). TMDB's own score is always shown —
+  // it arrives with the title.
+  ratings: {
+    source: "free",
   },
   ai: {
     enabled: true,
@@ -260,9 +271,14 @@ export function publicSettings() {
     sources: Array.isArray(s.sources) ? s.sources : [],
     posters: {
       enabled: s.posters?.enabled !== false,
-      source: s.posters?.source || "bttr",
-      pattern: s.posters?.pattern || DEFAULT_POSTER_PATTERN,
+      source: s.posters?.source || "none",
+      pattern: s.posters?.pattern || "",
       hasKey: Boolean(s.posters?.apiKey),
+    },
+    // Which ratings service the title page is reading. One word, so it travels
+    // verbatim; the MDBList key itself is masked with the other provider keys.
+    ratings: {
+      source: ["none", "free", "mdblist"].includes(s.ratings?.source) ? s.ratings.source : "free",
     },
     // The AI keys are masked into a `hasKey` map as well — returning `s.ai`
     // verbatim (as this used to) would have shipped every pasted AI key to the
@@ -281,7 +297,7 @@ export function publicSettings() {
   };
 }
 
-const DEFAULT_POSTER_PATTERN = "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg";
+const DEFAULT_POSTER_PATTERN = "https://api.ratingposterdb.com/{rpdb_key}/imdb/poster-default/{imdb_id}.jpg";
 
 /** The content language every row is served in. */
 export const activeLanguage = () => load().language || process.env.NUVIO_LANGUAGE || "en-US";

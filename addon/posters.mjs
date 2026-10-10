@@ -1,29 +1,37 @@
 /**
- * Better posters.
+ * Better posters, from a service you choose.
  *
- * [BetterPosters](https://btttr.cc/) serves enhanced, tagged artwork keyed by
- * **IMDb id** — the URL pattern is
- * `https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg`. A TMDB list item
- * has no IMDb id, so one is resolved from TMDB's `external_ids` endpoint and
- * cached. A title with no IMDb id keeps its original poster (which is exactly
- * what the upstream Nuvio addon does), and the app can still upgrade that one by
- * requesting a larger TMDB size — the "apply it to the ones without a better
- * poster" option.
+ * **Off unless it is turned on, and there is no service baked into the app any
+ * more.** The artwork a provider serves is already the right shape; a poster service
+ * exists to *replace* it with one carrying the ratings, so it is a choice rather than
+ * a default. The pattern is a setting filled in per title — `{imdb_id}`, `{tmdb_id}`,
+ * `{type}` and `{rpdb_key}` (from the key stored beside it) — so
+ * [RatingPosterDB](https://ratingposterdb.com/) and anything shaped like it work
+ * without touching this file:
  *
- * The pattern and the API key are settings, so another poster service can be
- * used by changing the pattern without touching code.
+ *   https://api.ratingposterdb.com/{rpdb_key}/imdb/poster-default/{imdb_id}.jpg
+ *
+ * A TMDB list item has no IMDb id, so one is resolved from TMDB's `external_ids`
+ * endpoint and cached. A title with no IMDb id keeps its original poster, and the app
+ * can still upgrade that one by requesting a larger TMDB size — the "apply it to the
+ * ones without a better poster" option.
  */
 import { get, tmdbPath } from "./tmdb.mjs";
 import { getSettings } from "./settings.mjs";
 
-export const DEFAULT_PATTERN = "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg";
+export const DEFAULT_PATTERN = "https://api.ratingposterdb.com/{rpdb_key}/imdb/poster-default/{imdb_id}.jpg";
 
 const ID_TTL_MS = Number(process.env.POSTER_ID_TTL_MS) || 24 * 60 * 60 * 1000;
 const MISS_TTL_MS = 10 * 60 * 1000;
 const imdbCache = new Map();
 
 export const posterSettings = () => getSettings().posters || {};
-export const postersEnabled = () => posterSettings().enabled !== false;
+// **On, and pointed at something.** A switch with no pattern behind it would ask a
+// service for a URL built from an empty string, so "enabled but nothing chosen" is off.
+export const postersEnabled = () => {
+  const p = posterSettings();
+  return p.enabled === true && Boolean(String(p.pattern || "").trim());
+};
 
 /** IMDb id for a meta, from TMDB's external ids (cached). */
 export async function imdbId(meta) {
@@ -59,11 +67,14 @@ export const upscaleArt = (url) =>
   });
 
 /** Build the poster URL for a title from the configured pattern. */
-export function posterUrl(pattern, meta, imdb) {
+export function posterUrl(pattern, meta, imdb, apiKey = posterSettings().apiKey || "") {
   return pattern
     .replaceAll("{imdb_id}", imdb || "")
     .replaceAll("{tmdb_id}", String(meta.id || "").replace(/^tmdb:/, ""))
-    .replaceAll("{type}", meta.type === "movie" ? "movie" : "series");
+    .replaceAll("{type}", meta.type === "movie" ? "movie" : "series")
+    // The key travels **inside the URL** for RPDB and its look-alikes, so it is a
+    // placeholder rather than a header.
+    .replaceAll("{rpdb_key}", apiKey);
 }
 
 /**

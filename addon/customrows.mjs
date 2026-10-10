@@ -28,9 +28,23 @@ const FILE = process.env.NUVIO_CUSTOM_FILE || path.join(__dirname, "customrows.j
 /** The row the Watchlist card publishes after its three state rows. */
 export const DEFAULT_ROW = "add-cards";
 
+/**
+ * **How many custom rows the Custom card can hold.**
+ *
+ * The card's rows are published from a fixed set of ids (`add-cards`, `add-cards-2`, …)
+ * and each request names the ones that exist, in the user's order. A fixed ceiling is
+ * what keeps a row's *id* stable while its *name* changes: a catalog id in this app is
+ * built from the entry's row, so renaming a row never breaks the row that is already
+ * being read (or published to Nuvio).
+ */
+export const MAX_ROWS = 6;
+export const rowIdFor = (index) => (index === 0 ? DEFAULT_ROW : `${DEFAULT_ROW}-${index + 1}`);
+
 const keyOf = (item) => `${item?.type === "movie" ? "movie" : "series"}:${String(item?.id || "")}`;
 
 let cache = null;
+/** The custom card's rows: `[{ id, name, order }]`, in the user's order. */
+let metalist = null;
 
 function load() {
   if (cache) return cache;
@@ -51,14 +65,123 @@ function load() {
   return cache;
 }
 
+/**
+ * The rows the Custom card offers.
+ *
+ * A file written before rows had names holds no metadata, so the first row is named from
+ * the card itself (`add-cards` → `My List`) and every other row that holds something gets
+ * its id for a name. The **calendar** row (`calendar-plans`) is deliberately not part of
+ * this list: it is filled by the calendar, not by hand, so it never appears in Settings
+ * beside the rows you manage.
+ */
+function loadMeta() {
+  if (metalist) return metalist;
+  let raw = null;
+  try {
+    raw = JSON.parse(fs.readFileSync(FILE, "utf8"));
+  } catch {
+    /* no file yet */
+  }
+  const listed = Array.isArray(raw?.meta) ? raw.meta.filter((r) => r && r.id) : [];
+  const seen = new Set(listed.map((r) => String(r.id)));
+  const next = listed.map((r, i) => ({ id: String(r.id), name: String(r.name || "").slice(0, 40) || "My List", order: Number(r.order) || i }));
+  if (!seen.has(DEFAULT_ROW)) next.unshift({ id: DEFAULT_ROW, name: "My List", order: -1 });
+  // Any row that holds titles but predates the metadata keeps its contents and gets a row.
+  for (const id of load().keys()) {
+    if (id === CAL_PLANS || seen.has(id) || next.some((r) => r.id === id)) continue;
+    next.push({ id, name: id, order: next.length });
+  }
+  metalist = next.slice(0, MAX_ROWS).map((r, i) => ({ ...r, order: i }));
+  return metalist;
+}
+
+/** The calendar's own row: never in Settings, still a place titles can live. */
+const CAL_PLANS = "calendar-plans";
+
+function saveMeta() {
+  const rows = {};
+  for (const [id, items] of load()) rows[id] = [...items.values()];
+  try {
+    fs.writeFileSync(FILE, JSON.stringify({ rows, meta: loadMeta() }, null, 2) + "\n");
+  } catch {
+    /* read-only fs */
+  }
+}
+
 function save() {
   const rows = {};
   for (const [id, items] of load()) rows[id] = [...items.values()];
   try {
-    fs.writeFileSync(FILE, JSON.stringify({ rows }, null, 2) + "\n");
+    fs.writeFileSync(FILE, JSON.stringify({ rows, meta: loadMeta() }, null, 2) + "\n");
   } catch {
     /* read-only fs — the in-memory copy still works for this run */
   }
+}
+
+/* ------------------------------------------------------------------ the rows */
+
+/** Every custom row, in order, with how many titles it holds — empty ones included. */
+export function listRows() {
+  return loadMeta().map((r, i) => ({ ...r, order: i, count: (load().get(r.id) || new Map()).size }));
+}
+
+/** Add one row, named. Refused past the card's ceiling. */
+export function addRow(name = "") {
+  const all = loadMeta();
+  if (all.length >= MAX_ROWS) return { ok: false, message: `The card holds ${MAX_ROWS} rows already.` };
+  const label = String(name || "").trim().slice(0, 40) || `Row ${all.length + 1}`;
+  // The first free id: stable, and never reused for a row that was deleted.
+  const used = new Set(all.map((r) => r.id));
+  let id = "";
+  for (let i = 0; i < MAX_ROWS; i += 1) {
+    if (!used.has(rowIdFor(i))) { id = rowIdFor(i); break; }
+  }
+  if (!id) return { ok: false, message: "No free row id left." };
+  all.push({ id, name: label, order: all.length });
+  metalist = all.map((r, i) => ({ ...r, order: i }));
+  load().set(id, new Map());
+  saveMeta();
+  return { ok: true, id, name: label, rows: listRows(), message: `Added “${label}”.` };
+}
+
+export function renameRow(id, name) {
+  const all = loadMeta();
+  const row = all.find((r) => r.id === String(id || ""));
+  if (!row) return { ok: false, message: "That row does not exist." };
+  const label = String(name || "").trim().slice(0, 40);
+  if (!label) return { ok: false, message: "A row needs a name." };
+  row.name = label;
+  metalist = all;
+  saveMeta();
+  return { ok: true, rows: listRows(), message: `Renamed to “${label}”.` };
+}
+
+/** Delete a row — and the titles in it, which is the whole of what it held. */
+export function deleteRow(id) {
+  const all = loadMeta();
+  const at = all.findIndex((r) => r.id === String(id || ""));
+  if (at < 0) return { ok: false, message: "That row does not exist." };
+  if (all.length <= 1) return { ok: false, message: "The card needs at least one row." };
+  const [gone] = all.splice(at, 1);
+  const held = (load().get(gone.id) || new Map()).size;
+  load().delete(gone.id);
+  metalist = all.map((r, i) => ({ ...r, order: i }));
+  saveMeta();
+  return { ok: true, rows: listRows(), message: `Deleted “${gone.name}”${held ? ` and the ${held} title${held === 1 ? "" : "s"} it held` : ""}.` };
+}
+
+/** Move a row one place up (`delta: -1`) or down. */
+export function moveRow(id, delta = 0) {
+  const all = loadMeta();
+  const at = all.findIndex((r) => r.id === String(id || ""));
+  if (at < 0) return { ok: false, message: "That row does not exist." };
+  const to = Math.max(0, Math.min(all.length - 1, at + (delta > 0 ? 1 : -1)));
+  if (to === at) return { ok: true, rows: listRows() };
+  const [row] = all.splice(at, 1);
+  all.splice(to, 0, row);
+  metalist = all.map((r, i) => ({ ...r, order: i }));
+  saveMeta();
+  return { ok: true, rows: listRows() };
 }
 
 /** The rows that hold something, with how many titles each one holds. */

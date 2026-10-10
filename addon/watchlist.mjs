@@ -90,6 +90,18 @@ export function list(state) {
   return state ? items.filter((i) => i.state === state) : items;
 }
 
+/**
+ * The keys of every title in the **Watched** state.
+ *
+ * The app shows watched titles in exactly two places — the Watchlist card's Watched row
+ * and a Custom row you put them in — so every *other* row and every search has to be able
+ * to say "not this one". The keys are the same shape the store uses (`movie:<id>`), which
+ * is also the shape a TMDB meta arrives in, so nothing has to be re-derived.
+ */
+export function watchedKeys() {
+  return [...load().values()].filter((i) => i.state === "watched").map((i) => keyOf(i));
+}
+
 /** How many titles sit in each state — what the Watchlist card reports. */
 export function counts() {
   const out = Object.fromEntries(STATES.map((s) => [s, 0]));

@@ -320,8 +320,13 @@ function buildCatalogDefs(collections) {
         // A region-scoped service id carries its region, so two regions can never
         // collide on the same service name.
         const region = entry.region ? `-${String(entry.region).toLowerCase()}` : "";
+        // **A custom row is keyed by its row id, not its label.** The id of every other
+        // catalog is its name; a custom row's name is a setting the user can change at
+        // any time, so keying it on the name would move the id — and the row being
+        // published — every time someone renamed it.
+        const slugPart = entry.kind === "custom" && entry.row ? slug(entry.row) : slug(entry.name);
         defs.push({
-          id: `${CATALOG_ID_PREFIX}${c.key}--${slug(entry.name)}${region}`,
+          id: `${CATALOG_ID_PREFIX}${c.key}--${slugPart}${region}`,
           type,
           key: c.key,
           entry,

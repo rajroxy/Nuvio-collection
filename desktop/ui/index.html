@@ -16,6 +16,17 @@
       if (theme.base) root.style.setProperty("--accent", theme.base);
       if (theme.rgb) root.style.setProperty("--accent-rgb", theme.rgb);
       if (theme.deep) root.style.setProperty("--accent-deep", theme.deep);
+      // The typeface comes from the same record, so there is no flash of the default
+      // face either.
+      var fonts = {
+        inter: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+        system: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        grotesk: '"Space Grotesk", "Archivo", "Helvetica Neue", Inter, system-ui, sans-serif',
+        serif: '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif',
+        mono: 'ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace',
+        condensed: '"Arial Narrow", "Roboto Condensed", "Helvetica Neue", system-ui, sans-serif'
+      };
+      if (theme.font && fonts[theme.font]) root.style.setProperty("--font", fonts[theme.font]);
       if (theme.motion === "off") root.classList.add("motion-off");
       if (theme.motion === "full") root.classList.add("motion-full");
     }
@@ -31,7 +42,19 @@
        half-built behind a spinner that has already gone. -->
   <div class="boot" id="boot">
     <div class="boot-brand">
-      <span class="boot-name">Auto</span>
+      <!-- **The wordmark and its line are one column.** The progress line belongs under
+           the name, spanning exactly its width — not under the cat, and not across the
+           whole screen. -->
+      <span class="boot-name-col">
+        <span class="boot-name">Auto</span>
+        <!-- One line that fills from left to right, over and over. Drawn rather than a
+             percent figure: this screen waits on the first catalog read, and a number
+             that had to be invented would be a lie. CSS-only, so `motion-off` /
+             reduced-motion stop it like everything else here. -->
+        <span class="boot-loader" role="progressbar" aria-label="Loading">
+          <span class="boot-loader-bar" aria-hidden="true"></span>
+        </span>
+      </span>
       <!-- The logo mark: the classic anime black cat — black fur, oversized ears
            with iris-purple inner ears, and large white eyes with black pupils.
            Inline SVG so it needs no request and no separate asset; the halo and
@@ -117,13 +140,6 @@
           </g>
         </svg>
       </span>
-    </div>
-    <!-- The progress mark: one line that starts as a dot and stretches into a line,
-         over and over. It is drawn rather than a percent figure — this screen waits on
-         the first catalog read, and a number that has to be invented would be a lie.
-         CSS-only, so `motion-off` / reduced-motion stop it like everything else. -->
-    <div class="boot-loader" role="progressbar" aria-label="Loading">
-      <span class="boot-loader-bar" aria-hidden="true"></span>
     </div>
     <p class="boot-note">Preparing your collections…</p>
   </div>

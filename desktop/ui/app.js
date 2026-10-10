@@ -38,6 +38,7 @@ const KEY = {
   prefs: "nuvio.prefs",
   tracking: "nuvio.tracking",
   posters: "nuvio.posters",
+  ratings: "nuvio.ratings",
   ai: "nuvio.ai",
   language: "nuvio.language",
   country: "nuvio.country",
@@ -45,6 +46,7 @@ const KEY = {
   enrich: "nuvio.enrich",
   section: "nuvio.settingsSection",
   accent: "nuvio.accent",
+  font: "nuvio.font",
   motion: "nuvio.motion",
   // The resolved accent colours, written for the boot script in `index.html`.
   theme: "nuvio.theme",
@@ -150,9 +152,35 @@ const ACCENTS = [
   ["green", "Green", "123, 200, 132", "#7bc884", "#4e9a58"],
   ["rose", "Rose", "228, 120, 152", "#e47898", "#b04d6b"],
   ["slate", "Slate", "160, 172, 190", "#a0acbe", "#6f7c8e"],
+  // The second row of choices: **warmer and cooler ends** of the same idea, so there is
+  // something for a screen that is too dim or too bright for the first eight.
+  ["crimson", "Crimson", "224, 92, 92", "#e05c5c", "#a83a3a"],
+  ["coral", "Coral", "240, 138, 108", "#f08a6c", "#bd5a3d"],
+  ["magenta", "Magenta", "216, 110, 196", "#d86ec4", "#a3448f"],
+  ["indigo", "Indigo", "122, 130, 236", "#7a82ec", "#4c53bd"],
+  ["lime", "Lime", "166, 214, 90", "#a6d65a", "#769f2f"],
+  ["ice", "Ice", "126, 208, 226", "#7ed0e2", "#4b9cb1"],
 ];
 
 const accentOf = (id) => ACCENTS.find(([key]) => key === id) || ACCENTS[0];
+
+/**
+ * The typefaces Settings offers.
+ *
+ * Every one is a **stack, not a download**: the app has to work with no network and no
+ * web font in the page, so each option lists local families and falls back to the system
+ * UI face. The first entry is the app's own default, so nothing changes for anyone who
+ * never opens the Appearance pane.
+ */
+const FONTS = [
+  ["inter", "Inter (default)", 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'],
+  ["system", "System", 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'],
+  ["grotesk", "Grotesk", '"Space Grotesk", "Archivo", "Helvetica Neue", Inter, system-ui, sans-serif'],
+  ["serif", "Serif", '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif'],
+  ["mono", "Mono", 'ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace'],
+  ["condensed", "Condensed", '"Arial Narrow", "Roboto Condensed", "Helvetica Neue", system-ui, sans-serif'],
+];
+const fontOf = (id) => FONTS.find(([key]) => key === id) || FONTS[0];
 
 /**
  * How much the app moves.
@@ -265,20 +293,24 @@ const TRACKER_GROUPS = [
 ];
 
 /**
- * Poster services. Each entry is a URL **pattern** — `{imdb_id}` and `{tmdb_id}` are
- * filled in per title.
+ * Poster services. Each entry is a URL **pattern** — `{imdb_id}`, `{tmdb_id}`,
+ * `{type}` and `{rpdb_key}` are filled in per title.
  *
- * BetterPosters (bttr.cc) needs **no key at all**, which is why the old API-key box
- * is gone: a service whose key really is required carries it *inside its URL*, so
- * the pattern box is the only input this pane needs.
+ * **No service is bundled any more.** The artwork the providers serve is already 2:3
+ * and tagged with the year; a poster service exists to *replace* it with one carrying
+ * the ratings, so it is a choice, and "None" is a real choice. RPDB is the one that
+ * covers films, series and anime alike and puts the ratings on the art; anything else
+ * that takes an id in its URL goes in the pattern box.
  */
 const POSTER_SERVICES = [
+  ["none", "None", "", "Keep the artwork the provider served. Nothing is requested from a poster service."],
   [
-    "bttr",
-    "BetterPosters · IMDb id",
-    "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg",
-    "No key needed. Keyed by IMDb id, so a TMDB title has its IMDb id resolved first — one extra lookup per title.",
+    "rpdb",
+    "RatingPosterDB (RPDB)",
+    "https://api.ratingposterdb.com/{rpdb_key}/imdb/poster-default/{imdb_id}.jpg",
+    "Films, series and anime with the ratings printed on the poster. Keyed by IMDb id, so a TMDB title has its IMDb id resolved first — one extra lookup per title. Needs your own RPDB key, pasted below.",
   ],
+  ["custom", "Something else", "", "Any URL that takes an id — {imdb_id}, {tmdb_id}, {type} and {rpdb_key} are filled in per title."],
 ];
 
 const TRACKERS = TRACKER_GROUPS.flatMap((group) => group.services);
@@ -369,8 +401,11 @@ const SETTINGS_GROUPS = [
     sections: [["subtitles", "Subtitles"]],
   },
   {
+    // **The ratings service, which is more than MDBList now.** The tab was named after
+    // the aggregate alone, which read as "this pane is about a key" rather than "this is
+    // where the ratings row comes from".
     group: "Ratings",
-    sections: [["ratings", "MDBList"]],
+    sections: [["ratings", "Ratings"]],
   },
   {
     group: "Assistant",
@@ -484,7 +519,10 @@ const state = {
     anilist: { enabled: false },
     mydramalist: { enabled: false },
   }),
-  posters: readJSON(KEY.posters, { enabled: true, pattern: "" }),
+  posters: readJSON(KEY.posters, { enabled: false, source: "none", pattern: "" }),
+  // Which ratings service the title page reads (Settings → Ratings). Mirrored from the
+  // server like everything else, so the pane draws before the first answer.
+  ratings: readJSON(KEY.ratings, { source: "free" }),
   ai: readJSON(KEY.ai, {
     enabled: true,
     provider: "groq",
@@ -503,8 +541,12 @@ const state = {
   watchItems: [],
   // The custom rows you fill yourself: which row each stored title is in.
   customItems: [],
+  // The custom card's rows (Settings → Custom Rows): `[{ id, name, order, count }]`.
+  customRows: [],
   // The Custom card's label (a setting — see Settings → Content).
   customLabel: "Custom",
+  // The typeface everything is set in (Settings → Appearance). Applies on the next paint.
+  font: "inter",
   sources: migrateSources(readJSON(KEY.sources, [])),
   // App language and the country whose services the regional OTT cards show.
   language: localStorage.getItem(KEY.language) || "en-US",
@@ -525,6 +567,7 @@ const state = {
   searchVocab: null,
   settingsSection: localStorage.getItem(KEY.section) || "profile",
   accent: localStorage.getItem(KEY.accent) || "gold",
+  font: localStorage.getItem(KEY.font) || "inter",
   motion: localStorage.getItem(KEY.motion) || "auto",
   // "Pick the cards for you": when it is on, the per-profile visibility below
   // decides which rows, cards and catalog rows this profile shows. Off means every
@@ -588,6 +631,7 @@ function applyWatchlist(payload) {
  */
 function applyCustomRows(payload) {
   state.customItems = payload?.items || [];
+  if (Array.isArray(payload?.rows)) state.customRows = payload.rows;
 }
 
 const rowKey = () => state.row;
@@ -748,6 +792,10 @@ function mergeServerSettings(res) {
     state.posters = { ...state.posters, ...res.posters };
     writeJSON(KEY.posters, state.posters);
   }
+  if (res.ratings && typeof res.ratings.source === "string") {
+    state.ratings = { ...state.ratings, source: res.ratings.source };
+    writeJSON(KEY.ratings, state.ratings);
+  }
   if (res.ai) {
     state.ai = { ...state.ai, ...res.ai };
     writeJSON(KEY.ai, state.ai);
@@ -821,6 +869,28 @@ async function setWatchState(item, next) {
 }
 
 /**
+ * **Watching starts itself at 5%.**
+ *
+ * Press Play, get five percent in, and the title belongs in the Watching row — that is
+ * where a list of what you are watching comes from, and asking someone to also press a
+ * button after they have started watching is asking them to keep the list by hand. Only
+ * a title with **no state at all** is moved: something marked Plan to Watch or Watched
+ * on purpose stays where it was put, and the write happens once per player, not on every
+ * `timeupdate`.
+ */
+const WATCH_AT = 0.05;
+let watchedMarked = "";
+async function watchedPast(meta, ratio) {
+  const item = meta || {};
+  if (!item.id || ratio < WATCH_AT) return;
+  const key = watchKey(item);
+  if (watchedMarked === key) return;
+  watchedMarked = key;
+  if (state.watchlist[key]) return;
+  await setWatchState(item, "watching");
+}
+
+/**
  * The poster to show. A "better poster" (btttr.cc) is used as-is; anything the
  * poster service could not cover gets the upscale treatment, which is the
  * "apply it to the ones without a better poster" option in AI settings.
@@ -888,9 +958,9 @@ const CUSTOM_ROW = "add-cards";
 const customLabel = () => state.customLabel || "Custom";
 
 /** Is this title already in your custom list? */
-const inCustomRow = (m) =>
+const inCustomRow = (m, rowId = CUSTOM_ROW) =>
   state.customItems.some(
-    (i) => i.row === CUSTOM_ROW && String(i.id) === String(m?.id) && (i.type === "series") === (m?.type === "series"),
+    (i) => i.row === rowId && String(i.id) === String(m?.id) && (i.type === "series") === (m?.type === "series"),
   );
 
 /**
@@ -900,9 +970,9 @@ const inCustomRow = (m) =>
  * to undo, and the list is read back from the server so the Custom card's row is
  * redrawn with what it now holds.
  */
-async function toggleCustomRow(item) {
+async function toggleCustomRow(item, rowId = CUSTOM_ROW) {
   try {
-    const res = await post("/customrows", { row: CUSTOM_ROW, item: pinOf(item) });
+    const res = await post("/customrows", { row: rowId, item: pinOf(item) });
     if (res && Array.isArray(res.items)) applyCustomRows(res);
   } catch {
     /* offline — the list simply does not change */
@@ -1693,6 +1763,35 @@ function artImage(src, m, attrs = {}) {
   return img;
 }
 
+/**
+ * How many poster slots this card's frame holds.
+ *
+ * **Worked out from the frame, not fixed at four.** The tiles were a fixed count stretched
+ * across the frame (`flex: 1`), so a poster was cropped to whatever shape the slot happened
+ * to be — about 0.43:1 on the taller cards, which cuts roughly a third off the width of a
+ * 2:3 poster and takes the title lettering with it. The slot is 2:3 now and the count comes
+ * from the measurement: about three at the usual card width, fewer in a narrow one, and the
+ * height-constrained count on a wide short frame so a portrait tile is never clipped.
+ *
+ * A frame that cannot be measured (a detached one, or a test) keeps the count it was given.
+ */
+const TILE_GAP = 8;
+const TILE_MIN_W = 104;
+const TILE_RATIO = 2 / 3;
+function tilesThatFit(strip, fallback) {
+  const w = Math.floor(strip.clientWidth || 0);
+  const h = Math.floor(strip.clientHeight || 0);
+  if (!w || !h) return fallback;
+  const clamp = (n) => Math.max(1, Math.min(6, Math.floor(n)));
+  const byWidth = Math.max(1, Math.min(6, Math.round((w + TILE_GAP) / (TILE_MIN_W + TILE_GAP))));
+  const tileW = (w - (byWidth - 1) * TILE_GAP) / byWidth;
+  // A portrait tile at that width is taller than the frame: size them by the frame's
+  // height instead, which is how many of *that* size fit across.
+  const byHeight = Math.max(1, Math.min(6, clamp((w + TILE_GAP) / (h * TILE_RATIO + TILE_GAP))));
+  strip.style.setProperty("--tiles", String(tileW / TILE_RATIO <= h ? byWidth : byHeight));
+  return tileW / TILE_RATIO <= h ? byWidth : byHeight;
+}
+
 function drawTiles(strip, art, count, layout) {
   if (layout === "backdrop") {
     // One wide shot from the card's own titles, picked once per launch. The banner
@@ -1825,7 +1924,7 @@ function hydrateContent() {
     }
     const cached = contentDrawn.get(job.key);
     if (cached) {
-      drawTiles(strip, cached, job.count, job.layout);
+      drawTiles(strip, cached, tilesThatFit(strip, job.count), job.layout);
       continue;
     }
     const cats = orderedCatalogs(job.card).filter(catalogVisible);
@@ -1873,7 +1972,7 @@ async function fillFrame(strip, job, cats, from) {
     const pins = await watchlistArt(job.row);
     if (pins.length) {
       contentDrawn.set(job.key, pins);
-      if (strip.isConnected) drawTiles(strip, pins, job.count, job.layout);
+      if (strip.isConnected) drawTiles(strip, pins, tilesThatFit(strip, job.count), job.layout);
       return;
     }
   }
@@ -1885,7 +1984,7 @@ async function fillFrame(strip, job, cats, from) {
     const picks = await recommendWall(job.row, cats.slice(0, Math.max(1, job.count || 4)));
     if (picks.length) {
       contentDrawn.set(job.key, picks);
-      if (strip.isConnected) drawTiles(strip, picks, job.count, job.layout);
+      if (strip.isConnected) drawTiles(strip, picks, tilesThatFit(strip, job.count), job.layout);
       return;
     }
   }
@@ -1965,7 +2064,7 @@ async function collectArt(strip, job, media, cats, from, art) {
       if (!got.length) continue;
       art.push(...got);
       contentDrawn.set(job.key, art);
-      if (strip.isConnected) drawTiles(strip, art, job.count, job.layout);
+      if (strip.isConnected) drawTiles(strip, art, tilesThatFit(strip, job.count), job.layout);
       if (!gather) return art;
     } catch {
       /* the next row may answer */
@@ -4032,7 +4131,16 @@ async function renderTitle(type, id) {
             text: "▶  Play",
             // Play opens the add-on picker, so its tooltip says so.
             title: "Choose which add-on plays this title",
-            onclick: () => openSources(meta),
+            // **Full screen here, while the click is still a user gesture.** The player
+            // asks for it too, but by then it has awaited a round of add-on calls and
+            // browsers refuse a fullscreen request outside the gesture that asked for
+            // it — which is why pressing the fullscreen control worked and pressing Play
+            // did not. Asking now puts the app in fullscreen *before* the picture exists,
+            // where the player's own request is only a second try.
+            onclick: () => {
+              if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => { /* the overlay still fills the window */ });
+              openSources(meta);
+            },
           }),
           // The pin buttons live on the page now, not in a modal.
           el("div", { class: "title-pins", id: "title-pins" }, ...pinButtons(meta)),
@@ -4077,7 +4185,7 @@ async function renderTitle(type, id) {
           )
         : null,
 
-      ratingsRow(data.ratings),
+      ratingsRow(data.ratings, data.ratingsNote),
 
       trailersRow(data.trailers),
 
@@ -4327,19 +4435,22 @@ const listQuery = (type) => `?type=${encodeURIComponent(type)}${state.safe ? "" 
 /** The pin buttons for a title — the same ones the quick-look modal draws. */
 function pinButtons(item) {
   const current = state.watchlist[watchKey(item)] || "";
-  const customOn = inCustomRow(item);
-  // **The order the buttons are offered in**: Add to Custom, then Plan to Watch and
-  // Watched. There is no Watching pin — the three states read as one choice with a
-  // redundant middle, so the title page offers the two that differ.
+  // **One button per custom row.** The card can hold several rows now, so a title can go
+  // into any of them — a single "Add to Custom" could only ever reach the first. Each
+  // button toggles its own row, and the ones the title is already in say so.
+  const rows = state.customRows?.length ? state.customRows : [{ id: CUSTOM_ROW, name: customLabel() }];
   return [
-    el("button", {
-      class: `btn pin focusable${customOn ? " active" : ""}`,
-      type: "button",
-      id: "pin-custom",
-      title: customOn ? `In ${customLabel()} — click to remove` : `Add to ${customLabel()}`,
-      "aria-pressed": String(customOn),
-      text: customOn ? `${customLabel()} · added` : `Add to ${customLabel()}`,
-      onclick: () => toggleCustomRow(item),
+    ...rows.map((row) => {
+      const on = inCustomRow(item, row.id);
+      return el("button", {
+        class: `btn pin focusable${on ? " active" : ""}`,
+        type: "button",
+        id: `pin-custom-${row.id}`,
+        title: on ? `In ${row.name} — click to remove` : `Add to ${row.name}`,
+        "aria-pressed": String(on),
+        text: on ? `${row.name} · added` : `Add to ${row.name}`,
+        onclick: () => toggleCustomRow(item, row.id),
+      });
     }),
     ...PIN_STATES.map(([sid, label]) =>
       el("button", {
@@ -5467,82 +5578,111 @@ function visCard(card, v) {
 }
 
 /**
- * Settings → Posters: one switch, the poster service, and its URL pattern.
+ * Settings → Posters: the switch, the service, and its own URL.
  *
- * There is **no API-key box**: the service bttr.cc needs no key at all, and the one
- * that does (RPDB) carries it inside its own URL — so the pattern is the single
- * input this pane needs, and a second box would only ask for a key nothing reads.
+ * **The service is a choice with a None.** Off is the default: the providers already
+ * send 2:3 artwork with the year on it, and a poster service is for replacing that with
+ * artwork carrying the ratings. RPDB keeps its key *inside the URL*, which is why the
+ * key box writes into the pattern rather than being sent anywhere else — and why a
+ * service this app has never heard of works too: put its URL in the pattern.
  */
 function panePosters() {
+  const stored = state.posters || {};
+  const host = (url) => String(url || "").match(/^https?:\/\/([^/]+)/i)?.[1]?.toLowerCase() || "";
+  const hostname = host(stored.pattern);
+  // Which service the saved pattern belongs to, matched on the host — an RPDB URL
+  // carries the user's own key, so it never equals the template.
+  // **The stored source wins when it is one this pane offers.** Deriving the choice
+  // from the pattern alone put "Something else" with an empty pattern back on None the
+  // moment it was picked, so the radio jumped away from the one that had just been
+  // chosen — and the pattern box it should have revealed never appeared.
+  const known = POSTER_SERVICES.some(([id]) => id === stored.source);
+  const current = known
+    ? stored.source
+    : hostname.includes("ratingposterdb.com")
+      ? "rpdb"
+      : stored.pattern
+        ? "custom"
+        : "none";
+
   const pattern = el("input", {
     class: "text-input focusable",
     type: "text",
     id: "poster-pattern",
-    value: state.posters.pattern || POSTER_SERVICES[0][2],
+    value: stored.pattern || "",
     placeholder: "https://…/{imdb_id}.jpg",
+  });
+  // The key RPDB wants. It is written into the pattern as `{rpdb_key}` server-side, so
+  // it never sits in the page's own copy of the URL.
+  const keyInput = el("input", {
+    class: "text-input focusable",
+    type: "password",
+    id: "poster-key",
+    value: "",
+    placeholder: stored.hasKey ? "a key is saved — paste a new one to replace it" : "your RPDB key",
   });
   const status = el("span", { class: "source-status", text: "" });
 
-  // Which service the stored pattern belongs to. Matched on the host rather than on
-  // the whole string, because an RPDB URL carries the user's own key in it and would
-  // never equal the template.
-  const host = (url) => String(url || "").match(/^https?:\/\/([^/]+)/i)?.[1]?.toLowerCase() || "";
-  const current = String(state.posters.pattern || POSTER_SERVICES[0][2]);
-  const hostname = host(current);
-  const active = hostname.includes("btttr.cc")
-    ? "bttr"
-    : hostname.includes("ratingposterdb.com")
-      ? "rpdb"
-      : "custom";
+  const savePosters = async (patch) => {
+    state.posters = { ...state.posters, ...patch };
+    writeJSON(KEY.posters, state.posters);
+    await pushSettings({ posters: patch });
+    render();
+  };
 
   return [
-    toggleRow(state.posters.enabled !== false, "Upgrade posters everywhere", "Use the poster service for every title; titles it cannot cover keep their original artwork.", (e) => {
-      state.posters = { ...state.posters, enabled: e.target.checked };
-      writeJSON(KEY.posters, state.posters);
-      pushSettings({ posters: { enabled: e.target.checked } });
-      render();
-    }),
+    toggleRow(stored.enabled === true, "Upgrade posters everywhere", "Replace the artwork with the poster service's version for every title; titles it cannot cover keep theirs.", (e) => savePosters({ enabled: e.target.checked })),
     el("div", { class: "provider" },
       el("span", { class: "option-title", text: "Poster service" }),
-      el("p", { class: "option-desc", text: "Which service supplies the artwork, and the URL it is asked for. Pick one and its pattern is filled in below; edit the pattern to use anything else — {imdb_id}, {tmdb_id} and {type} are filled in per title." }),
+      el("p", { class: "option-desc", text: "Which service supplies the artwork. Its pattern is filled in below; edit the pattern to use anything else — {imdb_id}, {tmdb_id}, {type} and {rpdb_key} are filled in per title." }),
       ...POSTER_SERVICES.map(([id, label, url, desc]) =>
-        radioRow(active === id, "posterservice", label, desc, async () => {
-          state.posters = { ...state.posters, source: id, pattern: url, enabled: true };
-          writeJSON(KEY.posters, state.posters);
-          await pushSettings({ posters: { source: id, pattern: url, enabled: true } });
-          render();
-        }),
+        radioRow(current === id, "posterservice", label, desc, () => savePosters({ source: id, pattern: url, enabled: id !== "none" })),
       ),
-      active === "custom"
-        ? el("p", { class: "option-desc", text: "A pattern of your own — save it below and check that it answers." })
-        : null,
     ),
-    el("div", { class: "provider" },
-      el("span", { class: "option-title", text: "URL pattern" }),
-      el("div", { class: "source-form" }, pattern,
-        el("button", { class: "btn primary focusable", type: "button", text: "Save pattern", onclick: async () => {
-          const value = pattern.value.trim();
-          if (!value) return;
-          state.posters = { ...state.posters, pattern: value };
-          writeJSON(KEY.posters, state.posters);
-          await pushSettings({ posters: { pattern: value } });
-          render();
-        } }),
-        el("button", { class: "btn subtle focusable", type: "button", text: "Check service", onclick: async () => {
-          status.className = "source-status";
-          status.textContent = "Checking…";
-          try {
-            const res = await get("/posters/check");
-            status.className = `source-status ${res.ok ? "ok" : "bad"}`;
-            status.textContent = res.text;
-          } catch (err) {
-            status.className = "source-status bad";
-            status.textContent = `could not check — ${err.message}`;
-          }
-        } }),
-      ),
-      el("div", { class: "provider-check" }, status),
-    ),
+    current === "custom" || current === "rpdb"
+      ? el("div", { class: "provider" },
+          el("span", { class: "option-title", text: current === "rpdb" ? "RPDB key" : "URL pattern" }),
+          current === "rpdb"
+            ? el("p", { class: "option-desc", text: "RPDB takes its key in the URL itself. It is stored on the server and substituted for {rpdb_key}; the page never holds the finished URL." })
+            : null,
+          el("div", { class: "source-form" },
+            current === "rpdb"
+              ? keyInput
+              : pattern,
+            el("button", {
+              class: "btn primary focusable", type: "button", id: "poster-save", text: current === "rpdb" ? "Save key" : "Save pattern",
+              onclick: async () => {
+                if (current === "rpdb") {
+                  const value = keyInput.value.trim();
+                  if (!value) return;
+                  await savePosters({ apiKey: value });
+                  keyInput.value = "";
+                  return;
+                }
+                const value = pattern.value.trim();
+                if (!value) return;
+                await savePosters({ pattern: value });
+              },
+            }),
+            el("button", {
+              class: "btn subtle focusable", type: "button", id: "poster-check", text: "Check service",
+              onclick: async () => {
+                status.className = "source-status";
+                status.textContent = "Checking…";
+                try {
+                  const res = await get("/posters/check");
+                  status.className = `source-status ${res.ok ? "ok" : "bad"}`;
+                  status.textContent = res.text;
+                } catch (err) {
+                  status.className = "source-status bad";
+                  status.textContent = `could not check — ${err.message}`;
+                }
+              },
+            }),
+          ),
+          el("div", { class: "provider-check" }, status),
+        )
+      : null,
   ];
 }
 
@@ -5576,11 +5716,43 @@ function paneProviders() {
   ];
 }
 
-/** Settings → MDBList: the aggregate ratings service, on its own tab. */
+/**
+ * Rating services, as this pane offers them.
+ *
+ * **`free` is the interesting one**: IMDb, Rotten Tomatoes and Metacritic each publish
+ * a score on their own page, so this needs no account and no key — which is why the
+ * ratings row on a title page is real out of the box. MDBList is the aggregate: one key
+ * that answers for every source it knows at once, films, series and anime alike.
+ */
+const RATING_SERVICES = [
+  ["none", "None", "No extra ratings — the title page keeps TMDB's own score and nothing else."],
+  ["free", "Public pages (no key)", "IMDb, Rotten Tomatoes and Metacritic read from their own pages. Nothing to sign up for; each title is looked up once and cached."],
+  ["mdblist", "MDBList (one key)", "MDBList merges IMDb, Rotten Tomatoes, Metacritic, Trakt, Letterboxd and more into scores for every title type. Needs the key below."],
+];
+
+/** Settings → Ratings: which services the title page reads, and MDBList's key. */
 function paneRatings() {
+  const source = state.ratings?.source || "free";
   return [
-    el("p", { class: "option-desc", text: "MDBList merges IMDb, Rotten Tomatoes, Metacritic and Trakt into one score per title, and it is what the ratings plates on a title page read when it is on. It has its own section because it is a ratings service, not a title provider." }),
-    providerRow("mdblist"),
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "Ratings service" }),
+      el("p", { class: "option-desc", text: "What the ratings row on a title page is built from. TMDB's own score is always shown — it arrives with the title." }),
+      ...RATING_SERVICES.map(([id, label, desc]) =>
+        radioRow(source === id, "ratingservice", label, desc, () => {
+          state.ratings = { ...state.ratings, source: id };
+          writeJSON(KEY.ratings, state.ratings);
+          pushSettings({ ratings: { source: id } });
+          render();
+        }),
+      ),
+    ),
+    source === "mdblist"
+      ? el("div", { class: "group-head" },
+          el("span", { class: "option-title", text: "MDBList" }),
+          el("span", { class: "option-desc", text: "The key is stored on the server; the page only ever learns whether one is set." }),
+        )
+      : null,
+    source === "mdblist" ? providerRow("mdblist") : null,
   ];
 }
 
@@ -5856,6 +6028,9 @@ function paneContent() {
 function applyTheme() {
   const [, , rgb, base, deep] = accentOf(state.accent);
   const root = document.documentElement;
+  // **The typeface is one custom property.** Written here with the accent, and written
+  // into the boot record below, so the first paint is already in the chosen face.
+  root.style.setProperty("--font", fontOf(state.font)[2]);
   root.style.setProperty("--accent", base);
   root.style.setProperty("--accent-rgb", rgb);
   root.style.setProperty("--accent-deep", deep);
@@ -5865,7 +6040,7 @@ function applyTheme() {
   // the first paint**. Without it the app painted its default gold and then
   // re-tinted a frame later — the "golden accent on boot" flash.
   try {
-    localStorage.setItem(KEY.theme, JSON.stringify({ base, rgb, deep, motion: state.motion }));
+    localStorage.setItem(KEY.theme, JSON.stringify({ base, rgb, deep, motion: state.motion, font: state.font }));
   } catch {
     /* private mode — the app still tints, it just flashes on the next boot */
   }
@@ -5897,6 +6072,24 @@ function paneAppearance() {
         ),
       ),
       el("div", { class: "provider-check" }, el("span", { class: "source-status", text: `Accent: ${accentOf(state.accent)[1]}` })),
+    ),
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Typeface" }),
+      el("span", { class: "option-desc", text: "What the whole app is set in. Every option is a stack of local fonts, so nothing is downloaded and the app still reads the same offline." }),
+    ),
+    el("div", { class: "provider" },
+      ...FONTS.map(([id, label, stack]) =>
+        radioRow(state.font === id, "font", label, "", () => {
+          state.font = id;
+          localStorage.setItem(KEY.font, id);
+          applyTheme();
+          render();
+        }),
+      ),
+      el("div", { class: "provider-check" },
+        el("span", { class: "source-status", text: `Typeface: ${fontOf(state.font)[1]}` }),
+        el("span", { class: "font-sample", style: `font-family: ${fontOf(state.font)[2]}`, text: "The quick brown fox — 0123456789" }),
+      ),
     ),
     el("div", { class: "group-head" },
       el("span", { class: "option-title", text: "Motion" }),
@@ -6252,153 +6445,144 @@ function paneAddonsPlugins() {
 
 /* --------------------------------------------------------------- Custom Rows */
 
-/** How a row id is named to a person. */
-function customRowLabel(id) {
-  if (id === CUSTOM_ROW) return `${customLabel()} card`;
-  if (id === CAL_ROW) return "Calendar plans";
-  return id;
-}
-
-/** When the rows were last read, so the pane's own redraw cannot loop. */
+/** When the row list was last read, so the pane's own redraw cannot loop. */
 let customRowsFetchedAt = 0;
 
-async function clearCustomRow(rowId) {
-  const res = await post("/customrows", { row: rowId, clearRow: true }).catch(() => null);
-  if (res && Array.isArray(res.items)) applyCustomRows(res);
-  render();
-}
-
-async function dropFromCustomRow(rowId, item) {
-  const res = await post("/customrows", { row: rowId, item: pinOf(item), remove: true }).catch(() => null);
-  if (res && Array.isArray(res.items)) applyCustomRows(res);
-  render();
-}
-
 /**
- * Settings → Custom Rows: the card's name, and every card it holds.
+ * Settings → Custom Rows: the card's rows, and only its rows.
  *
- * The cards get **into** a row from a title page (the Custom button beside the watch
- * states, and the calendar's plan button) — there is deliberately no way to add one from
- * here, because a card with no title behind it is not a card. What this pane is for is the
- * other direction: seeing the list, taking one out, and emptying a row you have finished
- * with. The rows are read fresh when the pane is opened, so a card added a moment ago on a
- * title page is already in the list.
+ * **What this pane is, and what it deliberately is not.** It manages the *rows*: add one,
+ * rename it, delete it, move it up or down. It does not list what is inside a row — the
+ * card goes into a row from a title page, and a settings screen that also listed every
+ * title would be a second, worse home screen. The calendar's own row is not here either:
+ * it is filled by the calendar, not by hand, so it is not one of "your" rows.
+ *
+ * The read is fresh when the pane opens (with a floor, so a redraw cannot loop), which is
+ * what makes it agree with the pin buttons on a title page.
  */
 function paneCustomRows() {
-  if (Date.now() - customRowsFetchedAt > 2000) {
+  if (Date.now() - customRowsFetchedAt > 1500) {
     customRowsFetchedAt = Date.now();
-    get("/customrows.json")
+    get("/custom-rows.json")
       .then((res) => {
-        applyCustomRows(res);
+        if (Array.isArray(res?.rows)) state.customRows = res.rows;
         if (state.settingsSection === "customrows") render();
       })
-      .catch(() => { /* offline: the pane still shows what the app already knows */ });
+      .catch(() => { /* offline: the pane shows the rows the app already knows */ });
   }
 
-  const grouped = new Map();
-  for (const item of state.customItems || []) {
-    if (!grouped.has(item.row)) grouped.set(item.row, []);
-    grouped.get(item.row).push(item);
-  }
-  // The card's own row is drawn even while empty, so where its cards come from is
-  // explained before there are any rather than only after.
-  if (!grouped.has(CUSTOM_ROW)) grouped.set(CUSTOM_ROW, []);
+  const rows = state.customRows || [];
+  const max = 6;
+  const newName = el("input", { class: "text-input focusable", type: "text", id: "custom-row-name", maxlength: "40", placeholder: "New row name" });
+  const addNote = el("span", { class: `source-status${state.customRowNote ? (state.customRowNote.ok ? " ok" : " bad") : ""}`, text: state.customRowNote?.text || "" });
+  const setNote = (text, ok = false) => {
+    state.customRowNote = text ? { text, ok } : null;
+    addNote.className = `source-status${ok ? " ok" : text ? " bad" : ""}`;
+    addNote.textContent = text || "";
+  };
+  newName.addEventListener("input", () => setNote(""));
 
-  const nameInput = el("input", { class: "text-input focusable", type: "text", id: "custom-label", maxlength: "40", value: customLabel() });
-  // **The verdict is kept on the state, not only in the DOM.** Saving the name re-renders
-  // this pane, so a message written straight onto the element would be wiped before it
-  // could be read — the same reason the DNS pane keeps its status on `state.dns`. It is
-  // dropped as soon as the field is edited again.
-  const saved = state.customLabelNote;
-  const nameNote = el("span", { class: `source-status${saved ? (saved.ok ? " ok" : " bad") : ""}`, text: saved?.text || "" });
-  nameInput.addEventListener("input", () => {
-    if (!state.customLabelNote) return;
-    state.customLabelNote = null;
-    nameNote.className = "source-status";
-    nameNote.textContent = "";
-  });
-
-  const order = [...grouped.keys()].sort((a, b) => (a === CUSTOM_ROW ? -1 : b === CUSTOM_ROW ? 1 : a.localeCompare(b)));
-  const rowCards = order.map((rowId) => {
-    const items = grouped.get(rowId) || [];
-    return el("div", { class: "provider", id: `customrow-${rowId}` },
-      el("div", { class: "provider-head" },
-        el("div", {},
-          el("span", { class: "option-title", text: customRowLabel(rowId) }),
-          el("span", { class: "badge", text: `${items.length} card${items.length === 1 ? "" : "s"}` }),
+  const rowEditor = (row, index) => {
+    const input = el("input", { class: "text-input focusable", type: "text", id: `custom-row-name-${row.id}`, maxlength: "40", value: row.name });
+    const note = el("span", { class: "site-pattern", text: `${row.count || 0} card${row.count === 1 ? "" : "s"}` });
+    return el("div", { class: "site-row", id: `customrow-${row.id}` },
+      el("div", { class: "site-body" },
+        el("div", { class: "source-form" },
+          input,
+          el("button", {
+            class: "btn subtle focusable",
+            type: "button",
+            text: "Rename",
+            onclick: async () => {
+              const res = await post("/custom-rows/rename", { id: row.id, name: input.value.trim() }).catch(() => null);
+              setNote(res?.message || "Renamed.", res?.ok === true);
+              await loadCustomRows();
+              render();
+            },
+          }),
         ),
-        items.length
-          ? el("button", {
-              class: "btn subtle focusable",
-              type: "button",
-              id: `customrow-clear-${rowId}`,
-              text: "Clear row",
-              onclick: () => clearCustomRow(rowId),
-            })
-          : null,
+        note,
       ),
-      items.length
-        ? el("div", { class: "site-list" }, ...items.map((item) =>
-            el("div", {
-                class: "site-row",
-                // A card row: the poster as its thumbnail, so the list reads as the row
-                // does on the home screen rather than as a list of names.
-              },
-              item.poster ? el("img", { class: "site-art", src: item.poster, alt: "", loading: "lazy" }) : null,
-              el("div", { class: "site-body" },
-                el("span", { class: "site-domain", text: item.name || "Untitled" }),
-                el("span", { class: "site-pattern", text: [item.type === "series" ? "Series" : "Movie", item.releaseInfo].filter(Boolean).join(" · ") }),
-              ),
-              el("button", {
-                class: "btn subtle focusable",
-                type: "button",
-                text: "Remove",
-                onclick: () => dropFromCustomRow(rowId, item),
-              }),
-            )))
-        : el("p", { class: "option-desc", text: "Nothing in this row yet." }),
+      el("div", { class: "source-actions" },
+        // **The order is the card's order.** The arrows move a row one place; the first
+        // and last are disabled rather than wrapping around.
+        el("button", {
+          class: "btn subtle focusable source-move", type: "button", id: `custom-row-up-${row.id}`,
+          text: "↑", title: index ? "Move this row up" : "It is already first",
+          disabled: index === 0,
+          onclick: () => moveCustomRow(row.id, -1),
+        }),
+        el("button", {
+          class: "btn subtle focusable source-move", type: "button", id: `custom-row-down-${row.id}`,
+          text: "↓", title: index < rows.length - 1 ? "Move this row down" : "It is already last",
+          disabled: index >= rows.length - 1,
+          onclick: () => moveCustomRow(row.id, 1),
+        }),
+        el("button", {
+          class: "btn subtle focusable",
+          type: "button",
+          id: `custom-row-delete-${row.id}`,
+          text: "Delete",
+          disabled: rows.length <= 1,
+          title: rows.length <= 1 ? "The card needs at least one row" : "Delete this row and the cards in it",
+          onclick: async () => {
+            const res = await post("/custom-rows/delete", { id: row.id }).catch(() => null);
+            setNote(res?.message || "Deleted.", res?.ok === true);
+            await loadCustomRows();
+            render();
+          },
+        }),
+      ),
     );
-  });
+  };
 
   return [
     el("p", {
       class: "option-desc",
-      text: `The ${customLabel()} card holds your own list — one row that is neither a watch state nor a catalog. Cards go in from a title page (the “Add to ${customLabel()}” button beside the watch states, and the plan button on the calendar); this is where they come out.`,
+      text: `The rows your own card is made of. A title goes into one of them from a title page — the “Add to …” buttons beside the watch states — and this is where the rows themselves are named and ordered. Each row is published as its own row on the ${customLabel()} card, in this order.`,
     }),
     el("div", { class: "group-head" },
-      el("span", { class: "option-title", text: "Card name" }),
-      el("span", { class: "option-desc", text: "What the card is called everywhere it appears." }),
+      el("span", { class: "option-title", text: "Add a row" }),
+      el("span", { class: "option-desc", text: `The card holds up to ${max} rows.` }),
     ),
     el("div", { class: "source-form" },
-      nameInput,
+      newName,
       el("button", {
         class: "btn primary focusable",
         type: "button",
-        id: "custom-label-save",
-        text: "Save name",
+        id: "custom-row-add",
+        text: "Add row",
+        disabled: rows.length >= max,
         onclick: async () => {
-          const value = nameInput.value.trim().slice(0, 40);
-          if (!value) {
-            state.customLabelNote = { text: "A name is needed.", ok: false };
-            nameNote.className = "source-status bad";
-            nameNote.textContent = "A name is needed.";
-            return;
-          }
-          state.customLabel = value;
-          state.customLabelNote = { text: "Saving…", ok: false };
-          nameNote.className = "source-status";
-          nameNote.textContent = "Saving…";
-          await pushSettings({ customLabel: value });
-          state.customLabelNote = { text: `The card is now called ${value}.`, ok: true };
+          const res = await post("/custom-rows/add", { name: newName.value.trim() }).catch(() => null);
+          setNote(res?.message || (res?.ok ? "Added." : "Could not add that row."), res?.ok === true);
+          newName.value = "";
+          await loadCustomRows();
           render();
         },
       }),
-      nameNote,
+      addNote,
     ),
-    ...rowCards,
+    el("div", { class: "group-head" },
+      el("span", { class: "option-title", text: "Rows" }),
+      el("span", { class: "option-desc", text: "Rename in place, reorder with the arrows, or delete a row with everything in it." }),
+    ),
+    ...(rows.length ? rows.map(rowEditor) : [el("p", { class: "option-desc", text: "No rows yet." })]),
   ];
 }
 
+/** Read the rows back, so the pane and the pin buttons agree. */
+async function loadCustomRows() {
+  const res = await get("/custom-rows.json").catch(() => null);
+  if (Array.isArray(res?.rows)) state.customRows = res.rows;
+  return res;
+}
+
+async function moveCustomRow(id, delta) {
+  const res = await post("/custom-rows/move", { id, delta }).catch(() => null);
+  if (Array.isArray(res?.rows)) state.customRows = res.rows;
+  render();
+}
 function renderSettings() {
   const section = state.settingsSection;
 
@@ -8265,9 +8449,46 @@ async function playTorrent(node, video, magnet, opts, seq) {
       say(`Could not ask ${service[1]} — ${err.message}. Falling back to the app's own torrent engine.`);
     }
   }
-  // **Nothing is said when there is no service.** The engine below is still tried, and a
+  // **Nothing is said when there is no service.** The engines below are still tried, and a
   // paragraph explaining what debrid would have done sat over the picture of every torrent
   // played without one.
+
+  // **The server's own engine, first.** A page can only reach peers that speak WebRTC and
+  // the public swarms speak TCP/UDP, so the in-page engine below usually sat at "looking
+  // for peers…" forever — which is exactly "the torrent does not start". The server has
+  // real sockets and the DHT, so when it has webtorrent installed the magnet is played
+  // from there: one plain URL with range support, like any other stream.
+  if (state.options?.torrent?.ready) {
+    const serverUrl = `/stream/torrent?magnet=${encodeURIComponent(magnet)}${opts.infoHash ? `&ih=${encodeURIComponent(opts.infoHash)}` : ""}${opts.fileIdx != null ? `&idx=${encodeURIComponent(opts.fileIdx)}` : ""}`;
+    note.textContent = "Joining the swarm…";
+    try {
+      const res = await fetch(serverUrl, { method: "HEAD" });
+      if (seq !== playerSeq) return;
+      if (res.ok) {
+        note.textContent = "Streaming from the swarm…";
+        video.src = serverUrl;
+        video.addEventListener("error", () => { if (playerSeq === seq) say("The server's swarm stalled — this stream may have no peers."); }, { once: true });
+        await video.play().catch(() => { /* autoplay refused: the controls are there */ });
+        // The same live readout the in-page engine gave, now from the server's swarm.
+        const timer = setInterval(async () => {
+          if (playerSeq !== seq || !video.isConnected) return clearInterval(timer);
+          try {
+            const { status } = await get(`/torrent/status?ih=${encodeURIComponent(opts.infoHash || "")}`);
+            if (!status) return;
+            if (status.peers) note.textContent = `${status.peers} peers · ${Math.round((status.progress || 0) * 100)}% · ${Math.round((status.downloadSpeed || 0) / 1e5) / 10} MB/s`;
+            else note.textContent = "Looking for peers…";
+          } catch { /* the readout is not worth a failure */ }
+        }, 2000);
+        video.addEventListener("emptied", () => clearInterval(timer), { once: true });
+        return;
+      }
+      const why = await res.json().catch(() => ({}));
+      say(`The server could not start this torrent — ${why.error || `HTTP ${res.status}`}. Trying this window instead.`);
+    } catch (err) {
+      if (seq !== playerSeq) return;
+      say(`The server could not start this torrent — ${err.message}. Trying this window instead.`);
+    }
+  }
 
   try {
     const WebTorrent = await loadWebTorrent();
@@ -8452,6 +8673,7 @@ async function openPlayer(url, title, opts = {}) {
     seek.value = d ? String(Math.round((video.currentTime / d) * 1000)) : "0";
     clock.textContent = timecode(video.currentTime);
     total.textContent = d ? timecode(d) : "live";
+    watchedPast(opts.meta, d ? video.currentTime / d : 0);
   });
   video.addEventListener("loadedmetadata", () => { total.textContent = video.duration ? timecode(video.duration) : "live"; });
   seek.addEventListener("input", () => {
@@ -8647,7 +8869,20 @@ async function openPlayer(url, title, opts = {}) {
       s.torrent
         ? el("span", {
             class: "stream-flag",
-            text: `torrent · ${debridLabel() ? `via ${debridLabel()}` : s.seeders ? `${s.seeders} seeders` : "needs debrid"}`,
+            // **"needs debrid" was true when the page had to join the swarm itself.** It
+            // is not any more: the server has a real torrent engine, so a magnet with no
+            // debrid account is streamed from here. The flag says what will actually
+            // happen — through the account, from the server's swarm, or (with neither)
+            // that a debrid account is the one thing that would make it play.
+            text: `torrent · ${
+              debridLabel()
+                ? `via ${debridLabel()}`
+                : s.seeders
+                  ? `${s.seeders} seeders`
+                  : state.options?.torrent?.ready
+                    ? "played by the server"
+                    : "needs debrid"
+            }`,
           })
         : null,
     );
@@ -8785,20 +9020,36 @@ async function openPlayer(url, title, opts = {}) {
   const isRampingFwd = holdable(fwdBtn, 0.25, speedRamp, speedRelease);
   fwdBtn.addEventListener("click", () => { if (!isRampingFwd()) video.currentTime = (video.currentTime || 0) + 10; });
 
-  // Volume: the one icon. Left click mutes, right click and the wheel step it, and
-  // the mark dims while the picture is silent — so the state is readable without a
-  // figure sitting next to it.
-  const volBtn = el("button", { class: "player-icon focusable", type: "button", title: "Mute", id: "player-volume" },
+  // **The volume is one box: − | the figure | +.**
+  //
+  // There was a single speaker mark that muted on a left click and stepped on a right
+  // click or the wheel — three gestures on one button, none of them visible, and the
+  // level itself only knowable from the picture's loudness. It is a group now: a down
+  // mark, the percentage in the middle, an up mark, all inside one bordered box in the
+  // strip. **Both marks ramp while held** (the same `holdable` the ±10s buttons use),
+  // and a click is one 5% step. The figure is the mute button: press it to go silent
+  // and again to come back, which is what the speaker mark used to do.
+  const volValue = el("span", { class: "player-vol-value", id: "player-vol-value", text: "100%" });
+  const volDown = el("button", { class: "player-vol-btn focusable", type: "button", title: "Volume down (hold to keep lowering)", id: "player-vol-down" },
+    playerGlyph([svgNode("path", { d: "M4 9.5h3.3L11 6.6v10.8L7.3 14.5H4z" }), svgNode("path", { d: "M14.6 9.8h4.6M14.6 13.4h4.6" })]));
+  const volUp = el("button", { class: "player-vol-btn focusable", type: "button", title: "Volume up (hold to keep raising)", id: "player-vol-up" },
     playerGlyph([svgNode("path", { d: "M4 9.5h3.3L11 6.6v10.8L7.3 14.5H4z" }), svgNode("path", { d: "M14.8 9.6a3.6 3.6 0 0 1 0 4.8" }), svgNode("path", { d: "M17.3 7.4a7 7 0 0 1 0 9.2" })]));
+  const volRamp = (delta) => setVolume((video.muted ? 0 : video.volume) + delta);
+  holdable(volDown, -0.05, volRamp, () => syncVolume());
+  holdable(volUp, 0.05, volRamp, () => syncVolume());
   const syncVolume = () => {
-    const silent = video.muted || video.volume === 0;
-    volBtn.classList.toggle("muted", silent);
-    volBtn.title = silent ? "Unmute" : "Mute";
+    const level = video.muted ? 0 : video.volume;
+    volValue.textContent = `${Math.round(level * 100)}%`;
+    volValue.classList.toggle("muted", video.muted || level === 0);
+    volValue.title = video.muted ? "Unmute" : "Mute";
+    volDown.disabled = level === 0;
+    volUp.disabled = level === 1;
   };
-  volBtn.addEventListener("click", () => { video.muted = !video.muted; syncVolume(); });
-  volBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); setVolume((video.muted ? 0 : video.volume) + 0.05); syncVolume(); });
-  volBtn.addEventListener("wheel", (e) => { e.preventDefault(); setVolume((video.muted ? 0 : video.volume) + (e.deltaY < 0 ? 0.05 : -0.05)); syncVolume(); }, { passive: false });
+  volValue.addEventListener("click", () => { video.muted = !video.muted; syncVolume(); });
+  volDown.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.05 : -0.05); syncVolume(); }, { passive: false });
+  volUp.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.05 : -0.05); syncVolume(); }, { passive: false });
   video.addEventListener("volumechange", syncVolume);
+  const volBox = el("div", { class: "player-vol", id: "player-volume" }, volDown, volValue, volUp);
   syncVolume();
 
   // **The aspect-ratio mark replaces Picture-in-picture.** It cycles how the picture
@@ -9158,7 +9409,7 @@ async function openPlayer(url, title, opts = {}) {
         ),
         el("div", { class: "player-group end" },
           total,
-          volBtn,
+          volBox,
           rate,
           aspect,
           // **No fullscreen button:** pressing Play already opened the picture in
@@ -9406,6 +9657,9 @@ async function openSources(meta) {
     current: bestSrc,
     // Which file of the torrent to open, when the add-on named one (a season pack).
     fileIdx: best.fileIdx,
+    // The info hash rides along too: the magnet is what the server plays, but the hash
+    // is what the live readout asks about.
+    infoHash: best.infoHash,
     torrent: Boolean(best.torrent),
     addonStatus: payload?.sources || [],
   });
