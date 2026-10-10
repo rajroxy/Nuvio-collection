@@ -335,6 +335,9 @@ body {
 .icon-box.card-spotlight .icon-wrap { aspect-ratio: 32 / 9; }
 /* A card that rises under the cursor is promising a door, and this one is a window. */
 .icon-box.card-spotlight:hover { transform: none; }
+/* **A window, not a door** — so no hand over it, the same way a poster is not promising
+   anything until it has one. */
+.icon-box.card-spotlight, .icon-box.card-spotlight .icon-wrap, .spotlight-tile { cursor: default; }
 /* **Two full posters inside the one card** — the same tiles the Watchlist and Custom
    cards hold, so a poster reads the way it does everywhere else in the app, with its
    own title and the date it lands over a bottom gradient. */
@@ -572,14 +575,29 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 /* Narrow window: the banner stacks, and the artwork still comes second. */
 @media (max-width: 860px) { .hero { grid-template-columns: 1fr; } }
 
+/* **The banner's name, at the top left and at size.** It is the block's own heading, so
+   it is set like one: 15px against the 11px caption it used to be, with the tracking of a
+   label rather than of fine print. */
 .hero-kicker {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--accent);
 }
+/* The drawn mark an On-the-Board banner wears in place of its two-word title. */
+.hero-title-mark { display: flex; align-items: center; }
+.hero-mark {
+  width: 52px;
+  height: 52px;
+  fill: none;
+  stroke: #f8f3e8;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hero-mark path:last-child { fill: #f8f3e8; stroke: none; }
 
 .hero-title { margin: 0 0 10px; font-size: clamp(26px, 3.4vw, 44px); font-weight: 800; letter-spacing: -0.03em; }
 
@@ -594,8 +612,8 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
    The **title page** wears this same banner (`.hero.title-hero`) but not this rule: its
    left column is a column of facts — overview, actions, genres — and left-aligned is
    what those want. */
-.hero:not(.title-hero) .hero-body { text-align: center; }
-.hero:not(.title-hero) .hero-cats { justify-content: center; }
+.hero:not(.title-hero) .hero-body { text-align: left; align-self: start; }
+.hero:not(.title-hero) .hero-cats { justify-content: flex-start; }
 
 .hero-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 
@@ -680,7 +698,14 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
   cursor: pointer;
 }
 .search-filter-btn svg { width: 17px; height: 17px; }
-.search-filter-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.search-filter-btn:hover, .search-filter-btn:focus-visible {
+  /* **The accent, on hover and on the press.** It was a shade of grey on a bar whose
+     every other control answers in the app's colour, so the one button that opens the
+     filters looked inert. */
+  background: rgba(var(--accent-rgb), 0.24);
+  color: #fff;
+}
+.search-filter-btn:active { background: rgba(var(--accent-rgb), 0.36); }
 .search-filter-btn.on { background: var(--accent); border-color: var(--accent); color: #0b0c10; }
 
 /* The bar is the suggestion panel's own box: without a positioning context here the
