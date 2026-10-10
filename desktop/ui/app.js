@@ -271,27 +271,24 @@ const subtitleActive = () =>
  */
 const TRACKER_GROUPS = [
   {
-    title: "Movies & TV",
-    hint: "Watched history, scrobbling and lists for films and shows.",
+    title: "Global",
+    hint: "One history across films, shows and anime — the two services that keep a Western catalogue and an Asian one in the same list.",
     services: [
       ["trakt", "Trakt", "Scrobbling and watched history for films and shows."],
       ["simkl", "SIMKL", "Watched history across films, shows and anime."],
     ],
   },
   {
-    title: "Anime",
-    hint: "Anime lists and watched episodes.",
+    // **Anime and Asian drama are one group.** They were two — "Anime" and "Asian
+    // drama" — which put three services that answer the same question (where do you
+    // keep the titles this app has no Western equivalent for?) under two headings.
+    // MyDramaList belongs beside MAL and AniList, not under a heading of its own.
+    title: "Asian",
+    hint: "The catalogues that keep anime and Asian drama as their own lists — MAL, AniList and MyDramaList.",
     divider: true,
     services: [
       ["myanimelist", "MyAnimeList", "Anime lists and watched episodes — MAL."],
       ["anilist", "AniList", "Anime and manga lists, with airing progress."],
-    ],
-  },
-  {
-    title: "Asian drama",
-    hint: "Drama trackers, where the titles are its own catalogue.",
-    divider: true,
-    services: [
       ["mydramalist", "MyDramaList", "Asian drama lists, ratings and watched episodes — MDL."],
     ],
   },
@@ -1078,6 +1075,13 @@ function posterCard(m, opts = {}) {
       class: "poster focusable",
       type: "button",
       "data-id": m.id || "",
+      // **What the hover preview reads.** The card itself draws no caption (the
+      // artwork is the picture and nothing else), so the name, year, kind and rating
+      // travel on the element for the preview panel to pick up — see `showPreview`.
+      "data-name": m.name || "",
+      "data-year": releaseYear(m.releaseInfo) || "",
+      "data-kind": m.type === "series" ? "Series" : "Movie",
+      "data-rating": m.imdbRating || m.rating || "",
       // The card page's frame follows the title you point at, so the backdrop it
       // should show travels on the poster itself.
       "data-backdrop": backdropOf(m) || heroImage(m) || "",
@@ -2795,7 +2799,13 @@ function iconBox(c, row) {
   }
   return el(
     "div",
-    { class: `icon-box${spotlight ? " card-spotlight" : ""}` },
+    {
+      class: `icon-box${spotlight ? " card-spotlight" : ""}`,
+      // The tile says what it holds before it is opened (Settings → Animation →
+      // Hover previews → Catalog tiles).
+      "data-preview": name,
+      "data-preview-meta": `${count} row${count === 1 ? "" : "s"}`,
+    },
     // The artwork is the button; the card's own pictures are laid over it and never
     // take a click, so entering a card still happens on its artwork alone.
     //
@@ -4245,6 +4255,276 @@ function renderSources(id, name) {
  * franchise it belongs to, its rating, its seasons, and what else is like it — and
  * every one of those is a way into its own catalog, not a label.
  */
+/* ------------------------------------------------------------ hover previews */
+
+/**
+ * **The panel that says what is under the cursor.**
+ *
+ * Settings → Animation has offered "Titles and cards" and "Catalog tiles" since the
+ * pane was written and nothing ever appeared, because the app drew captions on the
+ * artwork instead and those captions were removed. The panel is the replacement: the
+ * pointer resting on a poster (or on a Home tile) opens a small card beside it with
+ * the name on one line and the year, kind and rating on the next — text only, no
+ * request, and never inside the player or the trailer overlay.
+ *
+ * It is drawn **over** the page and takes no clicks (`pointer-events: none`), so the
+ * card under it still gets the press, and it is put away by leaving the card, by a
+ * scroll, or by any redraw.
+ */
+const previewBox = el("div", { class: "hover-preview", hidden: true, "aria-hidden": "true" },
+  el("p", { class: "hover-preview-title" }),
+  el("p", { class: "hover-preview-meta" }),
+);
+
+function hidePreview() {
+  if (!previewBox.hidden) previewBox.hidden = true;
+}
+
+function showPreview(anchor, title, meta) {
+  if (!title) return hidePreview();
+  previewBox.children[0].textContent = title;
+  previewBox.children[1].textContent = meta || "";
+  previewBox.hidden = false;
+  const a = anchor.getBoundingClientRect();
+  const b = previewBox.getBoundingClientRect();
+  const left = Math.max(12, Math.min(window.innerWidth - b.width - 12, a.left + a.width / 2 - b.width / 2));
+  // Above the card where there is room, below it where there is not.
+  const above = a.top - b.height - 10;
+  const top = above >= 12 ? above : Math.min(window.innerHeight - b.height - 12, a.bottom + 10);
+  previewBox.style.left = `${Math.round(left)}px`;
+  previewBox.style.top = `${Math.round(top)}px`;
+}
+
+/** Which preview the pointer is on, if any, as its anchor and two lines of text. */
+function previewFor(node) {
+  if (!node || typeof node.closest !== "function") return null;
+  if (node.closest(".player, .trailer-overlay, .modal, .hover-preview")) return null;
+  const tile = node.closest("[data-preview]");
+  if (tile && state.previews?.catalogs) {
+    return { anchor: tile, title: tile.dataset.preview, meta: tile.dataset.previewMeta || "" };
+  }
+  const card = node.closest(".poster");
+  if (card && state.previews?.cards) {
+    const d = card.dataset;
+    return { anchor: card, title: d.name || "", meta: [d.kind, d.year, d.rating].filter(Boolean).join(" · ") };
+  }
+  return null;
+}
+
+function setupPreviews() {
+  document.body.append(previewBox);
+  document.addEventListener("pointerover", (e) => {
+    const hit = previewFor(e.target);
+    if (!hit) return hidePreview();
+    showPreview(hit.anchor, hit.title, hit.meta);
+  });
+  document.addEventListener("pointerout", (e) => {
+    const hit = previewFor(e.target);
+    // Moving between the pieces of one card is not leaving it.
+    if (hit && hit.anchor.contains(e.relatedTarget)) return;
+    hidePreview();
+  });
+  window.addEventListener("scroll", hidePreview, { passive: true });
+  window.addEventListener("resize", hidePreview);
+}
+
+/* ------------------------------------------------------------------- sound */
+
+/**
+ * **Sound is off until it is asked for** (Settings → Sound).
+ *
+ * Two switches and a volume, and until now none of them did anything. Both are drawn
+ * from the Web Audio API rather than from files: a tick is one short decaying note, and
+ * the browsing music is a slow four-note pad under a lowpass filter with an LFO on the
+ * cutoff — nothing to download, nothing to store, and both stop the instant the switch
+ * goes off.
+ *
+ * The **click** plays on a press (a button, a tile, a tab) and never on a scroll.
+ * The **music** plays while the app is browsed and stops the moment a title plays, so
+ * it never sits under what you are actually watching. Neither can start before a user
+ * gesture, because a browser will not run an AudioContext without one — the first
+ * press is what brings it up.
+ */
+let audioCtx = null;
+let music = null;
+
+function audio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!audioCtx) audioCtx = new Ctx();
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => { /* asked again on the next press */ });
+  return audioCtx;
+}
+
+/** The soft tick a press makes. */
+function playClick() {
+  if (!state.sound?.clicks) return;
+  const ctx = audio();
+  if (!ctx) return;
+  const at = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(760, at);
+  osc.frequency.exponentialRampToValueAtTime(430, at + 0.05);
+  // A short, quiet envelope: a tick, not a beep.
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.exponentialRampToValueAtTime(0.05, at + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.09);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(at);
+  osc.stop(at + 0.12);
+}
+
+/** The music's own ceiling: the volume setting is a percentage of a quiet pad. */
+const musicGain = () => (Math.max(0, Math.min(100, Number(state.sound?.musicVolume ?? 35))) / 100) * 0.055;
+
+function startMusic() {
+  if (music) {
+    // Already running: just follow the volume slider.
+    music.master.gain.setTargetAtTime(musicGain(), audioCtx.currentTime, 0.4);
+    return;
+  }
+  const ctx = audio();
+  if (!ctx) return;
+  const master = ctx.createGain();
+  master.gain.value = 0.0001;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 620;
+  const lfo = ctx.createOscillator();
+  const lfoGain = ctx.createGain();
+  lfo.frequency.value = 0.06;
+  lfoGain.gain.value = 190;
+  lfo.connect(lfoGain).connect(filter.frequency);
+  // A minor-ish stack, so the loop reads as ambience rather than a melody.
+  const voices = [110, 164.81, 220, 329.63].map((hz, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = i % 2 ? "sine" : "triangle";
+    osc.frequency.value = hz;
+    osc.detune.value = i * 4;
+    osc.connect(filter);
+    return osc;
+  });
+  filter.connect(master).connect(ctx.destination);
+  const at = ctx.currentTime;
+  for (const osc of [...voices, lfo]) osc.start(at);
+  master.gain.linearRampToValueAtTime(musicGain(), at + 2.5);
+  music = { master, voices, lfo, filter };
+}
+
+function stopMusic() {
+  if (!music) return;
+  const { master, voices, lfo } = music;
+  const at = audioCtx.currentTime;
+  master.gain.setTargetAtTime(0.0001, at, 0.3);
+  // The voices are stopped a beat later, once the fade is done.
+  setTimeout(() => {
+    for (const osc of [...voices, lfo]) { try { osc.stop(); } catch { /* already stopped */ } }
+  }, 1200);
+  music = null;
+}
+
+/** Music runs while browsing and gives way to the title being played. */
+function syncSound() {
+  const playing = Boolean(document.querySelector(".player"));
+  if (state.sound?.music && !playing) startMusic();
+  else stopMusic();
+}
+
+function setupSound() {
+  // **A press is what turns the audio on.** Browsers keep an AudioContext suspended
+  // until a gesture, so the first press is also the first tick, and the music — if it
+  // was left on — comes up with it.
+  document.addEventListener("pointerdown", () => syncSound(), { once: true });
+  // A press anywhere that is a control ticks. A scroll, a hover and the player's own
+  // controls are not presses of the app's furniture.
+  document.addEventListener("click", (e) => {
+    const target = e.target?.closest?.("button, .poster, .icon-box, .settings-tab, .chip, .tab");
+    if (!target || target.closest(".player, .trailer-overlay")) return;
+    playClick();
+  }, true);
+  // The player opens and closes without a route change, so the music watches the
+  // overlay itself rather than the hash.
+  new MutationObserver((records) => {
+    const touched = records.some((r) => [...r.addedNodes, ...r.removedNodes].some((n) =>
+      n.nodeType === 1 && (n.classList?.contains("player") || n.querySelector?.(".player"))));
+    if (touched) syncSound();
+  }).observe(document.body, { childList: true });
+  syncSound();
+}
+
+/* ----------------------------------------------------------- notifications */
+
+/**
+ * **The app's own notification**, drawn in the corner (Settings → Notifications).
+ *
+ * The pane names three things worth being told about, and nothing ever told anyone
+ * anything. There is no account and nothing leaves the machine, so the only events that
+ * exist are the ones the app can see for itself: a **Calendar plan whose date is today**
+ * and something **from the Library releasing today**. Both are read once on a boot, and
+ * a title is only announced once a day — a message that reappears on every restart is
+ * noise, not a notification.
+ */
+const toastStack = el("div", { class: "toast-stack", role: "status", "aria-live": "polite" });
+
+function notify(title, body) {
+  if (!toastStack.isConnected) document.body.append(toastStack);
+  const node = el("div", { class: "toast" },
+    el("p", { class: "toast-title", text: title }),
+    body ? el("p", { class: "toast-body", text: body }) : null,
+  );
+  const close = () => {
+    node.classList.add("out");
+    setTimeout(() => node.remove(), 300);
+  };
+  node.addEventListener("click", close);
+  setTimeout(close, 11000);
+  toastStack.append(node);
+}
+
+async function checkNotifications() {
+  const n = state.notifications || {};
+  if (!n.calendar && !n.releases) return;
+  if (liveProfile()) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const seenKey = `${KEY.notifications}.seen`;
+  const seen = readJSON(seenKey, {});
+  if (seen.day === today && seen.profile === state.profile) return;
+  let items = [];
+  try {
+    const lists = await Promise.all(
+      ["movie", "series"].map((type) =>
+        get(`/calendar/${type}/${today.slice(0, 7)}.json${catalogQuery()}`)
+          .then((data) => data.metas || [])
+          .catch(() => []),
+      ),
+    );
+    items = lists.flat().filter((m) => m && m.releaseDate === today);
+  } catch {
+    return;
+  }
+  writeJSON(seenKey, { day: today, profile: state.profile });
+  if (!items.length) return;
+
+  const planned = new Set(calendarPins().map((i) => keyOfItem(i)));
+  const library = new Set((state.watchItems || []).map((i) => `${i.type}:${i.id}`));
+  let shown = 0;
+  for (const m of items) {
+    if (shown >= 3) break;
+    const key = keyOfItem(m);
+    if (n.calendar && planned.has(key)) {
+      notify("Out today", `${m.name} — the title you planned for today is out.`);
+      shown += 1;
+      continue;
+    }
+    if (n.releases && library.has(key)) {
+      notify("From your Library", `${m.name} has something new today.`);
+      shown += 1;
+    }
+  }
+}
+
 /**
  * Settings that are not one pane's own: the page-level preferences the server keeps in
  * `user-preferences.json`.
@@ -6144,6 +6424,10 @@ function paneRatings() {
 function paneTracking() {
   return [
     el("p", { class: "option-desc", text: "Connect a service to track what you watch. Each key is stored on the server — the page only ever learns whether one is set." }),
+    // **Outbound, and said so.** The direction matters: this app's own watch state is
+    // the one the Library is drawn from, so a tracker is told what you watched and is
+    // never asked what it thinks — which is why connecting one cannot rewrite a row.
+    el("p", { class: "option-desc", text: "Sync runs one way. Watched state goes out to the service you connect; nothing is read back, so a list kept elsewhere can never overwrite what your Library shows." }),
     ...TRACKER_GROUPS.flatMap((group) => [
       // The divider belongs *before* the group it separates, the way the rule on a
       // collection page sits above the row it introduces.
@@ -7271,6 +7555,8 @@ async function render() {
   // A redraw of the screen you are **already on** (a toggle, a source being read, the
   // banner's own move) must not replay the entry animation — that restart, on every
   // redraw, is the blink the Add-ons screen was doing.
+  // A screen that redraws is a screen the preview no longer belongs to.
+  hidePreview();
   const sameScreen = route === lastRoute;
   const wasAt = window.scrollY;
   if (lastRoute && lastRoute !== route) scrollMemory.set(lastRoute, wasAt);
@@ -7289,7 +7575,7 @@ async function render() {
   // season screen — so the back arrow reads as the head of that page rather than one
   // control floating in the bar. Home and the rest keep the bare arrow.
   document.getElementById("back-divider").hidden = !(
-    view === "list" && ["person", "company", "network", "genre", "season"].includes(parseHash().kind)
+    view === "list" && ["person", "company", "network", "genre", "season", "country", "keyword", "collection"].includes(parseHash().kind)
   );
   document.getElementById("settings").hidden = !onHome;
   document.getElementById("search").hidden = !onHome;
@@ -10388,6 +10674,8 @@ async function boot() {
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   applyTheme();
   setupInput();
+  setupPreviews();
+  setupSound();
 
   try {
     // A cache-buster, like `refreshCollections`: For You's rows are rebuilt per
@@ -10502,6 +10790,11 @@ async function boot() {
   // not been drawn yet (the title and list screens fetch before they render).
   await render();
   endBoot();
+  // **What is out today, said once.** Reads the Calendar for the current month and
+  // draws a notification for a plan of today's date and for anything from the Library
+  // releasing today — the two events the Notifications pane names that the app can see
+  // for itself. It runs after the first paint so nothing waits on it.
+  checkNotifications().catch(() => { /* a notification is never worth an error */ });
 }
 
 // Safety net: a boot that cannot reach the server must not leave the splash up
