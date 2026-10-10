@@ -521,10 +521,19 @@ const globalOtt = {
  * them unwatchable from where you are). The country setting picks one, so a card
  * now holds that country's services — up to `LOCAL_LIMIT` per row type — and each
  * row is scoped to that country's region.
+ *
+ * **The Region scopes the card.** `code` is the country set in Settings → Content:
+ * the rows are that region's own services, which is what "Regional OTT" names. It
+ * briefly published every region's rows instead, each carrying its own region — a
+ * 128-row card of services from markets you are not in, which is the "Regional OTT
+ * shows every country" that a Region setting exists to answer. A region the data
+ * holds nothing for keeps the full list rather than drawing an empty card.
  */
-function regionalOtt(kind) {
+function regionalOtt(kind, code = "") {
   const build = (type) => {
-    const services = REGIONAL_SERVICES(type);
+    const all = REGIONAL_SERVICES(type);
+    const mine = code ? all.filter((svc) => String(svc.region || "").toUpperCase() === code) : [];
+    const services = mine.length ? mine : all;
     // Two services could share a name; disambiguate so two rows can never collide on
     // the same catalog id.
     const nameCount = new Map();
@@ -620,7 +629,7 @@ const CARD_ORDER = [
  * Settings changes — a card names the catalogs inside it, and those names are
  * another country's services the moment the setting moves.
  */
-const buildCollections = () => {
+const buildCollections = (code = "") => {
   // The array is written card-group by card-group; `CARD_ORDER` sets the order
   // Home shows them in. The three Watchlist rows are the states a pinned title
   // moves through, served from the stored pins rather than from TMDB; the row
@@ -780,24 +789,24 @@ const buildCollections = () => {
     catalogs: both(globalOtt.all()),
   },
 
-  // Regional OTT — every region's own services: Top 10, then everything. The rows
-  // are the regional OTT data itself, one per service, each scoped to a region where
-  // it resolves, so the card is the same everywhere and does not shrink to one
-  // country's handful. Covers stay title-only: drawing service names would be wrong
-  // for every region the card now covers.
+  // Regional OTT — **your region's** own services: Top 10, then the full list. The
+  // rows are the regional OTT data itself, one per service, each scoped to the region
+  // it was verified in, so a service verified for one market is still asked for that
+  // market's titles. Covers stay title-only: drawing one service's name would be wrong
+  // for a card that changes with the Region.
   {
     key: "regional-ott-top-10",
     lines: ["Regional OTT", "◆ Top 10"],
     scene: "regional-ott-top-10",
     titleOnly: true,
-    catalogs: regionalOtt("top10"),
+    catalogs: regionalOtt("top10", code),
   },
   {
     key: "regional-ott",
     lines: ["Regional OTT"],
     scene: "regional-ott",
     titleOnly: true,
-    catalogs: regionalOtt("all"),
+    catalogs: regionalOtt("all", code),
   },
 
   {
@@ -912,22 +921,21 @@ const ordered = (cards) => {
   return sorted.map((c, i) => ({ ...c, divider: i === firstDrawn }));
 };
 
-const buildCollectionsOrdered = () => ordered(buildCollections());
+const buildCollectionsOrdered = (code = "") => ordered(buildCollections(code));
 
 /** The card set, in the published order. */
 export const COLLECTIONS = buildCollectionsOrdered();
 
 /**
- * The card set, in the published order.
+ * The card set, in the published order, **for one region**.
  *
- * It no longer varies by country: the Regional OTT cards publish the regional
- * OTT data itself, each row carrying its own region, so there is one card set for
- * every country. The country argument is still accepted — the addon uses it as its
- * per-country defs cache key — and deliberately ignored; what a request still scopes
- * by region are the rows with no region of their own, which `activeRegion()` resolves
- * per request in `addon/catalogs.mjs`.
+ * The Regional OTT cards are what the region chooses: their rows are that region's
+ * own services (see `regionalOtt`), so the set is rebuilt per country rather than
+ * built once — which is also why the addon keys its defs cache by country. Every
+ * other card is the same in every region, and a row with no region of its own is
+ * still scoped per request by `activeRegion()` in `addon/catalogs.mjs`.
  */
-export const collectionsFor = (_code) => buildCollectionsOrdered();
+export const collectionsFor = (code = "") => buildCollectionsOrdered(String(code || "").toUpperCase());
 
 /**
  * A card's name, **for one row** where the two differ.

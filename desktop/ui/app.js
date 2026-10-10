@@ -3473,7 +3473,11 @@ function renderSearch() {
   // three under them already give.
   const filters = {
     type: params.get("type") || "",
-    country: params.get("country") || "all",
+    // **The Region scopes the search.** "All countries" is still there to pick, but a
+    // search that says nothing about where it is reads the region set in
+    // Settings → Content — the same choice the Regional OTT cards follow — so the
+    // app has one answer to "where am I" rather than two.
+    country: params.get("country") || state.country || "all",
     category: params.get("category") || "all",
     period: params.get("period") || "all",
     // The **original language** of a title. There is no chip line for it (a wall of
@@ -3817,8 +3821,18 @@ function renderSearch() {
   ].filter(Boolean);
 }
 
+/**
+ * Whether the filter panel opens by itself.
+ *
+ * **The Region is the default, not a filter.** `country` starting at the region is
+ * what scopes the search, and counting it as "active" would pop the panel open on
+ * every search; it counts only when it is something *other* than the region.
+ */
 const filtersActive = (f) =>
-  Boolean(f.type) || ["country", "category", "period", "lang"].some((k) => f[k] !== "all") || f.sort !== "popularity";
+  Boolean(f.type) ||
+  ["category", "period", "lang"].some((k) => f[k] !== "all") ||
+  (f.country !== "all" && f.country !== state.country) ||
+  f.sort !== "popularity";
 
 /* ----------------------------------------------------------------- calendar */
 
@@ -6665,7 +6679,13 @@ const FALLBACK_COUNTRIES = [["US", "United States"], ["IN", "India"], ["GB", "Un
  * left is the one switch that really does change a row's contents.
  */
 function paneContent() {
+  // **Where the app is comes first.** The Region is what the Regional OTT cards are
+  // made of and what a search starts on, so it belongs at the top of Content rather
+  // than in Appearance, where it would read as a colour.
   return [
+    el("p", { class: "option-title", text: "Region" }),
+    el("p", { class: "option-desc", text: "Where the app is. The Regional OTT cards are this region's own services, and the search screen starts on it — the Country chips can still be changed per search." }),
+    paneRegion(),
     radioRow(state.safe, "safe", "SFW", "Safe for work — adult titles excluded (TMDB default).", () => {
       state.safe = true; writeJSON(KEY.safe, true); pushSettings({ safe: true }); render();
     }),
@@ -6713,6 +6733,40 @@ function applyTheme() {
   } catch {
     /* private mode — the app still tints, it just flashes on the next boot */
   }
+}
+
+/**
+ * **The Region.**
+ *
+ * One place where the app is, instead of two half-answers: the server keeps `country`
+ * and every read that depends on it follows — the Regional OTT cards are that region's
+ * own services (the region rides in the row id, so two regions never collide), and the
+ * search screen starts on it. Changing it re-reads the cards, because the rows the old
+ * region published are not the rows the new one publishes.
+ */
+async function setRegion(code) {
+  const value = String(code || "").toUpperCase();
+  if (!value || value === state.country) return;
+  state.country = value;
+  localStorage.setItem(KEY.country, value);
+  pushSettings({ country: value });
+  await refreshCollections();
+  render();
+}
+
+function paneRegion() {
+  // **The server's own country list**, which is objects (`{code, name, services}`), not
+  // the pairs a dropdown reads — so it is mapped, and the service count rides along:
+  // it is how many Regional OTT rows that region is going to have.
+  const list = (state.options.countries || [])
+    .filter((c) => c && c.code)
+    .map((c) => [String(c.code).toUpperCase(), c.services ? `${c.name} · ${c.services} rows` : c.name]);
+  // A country the server no longer offers is still the one stored here, so it is put
+  // back at the top rather than letting the picker show some other region's name.
+  if (state.country && !list.some(([code]) => code === state.country)) list.unshift([state.country, state.country]);
+  const pick = dropdown(list.length ? list : FALLBACK_COUNTRIES, state.country, setRegion, "Region");
+  pick.node.id = "region-pick";
+  return pick.node;
 }
 
 /** Settings → Appearance: the accent colour, and how much the app moves. */
