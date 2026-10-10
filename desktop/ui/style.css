@@ -421,25 +421,22 @@ body {
   align-items: stretch;
   justify-content: center;
   gap: 8px;
-  align-items: center;
   pointer-events: none;
   animation: content-in 0.5s ease both;
 }
 /* Nothing loaded (yet) → nothing drawn, so the cover reads on its own. */
 .content-strip:empty { display: none; }
-/* **A poster slot is 2:3, so a poster is not cropped.** The tiles used to be `flex: 1`
-   stretched to the frame's own shape (~0.43:1 on the taller cards), and `object-fit:
-   cover` then took about a third off the width of a 2:3 poster — including the title
-   lettering in the art. The slot now has the poster's own ratio and the count comes from
-   the frame's measurement (`tilesThatFit` in app.js, published as `--tiles`), so three at
-   the usual card width. `max-height` is the safety net for a frame shorter than the tiles. */
+/* **The tiles fill the frame again, and there are three of them.**
+   A slot is `flex: 1 1 0` at the frame's own height, so the row of posters spans the
+   card edge to edge and each one is cropped into its slot (`object-fit: cover`) — the
+   look the cards had before the 2:3 slots. Three slots rather than four is the count
+   `iconBox` asks for; the cards that are *your own* lists (Watchlist, Custom) and the
+   Upcoming card keep their own counts, and the banner draws a single tile that fills
+   the frame (see `drawHeroTile`). */
 .content-tile {
-  flex: 0 0 auto;
+  flex: 1 1 0;
   min-width: 0;
-  width: calc((100% - (var(--tiles, 3) - 1) * 8px) / var(--tiles, 3));
-  aspect-ratio: 2 / 3;
-  height: auto;
-  max-height: 100%;
+  height: 100%;
   object-fit: cover;
   object-position: 50% 20%;
   border-radius: 10px;
@@ -2156,7 +2153,7 @@ textarea:focus-visible {
    frame's own radius clips it. */
 .content-strip.backdrop { inset: 0; gap: 0; border-radius: 0; }
 /* A backdrop is one landscape still, not a wall of posters: it fills the frame whole. */
-.content-strip.backdrop .content-tile { width: 100%; height: 100%; aspect-ratio: auto; max-height: none; object-fit: cover; }
+.content-strip.backdrop .content-tile { width: 100%; height: 100%; flex: 1 1 100%; object-fit: cover; }
 .content-strip.backdrop .content-tile { border-radius: 0; box-shadow: none; }
 
 /* --------------------------------------------------- held-in-place screens */

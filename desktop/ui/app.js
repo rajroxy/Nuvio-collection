@@ -1737,6 +1737,28 @@ const LAUNCH_SEED = Math.floor(Math.random() * 1e9);
 const contentDrawn = new Map();
 
 /**
+ * The poster window each card is drawing, and the ones already on screen.
+ *
+ * **No two cards show the same posters.** Each card draws `count` titles from its own
+ * row, and the window it opens at is its own (`drawSeedFor`) — but two cards whose rows
+ * happen to be the same length can still land on the same window, and then the home
+ * screen reads as one picture repeated. So the screen deals: a card takes the next
+ * window nobody has taken yet, falling back to its own hash when every window is spoken
+ * for. It is **not** a de-duplication of titles: nothing is removed from any card's row,
+ * and a card never sees a shorter pool because another card drew from it.
+ *
+ * The assignment is per launch and per refresh, and a redraw of a card keeps the window
+ * it already has — which is what makes coming back to Home look like the same screen.
+ */
+const tileWindows = new Map();
+const tileTaken = new Set();
+/** A fresh deal: called when the drawn pictures are dropped (see `refreshNow`). */
+function clearTileWindows() {
+  tileWindows.clear();
+  tileTaken.clear();
+}
+
+/**
  * Lay pictures into the frame, from this launch's slice of the card.
  *
  * The frame *becomes* the artwork: the generated cover is hidden the moment the
@@ -1764,32 +1786,26 @@ function artImage(src, m, attrs = {}) {
 }
 
 /**
- * How many poster slots this card's frame holds.
+ * **Which slice of a card's pool that card draws — one window per card.**
  *
- * **Worked out from the frame, not fixed at four.** The tiles were a fixed count stretched
- * across the frame (`flex: 1`), so a poster was cropped to whatever shape the slot happened
- * to be — about 0.43:1 on the taller cards, which cuts roughly a third off the width of a
- * 2:3 poster and takes the title lettering with it. The slot is 2:3 now and the count comes
- * from the measurement: about three at the usual card width, fewer in a narrow one, and the
- * height-constrained count on a wide short frame so a portrait tile is never clipped.
+ * A card's posters are a window onto whatever its row returned. The window used to open
+ * at the *same* offset on every card (`LAUNCH_SEED % (pool - count + 1)`), so two cards
+ * whose rows came back in a similar order — two TMDB "popular" lists, which is the
+ * common case — drew the same three posters, and the home screen read as one picture
+ * repeated. The offset is derived from the card's own key now, so every card opens on a
+ * different title **and** none of them is de-duplicated against another: each card's
+ * draw is its own.
  *
- * A frame that cannot be measured (a detached one, or a test) keeps the count it was given.
+ * The hash is FNV-1a over the card key mixed with the launch seed, so the whole screen
+ * re-deals on a relaunch and two cards never agree while it is open.
  */
-const TILE_GAP = 8;
-const TILE_MIN_W = 104;
-const TILE_RATIO = 2 / 3;
-function tilesThatFit(strip, fallback) {
-  const w = Math.floor(strip.clientWidth || 0);
-  const h = Math.floor(strip.clientHeight || 0);
-  if (!w || !h) return fallback;
-  const clamp = (n) => Math.max(1, Math.min(6, Math.floor(n)));
-  const byWidth = Math.max(1, Math.min(6, Math.round((w + TILE_GAP) / (TILE_MIN_W + TILE_GAP))));
-  const tileW = (w - (byWidth - 1) * TILE_GAP) / byWidth;
-  // A portrait tile at that width is taller than the frame: size them by the frame's
-  // height instead, which is how many of *that* size fit across.
-  const byHeight = Math.max(1, Math.min(6, clamp((w + TILE_GAP) / (h * TILE_RATIO + TILE_GAP))));
-  strip.style.setProperty("--tiles", String(tileW / TILE_RATIO <= h ? byWidth : byHeight));
-  return tileW / TILE_RATIO <= h ? byWidth : byHeight;
+function drawSeedFor(key) {
+  let h = 0x811c9dc5 ^ (LAUNCH_SEED >>> 0);
+  for (const ch of String(key || "")) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193);
+  }
+  return Math.abs(h);
 }
 
 function drawTiles(strip, art, count, layout) {
@@ -1802,7 +1818,20 @@ function drawTiles(strip, art, count, layout) {
     if (!src) return;
     strip.replaceChildren(artImage(src, shot, { class: "content-tile", alt: "", loading: "lazy" }));
   } else {
-    const start = art.length > count ? LAUNCH_SEED % (art.length - count + 1) : 0;
+    // **The card's own window, and nobody else's.** (See `tileWindows`.)
+    const span = art.length - count + 1;
+    let start = 0;
+    if (span > 1) {
+      const held = tileWindows.get(strip._key);
+      if (held !== undefined) {
+        start = held;
+      } else {
+        start = drawSeedFor(strip._key) % span;
+        for (let i = 0; i < span && tileTaken.has(`${art.length}:${start}`); i++) start = (start + 1) % span;
+        tileWindows.set(strip._key, start);
+        tileTaken.add(`${art.length}:${start}`);
+      }
+    }
     const picked = art.slice(start, start + count);
     strip.replaceChildren(
       ...picked.map((m) =>
@@ -1828,16 +1857,16 @@ function drawTiles(strip, art, count, layout) {
  * A card whose rows all came back empty used to fall back to its bare cover, which
  * reads as "this card holds nothing" rather than as "there is nothing in it yet".
  * The slots are drawn empty instead, so the frame keeps the shape the card was
- * designed with — **two** for your own lists (watchlist, custom), four for the rest.
+ * designed with — **two** for your own lists (watchlist, custom), three for the rest.
  *
  * **The slots stay empty.** They used to be filled with the card's own cover art, so
- * a Watchlist with nothing in it still showed four posters — which reads as "these
- * are your titles" when they are nobody's. An empty card now shows the shape of what
+ * a Watchlist with nothing in it still showed posters — which reads as "these are
+ * your titles" when they are nobody's. An empty card now shows the shape of what
  * would be there and says nothing else.
  */
 function drawEmptyTiles(strip, count) {
   if (!strip.isConnected || strip.classList.contains("filled")) return;
-  const n = Math.max(1, count || 4);
+  const n = Math.max(1, count || 3);
   strip.replaceChildren(...Array.from({ length: n }, () => el("div", { class: "content-tile blank" })));
   strip.classList.add("filled");
 }
@@ -1899,6 +1928,9 @@ function contentStrip(card, row, count, layout) {
   // page) one landscape backdrop. It is not part of the cache key — both layouts
   // want the same list of the card's titles.
   strip._job = { card, row, count, layout, key: `${card.key}:${row}` };
+  // The card's own draw window (see `drawSeedFor`). Kept on the strip rather than looked
+  // up again, because the strip outlives the job that built it.
+  strip._key = strip._job.key;
   return strip;
 }
 
@@ -1924,7 +1956,7 @@ function hydrateContent() {
     }
     const cached = contentDrawn.get(job.key);
     if (cached) {
-      drawTiles(strip, cached, tilesThatFit(strip, job.count), job.layout);
+      drawTiles(strip, cached, job.count, job.layout);
       continue;
     }
     const cats = orderedCatalogs(job.card).filter(catalogVisible);
@@ -1972,7 +2004,7 @@ async function fillFrame(strip, job, cats, from) {
     const pins = await watchlistArt(job.row);
     if (pins.length) {
       contentDrawn.set(job.key, pins);
-      if (strip.isConnected) drawTiles(strip, pins, tilesThatFit(strip, job.count), job.layout);
+      if (strip.isConnected) drawTiles(strip, pins, job.count, job.layout);
       return;
     }
   }
@@ -1981,10 +2013,10 @@ async function fillFrame(strip, job, cats, from) {
   // of them rather than four posters out of whichever row happened to answer first.
   // Every slot is then a different pick from a different row.
   if (cats.some((cat) => cat.kind === "recommend")) {
-    const picks = await recommendWall(job.row, cats.slice(0, Math.max(1, job.count || 4)));
+    const picks = await recommendWall(job.row, cats.slice(0, Math.max(1, job.count || 3)));
     if (picks.length) {
       contentDrawn.set(job.key, picks);
-      if (strip.isConnected) drawTiles(strip, picks, tilesThatFit(strip, job.count), job.layout);
+      if (strip.isConnected) drawTiles(strip, picks, job.count, job.layout);
       return;
     }
   }
@@ -2064,7 +2096,7 @@ async function collectArt(strip, job, media, cats, from, art) {
       if (!got.length) continue;
       art.push(...got);
       contentDrawn.set(job.key, art);
-      if (strip.isConnected) drawTiles(strip, art, tilesThatFit(strip, job.count), job.layout);
+      if (strip.isConnected) drawTiles(strip, art, job.count, job.layout);
       if (!gather) return art;
     } catch {
       /* the next row may answer */
@@ -2213,7 +2245,7 @@ function stopHeroRotation() {
 /**
  * The Upcoming card's **one picture**, changed the way the hero banner's is.
  *
- * The card is a window on what is coming rather than a shelf of four posters: one
+ * The card is a window on what is coming rather than a shelf of posters: one
  * still out of its own row, replaced every ten seconds by another one, never the one
  * already on screen. It holds still while the cursor is over it, for the banner's own
  * reason — reading it is a reason for it not to change under you.
@@ -2524,6 +2556,13 @@ let refreshTimer = null;
  */
 function refreshNow() {
   state.gen = Date.now();
+  // A refresh is a **new deal**: the cards drew their posters from the rows as they were,
+  // and the rows are being read again — so the windows go with them, and so does the
+  // one-draw-per-launch cache. Without this the artwork was cached for the whole session
+  // and a refresh re-read the rows underneath a strip of the pictures that were already
+  // there, which is why "refresh" never changed a card's posters.
+  clearTileWindows();
+  contentDrawn.clear();
   // A refresh re-reads whatever the current screen is made of — including the
   // channel list and the guide, which are catalogs too.
   if (liveProfile()) {
@@ -2605,16 +2644,17 @@ function iconBox(c, row) {
   const r = rowOf(c);
   const name = titleOf(c, row);
   const count = r.catalogs.length;
-  // The two cards that are *your own* lists — the watchlist and the custom card —
-  // hold **two** posters: a wider wall of them read as a chart rather than as "what
-  // you are watching". Every other card draws four.
+  // **Three, not four.** A card's frame is a row of three posters; the two cards that
+  // are *your own* lists hold **two** (a wider wall of them read as a chart rather than
+  // as "what you are watching"), and Upcoming holds its **two** poster cards. The banner
+  // is not one of these: it draws a **single** tile across the whole frame.
   const mine = r.catalogs.some((cat) => cat.kind === "watchlist" || cat.kind === "custom");
   // **The spotlight card** (Upcoming). Its frame holds **one** still, and that still
   // changes every ten seconds the way the hero banner's does — so a card that is a
-  // glance at what is coming is a window rather than a shelf of four posters. It has
+  // glance at what is coming is a window rather than a shelf of posters. It has
   // **no artwork button**: nothing about it is clickable.
   const spotlight = Boolean(c.spotlight);
-  const tiles = spotlight || mine ? 2 : 4;
+  const tiles = spotlight || mine ? 2 : 3;
   // The frame is filled by `startSpotlight`, not by the poster wall: the Upcoming
   // card is **two poster cards**, each carrying its own title and release date.
   const strip = contentStrip(c, row, tiles);
