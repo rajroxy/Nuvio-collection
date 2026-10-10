@@ -22,7 +22,7 @@ const DEFAULTS = {
   // The **Custom** card's label. The card holds your own list; what it is called
   // is yours to say, so the name is a setting rather than a constant in the card
   // set (which is shared by the addon and the cover generator).
-  customLabel: "Custom",
+  customLabel: "Library",
   // The language every row is served in (TMDB's `language`), and the primary
   // subtitle language the app and a player should prefer — one setting, because
   // you want your subtitles in the language you browse in.

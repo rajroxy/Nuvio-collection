@@ -46,18 +46,22 @@ const KEY = {
   enrich: "nuvio.enrich",
   section: "nuvio.settingsSection",
   accent: "nuvio.accent",
-  font: "nuvio.font",
   motion: "nuvio.motion",
   // The resolved accent colours, written for the boot script in `index.html`.
   theme: "nuvio.theme",
   pickCards: "nuvio.pickCards",
   visibility: "nuvio.visibility",
+  // The three the user asked for by name: what the app sounds like, what it leans on to
+  // tell you something, and the little preview panel a card opens on hover.
+  sound: "nuvio.sound",
+  notifications: "nuvio.notifications",
+  previews: "nuvio.previews",
   liveRow: "nuvio.liveRow",
   liveSource: "nuvio.liveSource",
   ottSort: "nuvio.ottSort",
 };
 
-const PINNED = /◆ Top 10|◆ Top 25|^Upcoming$|Airing Today|On the Air|Now Playing|^Latest|^Newest|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
+const PINNED = /\| Top 10|\| Top 25|^Upcoming$|Airing Today|On the Air|Now Playing|^Latest|^Newest|^Trending|^Plan to Watch$|^Watching$|^Watched$/;
 
 /**
  * The five orders the OTT cards read their rows in — the dropdown in their header.
@@ -96,9 +100,11 @@ const WATCH_STATES = [
   ["watching", "Watching"],
   ["watched", "Watched"],
 ];
-// The states a **title page** offers as pins: no `Watching`, because Plan to Watch
-// and Watched are the two that say something different from each other.
-const PIN_STATES = WATCH_STATES.filter(([id]) => id !== "watching");
+// **What a title page offers as pins.** Plan to Watch, then the Library rows — and no
+// Watched and no Watching. A page is for deciding; Watched is something you *are*, and the
+// app already knows it the moment the credits roll, so a button that says you have seen
+// the thing you are looking at was an answer, not a choice.
+const PIN_STATES = WATCH_STATES.filter(([id]) => id === "planned");
 
 // The profiles you can switch between. `IPTV` is the second one, and it is a
 // different app: its own two buttons, its own cards, its own settings.
@@ -172,15 +178,14 @@ const accentOf = (id) => ACCENTS.find(([key]) => key === id) || ACCENTS[0];
  * UI face. The first entry is the app's own default, so nothing changes for anyone who
  * never opens the Appearance pane.
  */
-const FONTS = [
-  ["inter", "Inter (default)", 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'],
-  ["system", "System", 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'],
-  ["grotesk", "Grotesk", '"Space Grotesk", "Archivo", "Helvetica Neue", Inter, system-ui, sans-serif'],
-  ["serif", "Serif", '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif'],
-  ["mono", "Mono", 'ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace'],
-  ["condensed", "Condensed", '"Arial Narrow", "Roboto Condensed", "Helvetica Neue", system-ui, sans-serif'],
-];
-const fontOf = (id) => FONTS.find(([key]) => key === id) || FONTS[0];
+/**
+ * The app's one typeface.
+ *
+ * It is a **stack, not a download**: the app has to work with no network and no web font
+ * in the page, so this is local families and the system UI face. Settings used to offer six
+ * of these; it offers none now, so this is the only place the face is named.
+ */
+const FONT_STACK = 'Inter Tight, Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 /**
  * How much the app moves.
@@ -356,60 +361,43 @@ const typeLabel = (t) => SOURCE_TYPES.find(([v]) => v === t)?.[1] ?? t;
  */
 const SETTINGS_GROUPS = [
   {
-    group: "This profile",
+    // **No headings.** The sections used to sit under "This profile" and "Where it comes
+    // from", which named the settings rather than opening them: two labels to read before
+    // you could find the tile you wanted. Every section is now a tile of its own on one
+    // board, in the order you would think of them — what the catalogs show, how the app
+    // looks, what it sounds like, what it tells you about, where its content comes from,
+    // and the assistant.
+    group: "",
     sections: [
       ["profile", "Profile"],
       ["content", "Content"],
       ["posters", "Posters"],
-      ["appearance", "Appearance & layout"],
-      // **The custom rows, where the cards can be managed.** The card's own row is
-      // filled from a title page, so this is the one place that answers "what is in
-      // there?" and "how do I empty it?" without hunting for the titles.
-      ["customrows", "Custom Rows"],
-    ],
-  },
-  {
-    group: "Where it comes from",
-    sections: [
-      // **Two panes, not one.** A tracker is where your viewing history goes; a
-      // provider is who the catalogues are read from. They were one tab named after
-      // both, which made "Trackers & providers" a heading you had to look inside to
-      // find out which half you wanted.
+      // **Looks, placed, and moving are three questions.** "Appearance & layout" was one
+      // pane answered with one accent row and one layout list, so finding the animation
+      // setting meant reading past two things it was not.
+      ["appearance", "Appearance"],
+      ["layout", "Layout"],
+      ["animation", "Animation"],
+      ["sound", "Sound"],
+      ["notifications", "Notifications"],
+      // **The card you fill yourself.** It was "Custom Rows" here and "Custom" on Home —
+      // two names for one thing, neither of them the word the card should wear.
+      ["customrows", "Library"],
       ["tracking", "Trackers"],
       ["providers", "Providers"],
       ["addons", "Add-ons"],
-      // **Custom Websites sit beside Add-ons on purpose**: both are where a stream can
-      // come from, and a site you added yourself is the same idea as an add-on you pasted.
-      ["customsites", "Custom Websites"],
-      // Debrid sits where the streams come *from*: the add-ons publish the torrents,
-      // the debrid account is what turns one into something that plays.
+      // **Websites you added yourself are where a stream can come from**, the same idea as
+      // an add-on you pasted — so they sit beside the add-ons, and are called what they are.
+      ["customsites", "Website"],
       ["debrid", "Debrid"],
+      // The network, not the content: which resolver every request uses is a property of
+      // the machine, not a catalogue choice.
+      ["dns", "DNS"],
+      // Playback, not content: subtitles are what happens to the picture once it plays.
+      ["subtitles", "Subtitles"],
+      ["ratings", "Ratings"],
+      ["ai", "Assistant"],
     ],
-  },
-  {
-    // **The network, not the content.** Which resolver every request in the app uses is
-    // not a catalogue choice or a player choice — it is a property of the machine, which
-    // is why it sits on its own.
-    group: "Network",
-    sections: [["dns", "DNS"]],
-  },
-  {
-    // **Playback, not content.** Subtitles are not part of what a row holds or where it
-    // is read from: they are what happens to the picture once it is playing. The tab
-    // sits beside the catalogue settings rather than inside them for that reason.
-    group: "Playback",
-    sections: [["subtitles", "Subtitles"]],
-  },
-  {
-    // **The ratings service, which is more than MDBList now.** The tab was named after
-    // the aggregate alone, which read as "this pane is about a key" rather than "this is
-    // where the ratings row comes from".
-    group: "Ratings",
-    sections: [["ratings", "Ratings"]],
-  },
-  {
-    group: "Assistant",
-    sections: [["ai", "AI"]],
   },
 ];
 
@@ -426,35 +414,24 @@ const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((g) => g.sections);
  */
 const LIVE_SETTINGS_GROUPS = [
   {
-    // The profile's own four first — source, countries, guide, refresh — because
-    // they are the only reason this screen is different from the other profile's.
-    group: "IPTV",
+    // The same board as the other profile, with the sections that only a live playlist
+    // has: where the channels and guide come from, which countries they are read from, and
+    // how often both update. Appearance, layout, animation, sound and notifications are
+    // **this profile's own copies**, not the other profile's — a live playlist wants a
+    // different guide density and different row heights.
+    group: "",
     sections: [
       ["livesource", "Source"],
       ["livecountries", "Countries"],
-      ["liveguide", "Guide & EPG"],
       ["liverefresh", "Refresh"],
-    ],
-  },
-  {
-    // Add-ons and plugins are **one profile's setting the other profile shares**:
-    // the sources are stored once on the server, so both profiles edit the same
-    // list here rather than the Live TV profile losing the tab entirely.
-    group: "Where it comes from",
-    sections: [["addons", "Add-ons"]],
-  },
-  {
-    // The resolver belongs to the machine, not to a profile, so it is offered here too.
-    group: "Network",
-    sections: [["dns", "DNS"]],
-  },
-  {
-    group: "Profile & playback",
-    sections: [
+      ["addons", "Add-ons"],
+      ["dns", "DNS"],
+      ["appearance", "Appearance"],
+      ["layout", "Layout"],
+      ["animation", "Animation"],
+      ["sound", "Sound"],
+      ["notifications", "Notifications"],
       ["profile", "Profile"],
-      ["appearance", "Appearance & layout"],
-      // A live channel carries the subtitle question too — often more so, since a
-      // foreign-language feed rarely carries the track you want.
       ["subtitles", "Subtitles"],
     ],
   },
@@ -543,10 +520,12 @@ const state = {
   customItems: [],
   // The custom card's rows (Settings → Custom Rows): `[{ id, name, order, count }]`.
   customRows: [],
+  // Who is signed in, as the server knows: `{ configured, providers, user }`. Mirrored
+  // from `/settings` like everything else, and only ever *displayed* — the session lives
+  // in an HttpOnly cookie this page cannot read, which is the point of it.
+  account: { configured: false, providers: [], user: null },
   // The Custom card's label (a setting — see Settings → Content).
-  customLabel: "Custom",
-  // The typeface everything is set in (Settings → Appearance). Applies on the next paint.
-  font: "inter",
+  customLabel: "Library",
   sources: migrateSources(readJSON(KEY.sources, [])),
   // App language and the country whose services the regional OTT cards show.
   language: localStorage.getItem(KEY.language) || "en-US",
@@ -567,8 +546,14 @@ const state = {
   searchVocab: null,
   settingsSection: localStorage.getItem(KEY.section) || "profile",
   accent: localStorage.getItem(KEY.accent) || "gold",
-  font: localStorage.getItem(KEY.font) || "inter",
   motion: localStorage.getItem(KEY.motion) || "auto",
+  // **Sound, notifications and hover previews.** Each is a small map of switches rather
+  // than a single flag, because they are separate questions: a click when you press
+  // something is not the same as music under the browsing, and a calendar reminder is not
+  // the same as a release date being announced.
+  sound: readJSON(KEY.sound, { clicks: false, music: false, musicVolume: 35 }),
+  notifications: readJSON(KEY.notifications, { calendar: true, releases: false, live: false }),
+  previews: readJSON(KEY.previews, { cards: true, catalogs: false }),
   // "Pick the cards for you": when it is on, the per-profile visibility below
   // decides which rows, cards and catalog rows this profile shows. Off means every
   // card shows, which is the default so nothing disappears on its own.
@@ -775,6 +760,7 @@ function mergeServerSettings(res) {
     }
     writeJSON(key, store);
   };
+  if (res.account) state.account = res.account;
   if (res.providers) fold(res.providers, state.providers, KEY.providers);
   if (res.tracking) fold(res.tracking, state.tracking, KEY.tracking);
   if (res.debrid) fold(res.debrid, state.debrid, KEY.debrid);
@@ -810,7 +796,15 @@ function mergeServerSettings(res) {
     writeJSON(KEY.dns, state.dns);
   }
   if (res.customSites) {
-    state.customSites = { categories: res.customSites.categories || [], repositories: res.customSites.repositories || [] };
+    state.customSites = {
+      ...state.customSites,
+      categories: res.customSites.categories || [],
+      // The pane draws the flat, tagged list; the per-category view is kept for anything
+      // that still reads it, and for a server that is older than this page.
+      sites: res.customSites.sites || state.customSites.sites || [],
+      tags: res.customSites.tags || state.customSites.tags || [],
+      repositories: res.customSites.repositories || [],
+    };
     writeJSON(KEY.customSites, state.customSites);
   }
   if (res.prefs) {
@@ -984,7 +978,7 @@ function watchTag(m) {
 
 /** The row the **Custom** card publishes — your own list, filled from the modal. */
 const CUSTOM_ROW = "add-cards";
-const customLabel = () => state.customLabel || "Custom";
+const customLabel = () => state.customLabel || "Library";
 
 /** Is this title already in your custom list? */
 const inCustomRow = (m, rowId = CUSTOM_ROW) =>
@@ -1635,7 +1629,11 @@ function chooseProfile(name) {
   const first = name === LIVE_PROFILE ? "livesource" : SETTINGS_SECTIONS[0][0];
   state.settingsSection = first;
   localStorage.setItem(KEY.section, first);
-  location.hash = "#/";
+  // **The link you arrived on, once you have said who you are.** Set by `boot()`; a
+  // normal start (no link) has nothing here and lands on Home.
+  const target = pendingDeepLink;
+  pendingDeepLink = "";
+  location.hash = target || "#/";
   render();
 }
 
@@ -1702,6 +1700,95 @@ function syncProfileMark() {
   button.dataset.mark = state.profile;
   const mark = avatarNode(state.profile);
   if (mark) button.replaceChildren(mark);
+}
+
+/**
+ * **Signing in — the account, and the two ways to make one.**
+ *
+ * The profile above is a *mode* on this machine; this is the person it belongs to. Nothing
+ * here keeps a password or a provider token: pressing a button leaves this page for the
+ * provider, and what comes back is a session cookie the page cannot read (see
+ * `addon/auth.mjs`). When nothing is configured the card says which two variables to set —
+ * a button that cannot finish is worse than a sentence explaining why.
+ */
+function signInCard() {
+  const account = state.account || {};
+  const providers = Array.isArray(account.providers) ? account.providers : [];
+  // The provider's answer arrives on the hash (`#/settings?signin_error=…`), which is
+  // where this app's routes carry their own query.
+  const said = new URLSearchParams(location.hash.split("?")[1] || "").get("signin_error");
+
+  if (account.user) {
+    const user = account.user;
+    const via = (providers.find((p) => p.key === user.provider) || {}).label || user.provider;
+    return el(
+      "div",
+      { class: "provider", id: "account" },
+      el(
+        "div",
+        { class: "account-row" },
+        user.picture
+          ? el("img", { class: "account-avatar", src: user.picture, alt: "", loading: "lazy" })
+          : el("span", { class: "account-avatar", text: (user.name || user.email || "?").slice(0, 1).toUpperCase() }),
+        el(
+          "div",
+          { class: "account-body" },
+          el("span", { class: "option-title", text: user.name || user.email || "Signed in" }),
+          el("span", { class: "option-desc", text: [user.email, via ? `via ${via}` : ""].filter(Boolean).join(" · ") }),
+        ),
+        el("button", {
+          class: "btn focusable",
+          type: "button",
+          id: "sign-out",
+          text: "Sign out",
+          onclick: async () => {
+            await post("/auth/signout", {}).catch(() => {});
+            state.account = { ...account, user: null };
+            render();
+          },
+        }),
+      ),
+    );
+  }
+
+  const live = providers.filter((p) => p.configured);
+  return el(
+    "div",
+    { class: "provider", id: "account" },
+    el(
+      "div",
+      { class: "provider-head" },
+      el(
+        "div",
+        {},
+        el("span", { class: "option-title", text: "Sign in" }),
+        el("span", { class: "option-desc", text: "Google or GitHub. No password is kept here — the account stays with the provider, and this app is told only your name, your address and your picture." }),
+      ),
+    ),
+    said ? el("p", { class: "option-desc bad", text: said }) : null,
+    live.length
+      ? el(
+          "div",
+          { class: "account-row account-buttons" },
+          ...live.map((p) =>
+            el("button", {
+              class: "btn focusable",
+              type: "button",
+              id: `sign-in-${p.key}`,
+              text: `Continue with ${p.label}`,
+              // **A plain navigation, not a fetch.** The provider's page is a different
+              // origin and the handshake has to happen in the address bar: this page
+              // leaves, the provider comes back to `/auth/<provider>/callback`, and the
+              // server returns here with a cookie set.
+              onclick: () => { location.href = `/auth/${p.key}/start?next=${encodeURIComponent("/app/#/settings")}`; },
+            }),
+          ),
+        )
+      : el("p", {
+          class: "option-desc",
+          text: "Not set up on this server yet. Set NUVIO_GOOGLE_CLIENT_ID and NUVIO_GOOGLE_CLIENT_SECRET, or NUVIO_GITHUB_CLIENT_ID and NUVIO_GITHUB_CLIENT_SECRET, and register <your app URL>/auth/google/callback (or /auth/github/callback) with the provider.",
+        }),
+  );
 }
 
 /**
@@ -2986,8 +3073,12 @@ function renderExplore(key, id) {
   // so is the switcher that hung off it. What is left is the control that belongs to
   // the row itself: the OTT order dropdown, or the Shuffle that draws a fresh sample.
   // A row with neither draws no header at all rather than an empty band.
+  // **The order dropdown is gone.** The OTT Top 10 cards carried a "best by what?"
+  // picker in the corner of their Explore pages; those rows keep the server's own order
+  // now, and a card with no control draws no header at all. The `ott` flag stays: it is
+  // still what says a Top 10 publishes a *capped* list, so it still gets no Shuffle row.
   const tools = ott
-    ? ottSortControl()
+    ? null
     : sampled
       ? el(
           "div",
@@ -4211,6 +4302,17 @@ async function renderTitle(type, id) {
               openSources(meta);
             },
           }),
+          // **The Assistant sits with Play, not in Settings.** The one question a title
+          // page cannot answer from its own metadata is "should I watch this?", so the
+          // button that asks it belongs beside the button that plays it.
+          el("button", {
+            class: "btn focusable",
+            type: "button",
+            id: "title-assistant",
+            text: "Ask Assistant",
+            title: "Ask about this title",
+            onclick: () => openAssistant({ ...meta, description: meta.description || (data.tagline || "") }),
+          }),
           // The pin buttons live on the page now, not in a modal.
           el("div", { class: "title-pins", id: "title-pins" }, ...pinButtons(meta)),
         ),
@@ -4500,6 +4602,67 @@ async function renderList(kind, id, type, extra = "") {
 
 /** The query every list request carries: the row, and the SFW switch. */
 const listQuery = (type) => `?type=${encodeURIComponent(type)}${state.safe ? "" : "&adult=1"}`;
+
+/**
+ * **Ask the Assistant about this title.**
+ *
+ * The Ask box on the search screen does one job: it turns a sentence into a *search*.
+ * A title page raises the other question — "what is this about?", "will I like it?" — and
+ * that one is answered, not translated. It opens over the page the way the source picker
+ * does, so nothing navigates and closing it puts you back where you were.
+ */
+async function openAssistant(meta) {
+  const question = el("input", {
+    class: "text-input focusable", type: "text", id: "assistant-question",
+    placeholder: `Ask about ${meta.name || "this title"}…`,
+  });
+  const answer = el("p", { class: "assistant-answer", text: "" });
+  const stateLine = el("p", { class: "player-note", text: "" });
+  const overlay = el("div", { class: "player assistant-panel" },
+    el("div", { class: "player-empty-body" },
+      el("h2", { class: "assistant-title", text: `Assistant · ${meta.name || "this title"}` }),
+      el("p", { class: "option-desc", text: "Ask what it is about, whether it is worth starting, or who it is for. The answer comes from the AI provider set in Settings → Assistant." }),
+      el("div", { class: "source-form" }, question,
+        el("button", { class: "btn primary focusable", type: "button", id: "assistant-ask", text: "Ask" }),
+      ),
+      // **Two questions worth pressing**, so the panel is not an empty box on the first
+      // open: the two things a title page cannot tell you from its own metadata.
+      el("div", { class: "assistant-suggestions" },
+        ...["What is it about?", "Will I like it?"].map((q) =>
+          el("button", { class: "chip focusable", type: "button", text: q, onclick: () => { question.value = q; ask(); } }),
+        ),
+      ),
+      stateLine,
+      answer,
+      el("button", { class: "btn subtle focusable", type: "button", text: "Close", onclick: () => overlay.remove() }),
+    ),
+  );
+  const ask = async () => {
+    const q = question.value.trim();
+    if (!q) return;
+    answer.textContent = "";
+    stateLine.textContent = "Asking…";
+    try {
+      const res = await post("/ai/about", {
+        question: q,
+        context: {
+          name: meta.name || "",
+          year: meta.releaseInfo || meta.year || "",
+          type: meta.type === "series" ? "series" : "movie",
+          overview: meta.description || "",
+        },
+      });
+      if (res?.ok) { answer.textContent = res.text; stateLine.textContent = ""; }
+      else stateLine.textContent = res?.text || "No answer came back.";
+    } catch (err) {
+      stateLine.textContent = `Could not read the answer — ${err.message}`;
+    }
+  };
+  overlay.querySelector("#assistant-ask").addEventListener("click", ask);
+  question.addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+  document.body.append(overlay);
+  question.focus();
+}
 
 /** The pin buttons for a title — the same ones the quick-look modal draws. */
 function pinButtons(item) {
@@ -5036,6 +5199,7 @@ function paneDns() {
   const presets = dns.presets?.length
     ? dns.presets
     : [
+        { name: "None", servers: [] },
         { name: "Google", servers: ["8.8.8.8", "8.8.4.4"] },
         { name: "Cloudflare", servers: ["1.1.1.1", "1.0.0.1"] },
         { name: "AdGuard", servers: ["94.140.14.14", "94.140.15.15"] },
@@ -5069,8 +5233,18 @@ function paneDns() {
         dns.secondary = preset.servers[1] || "";
         primaryInput.value = dns.primary;
         secondaryInput.value = dns.secondary;
+      } else if (value === "None") {
+        // **None means the machine's own resolver**, so the override goes off with it —
+        // otherwise the switch stayed on with the last pair of addresses still in the
+        // boxes, and the app kept asking a resolver the user had just said no to.
+        dns.primary = "";
+        dns.secondary = "";
+        primaryInput.value = "";
+        secondaryInput.value = "";
+        dns.enabled = false;
+        enabledSwitch.checked = false;
       }
-      saveDns({ provider: value });
+      saveDns({ provider: value, primary: dns.primary, secondary: dns.secondary, enabled: dns.enabled });
     },
   );
 
@@ -5147,49 +5321,27 @@ async function testDnsNow(target) {
  */
 function paneCustomSites() {
   const store = state.customSites || (state.customSites = { categories: [], repositories: [] });
-  const categories = store.categories?.length
-    ? store.categories
-    : [["movies", "Movies"], ["series", "Series"], ["anime", "Anime"], ["documentary", "Documentary"], ["sports", "Sports"], ["other", "Other"]].map(([key, label]) => ({ key, label, sites: [] }));
+  // **One list of sites, not a box per kind of title.** The pane used to draw six boxes —
+  // Movies, Series, Anime, … — each with its own add field, so adding a site meant choosing
+  // its kind before you had pasted it, and "which sites do I have?" was answered by six
+  // lists. There is one URL box now, and a site wears its tags on its own row.
+  const sites = store.sites?.length ? store.sites : flatSites(store.categories);
+  const tags = store.tags?.length ? store.tags : CATEGORY_LABELS.map(([key, label]) => ({ key, label }));
 
-  const rows = [];
-  for (const cat of categories) {
-    const addInput = el("input", { class: "text-input focusable", type: "text", placeholder: "https://site.example/", id: `site-add-${cat.key}` });
-    const addBtn = el("button", {
-      class: "btn primary focusable",
-      type: "button",
-      id: `site-add-btn-${cat.key}`,
-      text: "Add",
-      onclick: () => addCustomSite(cat.key, addInput),
-    });
-    addInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") addBtn.click();
-    });
-    // **The note lives in state, not only in the DOM.** Adding a site re-renders this
-    // pane, so a message written straight onto the element would be gone by the time the
-    // user read it — the same reason the DNS pane keeps its status on the state object.
-    const saved = (store.notes || {})[cat.key];
-    const note = el("p", {
-      class: `option-desc${saved ? (saved.ok ? " ok" : saved.text ? " bad" : "") : ""}`,
-      id: `site-note-${cat.key}`,
-      text: saved?.text || "",
-    });
-
-    const siteRows = (cat.sites || []).map((site) => siteRow(cat.key, site));
-
-    rows.push(
-      el("div", { class: "provider", id: `cat-${cat.key}` },
-        el("div", { class: "provider-head" },
-          el("div", {},
-            el("span", { class: "option-title", text: cat.label }),
-            el("span", { class: "badge", text: `${(cat.sites || []).length} site${(cat.sites || []).length === 1 ? "" : "s"}` }),
-          ),
-        ),
-        siteRows.length ? el("div", { class: "site-list" }, ...siteRows) : el("p", { class: "option-desc", text: "No sites in this category yet." }),
-        el("div", { class: "source-form" }, addInput, addBtn),
-        note,
-      ),
-    );
-  }
+  const addInput = el("input", {
+    class: "text-input focusable", type: "text", id: "site-url",
+    placeholder: "https://site.example/",
+  });
+  const addBtn = el("button", {
+    class: "btn primary focusable", type: "button", id: "site-add", text: "Add site",
+    onclick: () => addCustomSite(addInput),
+  });
+  addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addBtn.click(); });
+  const note = el("p", {
+    class: `option-desc${store.websiteNote ? (store.websiteNote.ok ? " ok" : " bad") : ""}`,
+    id: "site-note",
+    text: store.websiteNote?.text || "",
+  });
 
   const repoInput = el("input", { class: "text-input focusable", type: "text", id: "repo-url", placeholder: "https://…/repository.json" });
   const savedRepo = store.repoNote;
@@ -5211,13 +5363,13 @@ function paneCustomSites() {
   return [
     el("p", {
       class: "option-desc",
-      text: "Sites the add-ons do not cover. Add a site once and it is searched automatically every time you press Play: the best-matching result page is read, the scraper's tiers run over it, and what they find is added to the Sources list tagged with the site's domain.",
+      text: "Sites the add-ons do not cover. Paste one URL and it is searched every time you press Play — the best-matching result page is read and what it holds is added to the Sources list, tagged with the site's own domain. Only the site, its search pattern and its tags are kept; the streams themselves are never stored, because a stream URL expires and would only be a dead link tomorrow. Tag a site so a film site is not searched for a series.",
     }),
-    el("p", {
-      class: "option-desc",
-      text: "Only the site, its search pattern and its category are saved. The stream URLs are never stored — they carry a token and expire, so they are re-extracted on every play.",
-    }),
-    ...rows,
+    el("div", { class: "source-form" }, addInput, addBtn),
+    note,
+    sites.length
+      ? el("div", { class: "site-list" }, ...sites.map((site) => siteRow(site, tags)))
+      : el("p", { class: "option-desc", text: "No sites added yet." }),
     el("div", { class: "group-head" },
       el("span", { class: "option-title", text: "Repositories" }),
       el("span", { class: "option-desc", text: "A repository is a JSON list of sites: { name, websites: [{ url, category }] }." }),
@@ -5230,129 +5382,174 @@ function paneCustomSites() {
   ];
 }
 
-/** One added site: its domain, its search pattern, and edit/delete. */
-function siteRow(category, site) {
-  const domain = el("span", { class: "site-domain", text: site.domain });
-  const pattern = el("span", { class: "site-pattern", text: site.searchPattern ? `${site.searchPattern.action} · ${site.searchPattern.input}` : "no search pattern" });
-  const body = el("div", { class: "site-body" }, domain, pattern);
-  const row = el("div", { class: "site-row" }, body);
-  row.append(
-    el("button", {
-      class: "btn subtle focusable",
-      type: "button",
-      text: "Edit",
-      onclick: async () => {
-        const urlInput = el("input", { class: "text-input focusable", type: "text", value: site.url });
-        const sampleInput = el("input", { class: "text-input focusable", type: "text", placeholder: "a sample search URL (…/search?q=title)" });
-        const msg = el("p", { class: "option-desc", text: "" });
-        const editor = el("div", { class: "site-edit" }, urlInput, sampleInput,
-          el("div", { class: "source-form" },
-            el("button", {
-              class: "btn primary focusable",
-              type: "button",
-              text: "Save",
-              onclick: async () => {
-                const patch = { url: urlInput.value.trim() };
-                if (sampleInput.value.trim()) {
-                  const res = await post("/custom-sites/pattern", { sample: sampleInput.value.trim(), title: domain.textContent, url: patch.url, category });
-                  if (res?.pattern) patch.searchPattern = res.pattern;
-                  else msg.textContent = res?.message || "That sample URL had no query to copy.";
-                }
-                const res = await post("/custom-sites/update", { url: site.url, category, patch });
-                if (res?.sites) {
-                  state.customSites = { categories: categoriesToState(res.sites), repositories: state.customSites.repositories };
-                  writeJSON(KEY.customSites, state.customSites);
-                }
-                render();
-              },
-            }),
-            el("button", { class: "btn subtle focusable", type: "button", text: "Cancel", onclick: () => render() }),
-          ),
-          msg,
-        );
-        body.replaceChildren(editor);
-      },
-    }),
-    el("button", {
-      class: "btn subtle focusable",
-      type: "button",
-      text: "Delete",
-      onclick: async () => {
-        const res = await post("/custom-sites/remove", { url: site.url });
-        if (res?.sites) {
-          state.customSites = { categories: categoriesToState(res.sites), repositories: state.customSites.repositories };
-          writeJSON(KEY.customSites, state.customSites);
-        }
-        render();
-      },
-    }),
-  );
-  return row;
+/** The flat list the pane draws, from either the server's answer or an older cached one. */
+function flatSites(categories = []) {
+  const out = [];
+  const seen = new Set();
+  for (const cat of categories) {
+    for (const site of cat.sites || []) {
+      if (seen.has(site.url)) continue;
+      seen.add(site.url);
+      out.push({ ...site, categories: site.categories?.length ? site.categories : [cat.key] });
+    }
+  }
+  return out;
 }
 
-const CATEGORY_LABELS = [["movies", "Movies"], ["series", "Series"], ["anime", "Anime"], ["documentary", "Documentary"], ["sports", "Sports"], ["other", "Other"]];
+/** The tag a site wears, and the word for a site that wears none. */
+const tagLabel = (key) => (CATEGORY_LABELS.find(([k]) => k === key) || [key, key])[1];
+
+/**
+ * One added site: its domain, its search pattern, **its tags**, and edit/delete.
+ *
+ * The tags are the row's own control: pressing one adds or removes it, and the site is
+ * saved with what is left. `Other` is how a site says "search me for anything" — that is
+ * what a site has until it is tagged, so a URL pasted into the box above works on the very
+ * next Play.
+ */
+function siteRow(site, tags) {
+  const domain = el("span", { class: "site-domain", text: site.domain });
+  const pattern = el("span", { class: "site-pattern", text: site.searchPattern ? `${site.searchPattern.action} · ${site.searchPattern.input}` : "no search pattern" });
+  const worn = site.categories?.length ? site.categories : ["other"];
+  const tagRow = el("div", { class: "site-tags" },
+    ...tags.map((tag) => el("button", {
+      class: `tag focusable${worn.includes(tag.key) ? " on" : ""}`,
+      type: "button",
+      title: worn.includes(tag.key) ? `${tag.label} — press to remove this tag` : `Also search this site for ${tag.label}`,
+      text: tag.label,
+      onclick: () => setSiteTags(site, worn.includes(tag.key) ? worn.filter((k) => k !== tag.key) : [...worn, tag.key]),
+    })),
+  );
+  const body = el("div", { class: "site-body" }, domain, pattern, tagRow);
+
+  // **Editing replaces the row's actions, it does not join them.** Pressing Edit used to
+  // open the editor *over the details* while Edit and Delete stayed on the row beside the
+  // new Save and Cancel — four buttons for one row, two of them the action you had just
+  // taken. The row now hands its action slot over: Edit/Delete go, Save/Cancel arrive, and
+  // Cancel puts them back.
+  const actions = el("div", { class: "site-actions" });
+  const restore = () => {
+    actions.replaceChildren(
+      el("button", { class: "btn subtle focusable", type: "button", text: "Edit", onclick: startEdit }),
+      el("button", {
+        class: "btn subtle focusable",
+        type: "button",
+        text: "Delete",
+        onclick: async () => {
+          const res = await post("/custom-sites/remove", { url: site.url });
+          if (res?.sites) refreshCustomSites(res.sites);
+          render();
+        },
+      }),
+    );
+  };
+  const startEdit = () => {
+    const urlInput = el("input", { class: "text-input focusable", type: "text", value: site.url });
+    const sampleInput = el("input", { class: "text-input focusable", type: "text", placeholder: "a sample search URL (…/search?q=title)" });
+    const msg = el("p", { class: "option-desc", text: "" });
+    const save = async () => {
+      const patch = { url: urlInput.value.trim() };
+      if (sampleInput.value.trim()) {
+        const res = await post("/custom-sites/pattern", { sample: sampleInput.value.trim(), title: domain.textContent, url: patch.url, category: worn[0] });
+        if (res?.pattern) patch.searchPattern = res.pattern;
+        else msg.textContent = res?.message || "That sample URL had no query to copy.";
+      }
+      const res = await post("/custom-sites/update", { url: site.url, category: worn[0], patch });
+      if (res?.sites) refreshCustomSites(res.sites);
+      render();
+    };
+    body.replaceChildren(
+      el("div", { class: "site-edit" }, urlInput, sampleInput, msg),
+    );
+    actions.replaceChildren(
+      el("button", { class: "btn primary focusable", type: "button", text: "Save", onclick: save }),
+      el("button", { class: "btn subtle focusable", type: "button", text: "Cancel", onclick: () => render() }),
+    );
+    urlInput.focus();
+  };
+  restore();
+  return el("div", { class: "site-row" }, body, actions);
+}
+
+/** Retag one site: the server owns the store, the answer is the whole list. */
+async function setSiteTags(site, categories) {
+  const res = await post("/custom-sites/update", { url: site.url, category: categories[0] || "other", patch: { categories } });
+  if (res?.sites) refreshCustomSites(res.sites);
+  render();
+}
+
+// **The tags a site can wear.** `Live TV` is what the anime tag used to be: a site that
+// carries channels rather than a catalogue is the thing people actually add, and `other`
+// is still the tag every search includes.
+const CATEGORY_LABELS = [["movies", "Movies"], ["series", "Series"], ["documentary", "Documentary"], ["sports", "Sports"], ["livetv", "Live TV"], ["other", "Other"]];
 
 /** The server's per-category map into the pane's list shape. */
 const categoriesToState = (sites) =>
   CATEGORY_LABELS.map(([key, label]) => ({ key, label, sites: sites[key] || [] }));
 
-/**
- * Record a message for one category's add row — on the state object *and* on the element.
- *
- * The element is what the user is looking at; the state copy is what survives the
- * `render()` that follows a successful add. Nothing here re-renders by itself, so the
- * "paste a sample URL" step below can still append its own field to the live node.
- */
-function setSiteNote(category, text, ok = false) {
+/** The add box's own message, on the state for the same reason the repo note is. */
+function setWebsiteNote(text, ok = false) {
   const store = state.customSites || (state.customSites = { categories: [], repositories: [] });
-  store.notes = { ...(store.notes || {}), [category]: { text, ok } };
+  store.websiteNote = { text, ok };
   writeJSON(KEY.customSites, store);
-  const node = document.querySelector(`#site-note-${category}`);
+  const node = document.querySelector("#site-note");
   if (node) {
     node.className = `option-desc${ok ? " ok" : text ? " bad" : ""}`;
     node.textContent = text;
   }
 }
 
-async function addCustomSite(category, input) {
+/**
+ * Add the site in the box.
+ *
+ * **No tag is asked for here.** The site is added as `Other`, which every search includes,
+ * so pressing Play after pasting one works immediately — and the row it lands on is where
+ * it gets tagged (Movies, Anime, …).
+ */
+async function addCustomSite(input) {
   const url = input.value.trim();
   if (!url) {
-    setSiteNote(category, "Paste a site URL first.");
+    setWebsiteNote("Paste a site URL first.");
     return;
   }
-  setSiteNote(category, "Reading the site's search form…");
-  const res = await post("/custom-sites/add", { url, category });
+  setWebsiteNote("Reading the site's search form…");
+  const res = await post("/custom-sites/add", { url });
   if (res?.sites) refreshCustomSites(res.sites);
   if (!res?.ok && res?.needPattern) {
-    // **No search box in the markup.** Inventing one returns nothing, so the user is
-    // asked for a real search URL instead — from which the pattern is copied exactly.
-    setSiteNote(category, `${res.message || "The search form could not be read."} Open the site, search for anything, and paste that URL in the field below.`);
-    const note = document.querySelector(`#site-note-${category}`);
+    // **No search box in the markup.** Inventing one returns nothing, so the user is asked
+    // for a real search URL instead — from which the pattern is copied exactly.
+    setWebsiteNote(`${res.message || "The search form could not be read."} Open the site, search for anything, and paste that URL in the field below.`);
+    const note = document.querySelector("#site-note");
     const sample = el("input", { class: "text-input focusable", type: "text", placeholder: "https://site.example/search?q=anything" });
     const done = el("button", {
       class: "btn primary focusable",
       type: "button",
       text: "Use this URL",
       onclick: async () => {
-        const got = await post("/custom-sites/pattern", { sample: sample.value.trim(), title: "", url, category });
+        const got = await post("/custom-sites/pattern", { sample: sample.value.trim(), title: "", url });
         if (got?.sites) refreshCustomSites(got.sites);
-        setSiteNote(category, got?.ok ? got?.message || "The search pattern was saved." : got?.message || "That URL has no query parameters.", got?.ok === true);
+        setWebsiteNote(got?.ok ? got?.message || "The search pattern was saved." : got?.message || "That URL has no query parameters.", got?.ok === true);
         render();
       },
     });
     note?.after(el("div", { class: "source-form" }, sample, done));
     return;
   }
-  setSiteNote(category, res?.message || (res?.ok ? "Added." : "Could not add that site."), res?.ok === true);
+  setWebsiteNote(res?.message || (res?.ok ? "Added." : "Could not add that site."), res?.ok === true);
+  if (res?.ok) input.value = "";
   render();
 }
 
 function refreshCustomSites(sites) {
   // The stored notes and the repository list are kept: they are not part of the site
   // list the server just answered with.
+  const categories = categoriesToState(sites);
   state.customSites = {
     ...state.customSites,
-    categories: categoriesToState(sites),
+    categories,
+    // **The flat list the pane draws**, built from the same answer, so a tag pressed on a
+    // row is on screen the moment the server has stored it.
+    sites: flatSites(categories),
     repositories: state.customSites.repositories || [],
   };
   writeJSON(KEY.customSites, state.customSites);
@@ -5603,6 +5800,10 @@ function paneProfile() {
         ? "Switch off anything this profile should not show, then press Done. Off by default: with the editor closed, everything shows and nothing is hidden."
         : "This is the profile the app is using. Open the profile icon in the top bar to switch; press Edit to choose which rows, cards and catalogs this profile shows.",
     }),
+    // **The mode, then the account.** Settings → Profile is where a person looks for
+    // "who am I signed in as", so the sign-in card sits directly under the mode it belongs
+    // to, inside the same grid as everything else on this pane.
+    signInCard(),
 
     editing ? el("div", { class: "vis-editor" },
       el("section", { class: "vis-section" },
@@ -6099,7 +6300,7 @@ function applyTheme() {
   const root = document.documentElement;
   // **The typeface is one custom property.** Written here with the accent, and written
   // into the boot record below, so the first paint is already in the chosen face.
-  root.style.setProperty("--font", fontOf(state.font)[2]);
+  root.style.setProperty("--font", FONT_STACK);
   root.style.setProperty("--accent", base);
   root.style.setProperty("--accent-rgb", rgb);
   root.style.setProperty("--accent-deep", deep);
@@ -6109,7 +6310,7 @@ function applyTheme() {
   // the first paint**. Without it the app painted its default gold and then
   // re-tinted a frame later — the "golden accent on boot" flash.
   try {
-    localStorage.setItem(KEY.theme, JSON.stringify({ base, rgb, deep, motion: state.motion, font: state.font }));
+    localStorage.setItem(KEY.theme, JSON.stringify({ base, rgb, deep, motion: state.motion }));
   } catch {
     /* private mode — the app still tints, it just flashes on the next boot */
   }
@@ -6142,36 +6343,13 @@ function paneAppearance() {
       ),
       el("div", { class: "provider-check" }, el("span", { class: "source-status", text: `Accent: ${accentOf(state.accent)[1]}` })),
     ),
-    el("div", { class: "group-head" },
-      el("span", { class: "option-title", text: "Typeface" }),
-      el("span", { class: "option-desc", text: "What the whole app is set in. Every option is a stack of local fonts, so nothing is downloaded and the app still reads the same offline." }),
-    ),
-    el("div", { class: "provider" },
-      ...FONTS.map(([id, label, stack]) =>
-        radioRow(state.font === id, "font", label, "", () => {
-          state.font = id;
-          localStorage.setItem(KEY.font, id);
-          applyTheme();
-          render();
-        }),
-      ),
-      el("div", { class: "provider-check" },
-        el("span", { class: "source-status", text: `Typeface: ${fontOf(state.font)[1]}` }),
-        el("span", { class: "font-sample", style: `font-family: ${fontOf(state.font)[2]}`, text: "The quick brown fox — 0123456789" }),
-      ),
-    ),
-    el("div", { class: "group-head" },
-      el("span", { class: "option-title", text: "Motion" }),
-      el("span", { class: "option-desc", text: "Transitions between screens, hover lifts and the row highlight." }),
-    ),
-    ...MOTIONS.map(([value, title, desc]) =>
-      radioRow(state.motion === value, "motion", title, desc, () => {
-        state.motion = value;
-        localStorage.setItem(KEY.motion, value);
-        applyTheme();
-        render();
-      }),
-    ),
+    // **There is no typeface setting.** The app is set in one face — the stack in
+    // `--font`, which is local families and the system UI face, so nothing is downloaded
+    // and the app reads the same offline.
+    el("p", {
+      class: "option-desc",
+      text: "The app is set in Inter, condensed to fit the rows — one face for the wordmark, the titles and the controls. There is no other typeface to choose.",
+    }),
   ];
 }
 
@@ -6186,18 +6364,94 @@ function paneLayout() {
 }
 
 /**
- * Settings → Appearance & layout, one pane: how the app looks (accent, motion) and
- * how its cards are laid out. They were two tabs for one question.
+ * Settings → Animation: how much the app moves, and what moves.
+ *
+ * **Its own section.** It used to be half of "Appearance & layout", under the accent
+ * swatches — the one setting on that pane nobody was looking for there. The switches below
+ * it are the *what*: the preview panel a card opens on hover, a catalog tile, a button.
  */
-function paneAppearanceLayout() {
+function paneAnimation() {
   return [
-    ...paneAppearance(),
+    el("p", { class: "option-desc", text: "How the app moves: screen changes, hover lifts, the row highlight." }),
+    ...MOTIONS.map(([value, title, desc]) =>
+      radioRow(state.motion === value, "motion", title, desc, () => {
+        state.motion = value;
+        localStorage.setItem(KEY.motion, value);
+        applyTheme();
+        render();
+      }),
+    ),
     el("div", { class: "h-divider", "aria-hidden": "true" }),
     el("div", { class: "group-head" },
-      el("span", { class: "option-title", text: "Layout" }),
-      el("span", { class: "option-desc", text: "How Home holds its cards." }),
+      el("span", { class: "option-title", text: "Hover previews" }),
+      el("span", { class: "option-desc", text: "The little panel that opens when the pointer rests on something — its name, its year, what it is. It is a picture of the thing under the cursor, drawn over the page; nothing is opened and nothing navigates." }),
     ),
-    ...paneLayout(),
+    toggleRow(state.previews.cards, "Titles and cards", "A poster shows its title, year and rating in a small panel.", (e) => {
+      state.previews = { ...state.previews, cards: e.target.checked };
+      writeJSON(KEY.previews, state.previews);
+      render();
+    }),
+    toggleRow(state.previews.catalogs, "Catalog tiles and buttons", "Rows, genres and buttons say what they hold before you open them.", (e) => {
+      state.previews = { ...state.previews, catalogs: e.target.checked };
+      writeJSON(KEY.previews, state.previews);
+      render();
+    }),
+  ];
+}
+
+/**
+ * Settings → Sound: what the app plays, and only when you ask for it.
+ *
+ * Off by default. A media app that beeps at you on every press is the reason people turn
+ * their machines down, so both switches start off and the music never starts on its own.
+ */
+function paneSound() {
+  const sound = state.sound;
+  const set = (patch) => {
+    state.sound = { ...state.sound, ...patch };
+    writeJSON(KEY.sound, state.sound);
+    pushSettings({ sound: state.sound });
+    render();
+  };
+  const volumeInput = el("input", {
+    class: "text-input focusable", type: "range", min: "0", max: "100",
+    id: "sound-volume", value: String(sound.musicVolume ?? 35), style: "width: 100%",
+    oninput: (e) => { sound.musicVolume = Number(e.target.value); },
+    onchange: () => set({}),
+  });
+  return [
+    el("p", { class: "option-desc", text: "Nothing here is on until you turn it on, and nothing plays over a title once it is playing." }),
+    toggleRow(sound.clicks, "A click when you press something", "A short, soft tick on a button, a tile and a card — never on a scroll, and never on a screen you did not press.", (e) => set({ clicks: e.target.checked })),
+    toggleRow(sound.music, "Music while you browse", "A quiet loop under the app until you press Play. It stops the moment a title starts, and never plays in the player.", (e) => set({ music: e.target.checked })),
+    el("div", { class: "provider" },
+      el("span", { class: "option-title", text: "Music volume" }),
+      el("p", { class: "option-desc", text: "How loud the browsing music is, against the title you are about to play." }),
+      volumeInput,
+      el("div", { class: "provider-check" }, el("span", { class: "source-status", text: `${sound.musicVolume ?? 35}%` })),
+    ),
+  ];
+}
+
+/**
+ * Settings → Notifications: what the app is allowed to tell you about.
+ *
+ * The Calendar holds a title's release date and the pins you set on it, and a pinned
+ * episode airing is the one thing in this app that is *late* — so it is the one thing worth
+ * a notification. Everything else is off unless asked for.
+ */
+function paneNotifications() {
+  const n = state.notifications;
+  const set = (patch) => {
+    state.notifications = { ...state.notifications, ...patch };
+    writeJSON(KEY.notifications, state.notifications);
+    pushSettings({ notifications: state.notifications });
+    render();
+  };
+  return [
+    el("p", { class: "option-desc", text: `Notifications for this profile (${state.profile}). A notification is drawn in the app; nothing leaves the machine and no account is needed.` }),
+    toggleRow(n.calendar, "Pinned titles in the Calendar", "Tell me when a title I pinned to watch comes out, and when a pinned episode airs.", (e) => set({ calendar: e.target.checked })),
+    toggleRow(n.releases, "New releases in my Library", "Tell me when something in the Library gets a new season or a new episode.", (e) => set({ releases: e.target.checked })),
+    toggleRow(n.live, "Live TV and sports", "Tell me before a pinned fixture starts, on the Live TV & Sports profile.", (e) => set({ live: e.target.checked })),
   ];
 }
 
@@ -6553,24 +6807,15 @@ function paneCustomRows() {
 
   const rowEditor = (row, index) => {
     const input = el("input", { class: "text-input focusable", type: "text", id: `custom-row-name-${row.id}`, maxlength: "40", value: row.name });
-    const note = el("span", { class: "site-pattern", text: `${row.count || 0} card${row.count === 1 ? "" : "s"}` });
+    // **No "2 cards" label.** It counted the cards in the row, which is the one thing this
+    // pane is not about: the rows are named and ordered here, and what is in them is said
+    // on the card itself. A number that changes as you add titles was a counter to keep
+    // reading, not information.
     return el("div", { class: "site-row", id: `customrow-${row.id}` },
       el("div", { class: "site-body" },
         el("div", { class: "source-form" },
           input,
-          el("button", {
-            class: "btn subtle focusable",
-            type: "button",
-            text: "Rename",
-            onclick: async () => {
-              const res = await post("/custom-rows/rename", { id: row.id, name: input.value.trim() }).catch(() => null);
-              setNote(res?.message || "Renamed.", res?.ok === true);
-              await loadCustomRows();
-              render();
-            },
-          }),
         ),
-        note,
       ),
       el("div", { class: "source-actions" },
         // **The order is the card's order.** The arrows move a row one place; the first
@@ -6597,6 +6842,22 @@ function paneCustomRows() {
           onclick: async () => {
             const res = await post("/custom-rows/delete", { id: row.id }).catch(() => null);
             setNote(res?.message || "Deleted.", res?.ok === true);
+            await loadCustomRows();
+            render();
+          },
+        }),
+        // **Edit, and it sits after the arrows.** It was called "Rename" and lived in the
+        // name field, before the order controls — so the buttons read Edit, ↑, ↓, Delete in
+        // no order at all. It is the same action the Website rows offer, under the same
+        // word, in the same place: last but one, after the two that move the row.
+        el("button", {
+          class: "btn primary focusable",
+          type: "button",
+          id: `custom-row-edit-${row.id}`,
+          text: "Edit",
+          onclick: async () => {
+            const res = await post("/custom-rows/rename", { id: row.id, name: input.value.trim() }).catch(() => null);
+            setNote(res?.message || "Saved.", res?.ok === true);
             await loadCustomRows();
             render();
           },
@@ -6656,9 +6917,10 @@ function renderSettings() {
   const section = state.settingsSection;
 
   const panes = {
-    livesource: paneLiveSource,
+    // **The EPG is where the channels come from**, not a section beside it: a guide URL is
+    // one more thing the source needs, so it is asked for in the Source pane.
+    livesource: () => [...paneLiveSource(), el("div", { class: "h-divider", "aria-hidden": "true" }), ...paneLiveGuide()],
     livecountries: paneLiveCountries,
-    liveguide: paneLiveGuide,
     liverefresh: paneLiveRefresh,
     profile: paneProfile,
     posters: panePosters,
@@ -6676,9 +6938,12 @@ function renderSettings() {
     content: paneContent,
     addons: paneAddonsPlugins,
     plugins: paneAddonsPlugins,
-    layout: paneAppearanceLayout,
-    appearance: paneAppearanceLayout,
-    livelayout: paneAppearanceLayout,
+    layout: paneLayout,
+    appearance: paneAppearance,
+    animation: paneAnimation,
+    sound: paneSound,
+    notifications: paneNotifications,
+    livelayout: paneLayout,
   };
 
   // A stored section that does not exist for this profile (the Live TV profile has
@@ -6686,33 +6951,47 @@ function renderSettings() {
   const sections = settingsSections();
   const active = sections.find(([id]) => id === section) || sections[0];
 
+  // **The sections are a grid of tiles, not a column of links.** Each group is a small
+  // panel holding its own two-column grid, and a tile is the door to that section. It
+  // reads as a settings *board*: the whole of what there is to change is visible at once,
+  // instead of a list that has to be read top to bottom to find one item.
+  // **One board, every door.** Each section is its own tile in one grid — no group box
+  // around a handful of them, and no heading to read first. `settingsGroups()` still
+  // returns groups (a profile can add more), but a group with no name draws no box: its
+  // tiles join the same grid as everyone else's.
   const nav = el("nav", { class: "settings-nav", "aria-label": "Settings sections" },
-    ...settingsGroups().flatMap((group) => [
-      el("span", { class: "settings-group", text: group.group }),
-      ...group.sections.map(([id, label]) =>
-        el("button", {
-          class: `settings-tab focusable${id === active[0] ? " active" : ""}`,
-          type: "button",
-          "aria-current": id === active[0] ? "true" : false,
-          text: label,
-          onclick: () => {
-            state.settingsSection = id;
-            localStorage.setItem(KEY.section, id);
-            render();
-          },
-        }),
+    ...settingsGroups().map((group) =>
+      el("div", { class: `settings-tiles${group.group ? "" : " flat"}` },
+        ...group.sections.map(([id, label]) =>
+          el("button", {
+            class: `settings-tab focusable${id === active[0] ? " active" : ""}`,
+            type: "button",
+            "aria-current": id === active[0] ? "true" : false,
+            text: label,
+            onclick: () => {
+              state.settingsSection = id;
+              localStorage.setItem(KEY.section, id);
+              render();
+            },
+          }),
+        ),
       ),
-    ]),
+    ),
   );
 
+  // **And the options are a grid too.** A pane's own output is wrapped in one grid, so
+  // its switches sit two to a row and its panels stay full width — the same board idea one
+  // level down. Nothing about a pane's own internals is restated here; this only decides
+  // how the pieces it hands back are laid out.
   const body = el("section", { class: "setting" },
     el("h3", { text: active[1] }),
-    (panes[active[0]] || paneProfile)(),
+    el("div", { class: "setting-grid" }, ...(panes[active[0]] || paneProfile)()),
   );
 
   return [
     el("h1", { class: "view-title", text: "Settings" }),
-    el("p", { class: "view-hint", text: `Profile: ${state.profile}` }),
+    // **No "Profile: VOD" line.** The tile you are on already says what you are changing,
+    // and the top bar already says which profile you are in.
     el("div", { class: "settings" }, nav, el("div", { class: "settings-pane" }, body)),
   ];
 }
@@ -6815,7 +7094,12 @@ const bootShownAt = Date.now();
  * barely start to fill and the wordmark would never finish. So it is held for the length
  * of the opening (the fill, the cat settling, the last two letters), and no longer.
  */
-const BOOT_MIN_MS = 3000;
+// The opening is three beats — the line fills, the cat lies down as the C, the last two
+// letters arrive — and this is its length, so a warm catalog cannot cut it short.
+const BOOT_MIN_MS = 3200;
+
+/** A screen the page was linked to, to be taken once a mode has been chosen. */
+let pendingDeepLink = "";
 
 function endBoot() {
   const bootScreen = document.getElementById("boot");
@@ -6891,6 +7175,11 @@ async function render() {
   renderProfile();
 
   let nodes;
+  // **A screen that throws is a screen with something to say.** Every branch below can
+  // ask the server for something, and any of them can fail or answer with nothing —
+  // which used to leave `#main` empty: a black page under a working top bar, with the
+  // watchdog as the only thing that would ever explain it. The failure is drawn now.
+  try {
   if (view === "guide") nodes = renderGuide();
   else if (view === "categories") nodes = renderLiveCategories();
   else if (view === "category") nodes = renderLiveCategory(group);
@@ -6906,9 +7195,13 @@ async function render() {
   else if (view === "calendar") nodes = renderCalendar();
   // The second profile has its own Home — the channels, not the cards.
   else nodes = liveProfile() ? renderLiveHome() : renderHome();
+  } catch (err) {
+    nodes = [screenError(err, view)];
+  }
 
   const main = document.getElementById("main");
-  main.replaceChildren(...nodes);
+  // An empty answer is a failure too, so it gets the same panel rather than a blank page.
+  main.replaceChildren(...(Array.isArray(nodes) && nodes.length ? nodes : [screenError(null, view)]));
   // Now that the frames are in the document, lay the cards' own pictures into
   // them — in place of the generated vector scene.
   hydrateContent();
@@ -8719,7 +9012,7 @@ function playerKey(e) {
   else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
     // The keyboard moves the same figure the icon's own gesture does, and keeps the
     // percentage beside it in step.
-    const next = Math.min(1, Math.max(0, video.volume + (e.key === "ArrowUp" ? 0.1 : -0.1)));
+    const next = Math.min(1, Math.max(0, video.volume + (e.key === "ArrowUp" ? 0.01 : -0.01)));
     video.volume = next;
     if (next > 0) video.muted = false;
     const note = document.querySelector(".player-vol-note");
@@ -9190,7 +9483,9 @@ async function openPlayer(url, title, opts = {}) {
   // level itself only knowable from the picture's loudness. It is a group now: a down
   // mark, the percentage in the middle, an up mark, all inside one bordered box in the
   // strip. **Both marks ramp while held** (the same `holdable` the ±10s buttons use),
-  // and a click is one 5% step. The figure is the mute button: press it to go silent
+  // and a click is one 1% step — the increment the user asked for, on the buttons, on the
+  // wheel and on the arrow keys, so nothing in the player moves the volume by a stride
+  // the others do not. The figure is the mute button: press it to go silent
   // and again to come back, which is what the speaker mark used to do.
   const volValue = el("span", { class: "player-vol-value", id: "player-vol-value", text: "100%" });
   const volDown = el("button", { class: "player-vol-btn focusable", type: "button", title: "Volume down (hold to keep lowering)", id: "player-vol-down" },
@@ -9198,8 +9493,8 @@ async function openPlayer(url, title, opts = {}) {
   const volUp = el("button", { class: "player-vol-btn focusable", type: "button", title: "Volume up (hold to keep raising)", id: "player-vol-up" },
     playerGlyph([svgNode("path", { d: "M4 9.5h3.3L11 6.6v10.8L7.3 14.5H4z" }), svgNode("path", { d: "M14.8 9.6a3.6 3.6 0 0 1 0 4.8" }), svgNode("path", { d: "M17.3 7.4a7 7 0 0 1 0 9.2" })]));
   const volRamp = (delta) => setVolume((video.muted ? 0 : video.volume) + delta);
-  holdable(volDown, -0.05, volRamp, () => syncVolume());
-  holdable(volUp, 0.05, volRamp, () => syncVolume());
+  holdable(volDown, -0.01, volRamp, () => syncVolume());
+  holdable(volUp, 0.01, volRamp, () => syncVolume());
   const syncVolume = () => {
     const level = video.muted ? 0 : video.volume;
     volValue.textContent = `${Math.round(level * 100)}%`;
@@ -9209,17 +9504,16 @@ async function openPlayer(url, title, opts = {}) {
     volUp.disabled = level === 1;
   };
   volValue.addEventListener("click", () => { video.muted = !video.muted; syncVolume(); });
-  volDown.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.05 : -0.05); syncVolume(); }, { passive: false });
-  volUp.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.05 : -0.05); syncVolume(); }, { passive: false });
+  volDown.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.01 : -0.01); syncVolume(); }, { passive: false });
+  volUp.addEventListener("wheel", (e) => { e.preventDefault(); volRamp(e.deltaY < 0 ? 0.01 : -0.01); syncVolume(); }, { passive: false });
   video.addEventListener("volumechange", syncVolume);
-  // **Three buttons, not one box with three things in it.** The volume used to be a
-  // single bordered box holding −, the figure and +, which made it the one control in the
-  // bar that was not shaped like a control. Each mark is the same chip as its neighbours
-  // now (`.player-icon`'s fill, height and radius), and the figure between them is the
-  // mute button — which is what the app's other values look like too.
-  volDown.className = "player-icon player-vol-btn focusable";
-  volUp.className = "player-icon player-vol-btn focusable";
-  volValue.className = "player-icon player-vol-value";
+  // **One inner box around the whole volume.** The three of them were separate chips in a
+  // row — a shape nothing else in the bar wears twice — so the box is the chip now
+  // (`height: 34px`, radius 9px, the same fill as the transport marks) and −, the figure
+  // and + are marks drawn on it. The figure between them is the mute button.
+  volDown.className = "player-vol-btn focusable";
+  volUp.className = "player-vol-btn focusable";
+  volValue.className = "player-vol-value";
   const volBox = el("div", { class: "player-vol", id: "player-volume" }, volDown, volValue, volUp);
   syncVolume();
 
@@ -9585,11 +9879,15 @@ async function openPlayer(url, title, opts = {}) {
           playBtn,
           fwdBtn,
           speedNote,
-          clock,
-          el("div", { class: "player-seek-box" }, seek),
+          // **The seek bar and its two clocks are one card.** The times used to sit
+          // outside it — the elapsed figure at the end of the transport group, the
+          // duration at the start of the next one — so the bar read as a line drawn on
+          // the strip rather than as a control with a surface, and its own readings
+          // looked like they belonged to the buttons either side. They are inside the
+          // card now: `0:00 ——— 1:34`, one object.
+          el("div", { class: "player-seek-box" }, clock, seek, total),
         ),
         el("div", { class: "player-group end" },
-          total,
           volBox,
           rate,
           aspect,
@@ -9878,7 +10176,39 @@ function watchRender(seq) {
         }),
       ),
     );
-  }, Number(globalThis.NUVIO_RENDER_WATCHDOG_MS) || 12000);
+    // **Sooner is better than never.** A screen that cannot draw itself must say so
+    // while the person is still looking at it, not twelve seconds later.
+  }, Number(globalThis.NUVIO_RENDER_WATCHDOG_MS) || 5000);
+}
+
+/**
+ * **Nothing on screen is not a state the app has.**
+ *
+ * Drawn when a screen throws, or when a screen answers with nothing at all: the page
+ * says what happened and offers the two ways out — try the same screen again, or go
+ * back to Home. `empty-panel` is the app's existing panel for "there is nothing here
+ * yet", so this needs no new surface.
+ */
+function screenError(err, view) {
+  const why = err ? String(err.message || err) : "This screen answered with nothing.";
+  return el(
+    "div",
+    { class: "empty-panel" },
+    el("p", { text: `This screen could not be drawn — ${why}` }),
+    el(
+      "div",
+      { class: "empty-panel-actions" },
+      el("button", {
+        class: "btn primary focusable",
+        type: "button",
+        text: "Try again",
+        onclick: () => { render().catch(() => {}); },
+      }),
+      view && view !== "home" && view !== "profiles"
+        ? el("button", { class: "btn focusable", type: "button", text: "Back to Home", onclick: () => go("#/") })
+        : null,
+    ),
+  );
 }
 
 /** The same boot read, without the splash: used by the watchdog's button. */
@@ -9999,12 +10329,18 @@ async function boot() {
     })();
   }
 
-  // The app always opens on the switch-profile screen, the way Nuvio does —
-  // unless the link points somewhere specific.
-  const hash = location.hash;
-  if (!hash || hash === "#/" || hash === "#") {
-    location.hash = "#/profiles";
-  }
+  // **A link opens what it points at; a plain load opens the mode picker.**
+  //
+  // Every route is opened straight away again — a title, a card, the Calendar, Settings.
+  // What that must never do is arrive *empty*: the boot screen comes down on its own timer
+  // and the screen underneath is drawn only when its own request answers, so a link whose
+  // request hangs used to leave the top bar over nothing (and, worse, a reload on a title
+  // URL sat on the boot screen while the hash was quietly rewritten to the picker, so the
+  // title was never shown at all). The `render` watchdog covers the hang; this covers the
+  // URL. With no route in the address bar there is nothing to honour, and that is when the
+  // mode picker is the right screen.
+  pendingDeepLink = "";
+  if (!location.hash) location.hash = "#/profiles";
   // `render` is awaited: the boot screen must not fade out over a page that has
   // not been drawn yet (the title and list screens fetch before they render).
   await render();

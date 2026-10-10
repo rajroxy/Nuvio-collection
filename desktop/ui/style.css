@@ -35,7 +35,6 @@ hr { border: 0; height: 1px; background: var(--rule); }
 .guide-row { border-bottom-color: var(--rule-soft); }
 
 /* The sample line in Settings → Appearance, drawn in the face being chosen. */
-.font-sample { font-size: 14px; color: rgba(255, 255, 255, 0.86); }
 
 /* Settings → Appearance. `motion-off` stops everything; `motion-full` animates
    even on a device that asks for reduced motion; the default follows the system. */
@@ -215,7 +214,11 @@ body {
   flex: none;
   width: 1px;
   height: 28px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.55) 50%, rgba(255, 255, 255, 0.06));
+  /* **The rule beside the arrow wears the accent**, like every other rule in the app.
+     It was white at 55% — the one line in the top bar that stayed grey whatever colour
+     the app was wearing, which is what "the vertical line does not follow the accent
+     on different pages" was. */
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.06), var(--rule) 50%, rgba(var(--accent-rgb), 0.06));
 }
 
 .icon-btn {
@@ -990,8 +993,31 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 .site-domain { font-size: 13.5px; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .site-pattern { font-size: 12px; color: var(--muted); word-break: break-all; }
 .site-row .btn { flex: none; }
+/* The row's action slot — Edit/Delete, or Save/Cancel while it is being edited. */
+.site-actions { display: flex; gap: 8px; flex: none; align-items: center; }
 /* The editor a site's Edit button opens, inside its row. */
 .site-edit { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+/* **A site's tags, on the site's own row.** They replaced six boxes with six add fields:
+   paste one URL, then say what the site is. `on` is a tag the site wears — pressing it
+   takes it off again, and the site is saved with what is left. `Other` is what a site
+   wears until it is tagged, and every search includes it, so a freshly pasted URL is
+   searched on the next Play. */
+.site-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.tag {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.tag:hover { background: rgba(255, 255, 255, 0.13); color: var(--text); }
+.tag.on { background: rgba(var(--accent-rgb), 0.9); color: #10110f; }
+.tag.on:hover { background: var(--accent); }
 
 /* No scrollbar is drawn on a row: the row scrolls with the wheel (see
    `horizontalWheel` in app.js) and with the D-pad, and a chunky bar under every
@@ -1032,15 +1058,52 @@ button.chip:hover { background: rgba(var(--accent-rgb), 0.26); color: #fff; }
 
 /* --------------------------------------------------------------- settings */
 
-.settings { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 1fr); gap: 28px; align-items: start; }
-.settings-nav { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 4px; }
+.settings { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 28px; align-items: start; }
+/* **The board: sections as tiles.** The left panel used to be a list of links, which made
+   finding one section a matter of reading the whole column. It is a grid of tiles now —
+   two to a row, each one the door to its section, the one you are in filled with the
+   accent — and each group keeps its own panel so the grouping stays legible. The panel is
+   sticky, so a long list of sections cannot fall out of view while its options are read. */
+.settings-nav { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 16px; }
+.settings-group-box { display: flex; flex-direction: column; gap: 8px; }
+.settings-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .settings-tab {
-  text-align: left; border: 0; background: transparent; color: var(--muted); font: inherit;
-  font-size: 14px; font-weight: 600; padding: 10px 14px; border-radius: 10px; cursor: pointer;
+  text-align: left;
+  border: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 12px 13px;
+  min-height: 58px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
-.settings-tab:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
-.settings-tab.active { background: rgba(var(--accent-rgb), 0.16); color: #fff; }
+
+/* **The options, in the same board layout.** One grid holds everything a pane hands back:
+   a switch takes half a row, so two sit side by side, and anything wider — a panel, a
+   form, a list of sources — spans the whole width. */
+.setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.setting-grid > * { grid-column: 1 / -1; min-width: 0; }
+.setting-grid > .option { grid-column: auto; margin-bottom: 0; }
+@media (max-width: 1100px) {
+  .setting-grid { grid-template-columns: minmax(0, 1fr); }
+  .setting-grid > .option { grid-column: 1 / -1; }
+}
+.settings-tab:hover { background: var(--panel-2); color: var(--text); transform: translateY(-2px); }
+.settings-tab.active { background: rgba(var(--accent-rgb), 0.22); color: #fff; }
 .settings-pane { min-width: 0; }
+/* **The account row.** Who is signed in: the provider's picture (or the first letter of
+   their name when there is none), the name, the address and which provider it came from,
+   and the way out. It is the same panel the panes already use, so the sign-in card is one
+   more surface rather than a new one. */
+.account-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.account-avatar { width: 40px; height: 40px; border-radius: 50%; flex: none; object-fit: cover; display: grid; place-items: center; background: var(--panel-2); color: var(--accent); font-size: 17px; font-weight: 800; }
+.account-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.account-buttons { align-items: center; }
 
 .setting h3 {
   margin: 0 0 12px;
@@ -1496,6 +1559,16 @@ button:focus-visible,
 .hero-art.art-filled, .section-art.art-filled { background-image: none !important; }
 .icon-wrap.art-filled, .hero-art.art-filled, .section-art.art-filled { background-color: var(--panel-2); }
 
+/* **With motion off, the finished logo is what is drawn.** The opening is a sequence —
+   the line fills, the cat lies down, the letters arrive — and when nothing animates there
+   is no sequence, so the last frame is the frame: the curled cat, and both letters. */
+.motion-off .cat-sit { opacity: 0; }
+.motion-off .cat-c { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  html:not(.motion-full) .cat-sit { opacity: 0; }
+  html:not(.motion-full) .cat-c { opacity: 1; }
+}
+
 /* ------------------------------------------------------------ boot screen */
 
 /* Covers the app until the first screen is drawn. `motion-off` (and the system
@@ -1515,7 +1588,7 @@ button:focus-visible,
 .boot.done { opacity: 0; visibility: hidden; pointer-events: none; }
 .boot[hidden] { display: none; }
 /* The wordmark and the cat sit side by side: "Auto" then the mark to its right. */
-.boot-brand { display: flex; align-items: center; gap: 9px; }
+.boot-brand { display: flex; align-items: center; gap: 4px; }
 /* The name and the progress line, stacked: the line is exactly as wide as the word. */
 .boot-name-col { display: flex; flex-direction: column; align-items: stretch; gap: 9px; }
 .boot-name {
@@ -1527,22 +1600,39 @@ button:focus-visible,
   color: #f8f3e8;
   text-shadow: 0 3px 22px rgba(var(--accent-rgb), 0.3);
 }
-/* The mark is a touch smaller than the wordmark it sits beside: at 100px it read as
-   the subject of the screen rather than the logo next to the name. */
+/* The mark holds **two drawings of the same animal**, and the opening swaps one for the
+   other: the cat sitting up is what waits, the cat curled into an arc is the letter the
+   wordmark is missing. Nothing here changes the layout — both poses are in the same 76px
+   box, so the swap cannot nudge the name beside it. */
 .boot-mark { width: 76px; height: 76px; display: grid; place-items: center; }
-/* The logo mark: the whole classic anime black cat, drawn inline in index.html.
-   The SVG owns its gradients (iris-purple inner ears, white eyes with black
-   pupils); the halo behind it is the one themed part. Everything here is motion
-   only, and `motion-off` / prefers-reduced-motion already stop all of it. */
 .boot-cat {
   width: 76px;
   height: 76px;
   overflow: visible;
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
-  animation: boot-float 3.8s ease-in-out infinite;
 }
-.cat-glow { animation: boot-glow 3.8s ease-in-out infinite; }
-/* Blink: flatten both eyes around the line that joins them (y = 40.5). */
+/* **Beat two — the animal becomes the C.**
+   The curled pose is drawn first and waits at zero opacity. It arrives at 1.62s, the moment
+   the sitting cat is letting go, and it arrives *out of focus*: a 7px blur at 0.62 scale
+   that resolves to sharp at full size. Blur under a crossfade is what makes two drawings
+   read as one thing moving, instead of two pictures trading places. `both` holds the
+   finished pose, so the last frame of the opening is the logo. */
+.cat-c {
+  transform-box: fill-box;
+  transform-origin: 50% 52%;
+  opacity: 0;
+  animation: boot-become-c 0.9s cubic-bezier(0.22, 0.9, 0.24, 1) 1.45s both;
+}
+/* **Beat one — the cat sits up, then lies down.**
+   It is the second beat of the opening: the line has just filled (1.2s) and the animal
+   rolls over onto its side, toward the word it belongs to, and hands over. Pivoted on its
+   haunches and squashed as it goes, so it reads as weight rather than a spin. */
+.cat-sit {
+  transform-box: fill-box;
+  transform-origin: 50% 96%;
+  animation: boot-lie-down 0.95s cubic-bezier(0.45, 0, 0.2, 1) 1.2s both;
+}
+/* Blink: flatten both eyes around the line that joins them (y = 34.5). */
 .cat-eyes { transform-box: view-box; transform-origin: 60px 34.5px; animation: boot-blink 4.8s ease-in-out infinite; }
 /* A slow ear twitch, each ear pivoting on its own base. */
 .cat-ear-l { transform-box: view-box; transform-origin: 48px 24px; animation: boot-twitch-l 5.4s ease-in-out infinite; }
@@ -1550,11 +1640,14 @@ button:focus-visible,
 /* The tail flicks from where it meets the body. */
 .cat-tail { transform-box: view-box; transform-origin: 74px 92px; animation: boot-tail 6.2s ease-in-out infinite; }
 .cat-whisk { animation: boot-whisk 3.8s ease-in-out infinite; }
+/* The halo breathes behind whichever pose is on top, so a boot that waits still looks
+   alive rather than stuck. */
+.cat-glow { animation: boot-glow 3.8s ease-in-out infinite; }
 /* **The boot sequence, in one pass.** The line fills from the left to the right and
    **stays full** — it used to fill and empty on a loop, so "loading" and "loaded" looked
    the same and the sweep restarted under a wordmark that had not changed. When it is full
-   the cat settles in beside the name and curls into the C, and the last two letters arrive
-   after it: the screen says AutoCAT exactly when the catalog is in hand.
+   the cat lies down and becomes the C, and the last two letters land after it: the screen
+   says **AutoCAT** exactly when the catalog is in hand.
    `scaleX` from a left origin rather than a changing `width`, so the sweep is composited
    instead of re-laid-out on every frame. The track is exactly the width of the wordmark
    above it. */
@@ -1567,43 +1660,48 @@ button:focus-visible,
   border-radius: 3px;
   background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.4), var(--accent));
   box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.45);
-  animation: boot-load 1.6s cubic-bezier(0.35, 0, 0.25, 1) forwards;
+  /* **One fill, left to right, and then it stays full.** 1.2s is the length of the first
+     beat of the opening: the cat's own move is timed to begin at exactly this mark. */
+  animation: boot-load 1.2s cubic-bezier(0.32, 0, 0.2, 1) forwards;
 }
 @keyframes boot-load {
   from { transform: scaleX(0); opacity: 0.85; }
   to { transform: scaleX(1); opacity: 1; }
 }
-/* The cat settles against the wordmark once the line is full — a small lean and press,
-   not a hop — and stays there. The float and the glow keep going on the SVG itself, so a
-   boot that waits still looks alive. */
-.boot-mark { animation: boot-settle 1s ease-out 1.5s both; }
-@keyframes boot-settle {
-  from { transform: none; }
-  to { transform: translate(-7px, 4px) rotate(-10deg) scale(0.9); }
-}
-/* The last two letters: drawn in the wordmark's own face and colour so "CAT" is the same
-   word as "Auto", arriving after the cat has taken its place. */
+/* **And then the last two letters, as one word.** They used to be two spans with their own
+   delays, which read as A… then T. This is a single block that arrives whole, in one move,
+   landing against the C so the name completes once and the screen is done. */
 .boot-letters {
-  margin: 0;
+  margin: 0 0 0 -16px;
   font-size: 42px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0.01em;
   color: #f8f3e8;
   text-shadow: 0 3px 22px rgba(var(--accent-rgb), 0.3);
-  animation: boot-letters 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 2.2s both;
+  animation: boot-letters 0.6s cubic-bezier(0.2, 0.85, 0.2, 1) 2.25s both;
 }
 @keyframes boot-letters {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateX(-16px) scale(0.95); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
 }
-@keyframes boot-float { 0%, 100% { transform: translateY(2px); } 50% { transform: translateY(-2.5px); } }
+@keyframes boot-lie-down {
+  0% { transform: rotate(0deg) scale(1); opacity: 1; filter: blur(0px); }
+  /* It tips over onto its side, toward the word, and presses down. */
+  55% { transform: rotate(-48deg) scale(1.03) translateY(-1px); opacity: 1; filter: blur(0px); }
+  /* Then it lets go — the blur is what the next drawing resolves out of. */
+  100% { transform: rotate(-62deg) scale(0.82) translateX(6px); opacity: 0; filter: blur(7px); }
+}
+@keyframes boot-become-c {
+  0% { opacity: 0; transform: rotate(26deg) scale(0.66); filter: blur(8px); }
+  58% { opacity: 1; transform: rotate(-5deg) scale(1.04); filter: blur(1.4px); }
+  100% { opacity: 1; transform: rotate(0deg) scale(1); filter: blur(0px); }
+}
 @keyframes boot-glow { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.85; } }
 @keyframes boot-blink { 0%, 89% { transform: scaleY(1); } 93%, 95.5% { transform: scaleY(0.07); } 100% { transform: scaleY(1); } }
 @keyframes boot-twitch-l { 0%, 78%, 100% { transform: rotate(0deg); } 83% { transform: rotate(-6deg); } 89% { transform: rotate(2.5deg); } 95% { transform: rotate(0deg); } }
 @keyframes boot-twitch-r { 0%, 78%, 100% { transform: rotate(0deg); } 84% { transform: rotate(6deg); } 90% { transform: rotate(-2.5deg); } 96% { transform: rotate(0deg); } }
 @keyframes boot-tail { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-9deg); } }
-@keyframes boot-whisk { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
 
 /* ------------------------------------------- the whole-app surface, one look */
 
@@ -1729,7 +1827,11 @@ body { background: var(--ink); }
 .alpha-rail,
 .graph,
 .guide,
-.guide-head {
+.guide-head,
+/* **A row you added yourself is a plate, not a box.** Custom Websites and the Library's
+   rows kept the 1px hairline the whole app had already dropped, so a site's row and a
+   library row read as a different kind of object from everything around them. */
+.site-row {
   border: 0;
 }
 
@@ -1852,6 +1954,11 @@ body { background: var(--ink); }
 
 /* An empty state is a panel, not a dotted box. */
 .empty-panel { border: 0; background: var(--panel); }
+/* **A screen that could not be drawn offers its own way out.** The panel is the app's
+   existing "nothing here yet" surface; this is the pair of buttons under its sentence —
+   try the same screen again, or go back to Home. Two buttons in a row, the same chip
+   treatment the rest of the app uses. */
+.empty-panel-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* One radius for the two big frames, so the banner agrees with the cards under it. */
 .hero { border-radius: 16px; }
@@ -2577,31 +2684,32 @@ html:fullscreen, body:fullscreen { overflow: hidden; height: 100%; }
 .player-vol {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
   flex: none;
   height: 34px;
-  padding: 0;
+  padding: 0 4px;
   border: 0;
-  background: transparent;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.09);
   color: var(--text);
 }
 .player-vol-btn, .player-vol-value {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 36px;
-  height: 34px;
-  padding: 0 9px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 7px;
   border: 0;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.09);
+  border-radius: 7px;
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
-.player-vol-btn:hover, .player-vol-value:hover { background: rgba(255, 255, 255, 0.16); }
+.player-vol-btn:hover, .player-vol-value:hover { background: rgba(255, 255, 255, 0.14); }
 .player-vol-btn[disabled] { opacity: 0.35; cursor: default; }
 /* The figure wears the same chip as the two marks; only its colour and its figures are
    its own. */
@@ -2616,15 +2724,37 @@ html:fullscreen, body:fullscreen { overflow: hidden; height: 100%; }
 .player-seek-box {
   display: flex;
   align-items: center;
+  gap: 10px;
   flex: 1;
-  min-width: 140px;
+  min-width: 190px;
   height: 34px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.09);
+  transition: background 0.15s ease;
 }
+/* **The clocks are inside the card.** They were the two figures either side of it — which
+   is exactly what made the card read as a line drawn between them rather than as one
+   control holding its own reading. */
+.player-seek-box:hover { background: rgba(255, 255, 255, 0.13); }
 .player-seek { flex: 1; min-width: 120px; height: 4px; accent-color: var(--accent); }
 .player-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* **The Assistant, over the page.** It borrows the player's full-screen surface — one
+   centred panel on a dimmed stage — so a question about a title is the same gesture as
+   choosing a source: nothing navigates, and closing it puts you back where you were. */
+.assistant-panel .player-empty-body { max-width: 620px; }
+.assistant-title { margin: 0 0 6px; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.assistant-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.assistant-answer {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+  /* The answer arrives as a paragraph and is read as one; the panel grows with it. */
+  white-space: pre-wrap;
+}
+.assistant-answer:empty { display: none; }
 
 /* The centre play target — the picture is clickable, and this is what says so. */
 .player-center {
@@ -2993,6 +3123,10 @@ select.player-rate { padding: 7px 30px 7px 10px !important; border-radius: 9px !
   position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; right: 0;
   display: flex; flex-direction: column; gap: 2px; padding: 6px;
   background: var(--panel-2); border-radius: 12px; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  /* **A long list scrolls.** With no ceiling, a picker with more options than the window
+     is tall ran off the bottom of the screen with no scrollbar — the last choices were
+     simply unreachable. */
+  max-height: min(340px, 60vh); overflow-y: auto; overscroll-behavior: contain;
 }
 /* **A `hidden` menu is hidden.** `display: flex` above outranks the user agent's
    `[hidden] { display: none }`, so every closed dropdown in the app stayed painted

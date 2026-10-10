@@ -31,7 +31,7 @@ import {
   title as collectionTitle,
 } from "../scripts/collections.mjs";
 import { get, hasKey, toMeta, tmdbPath, setKey, resolveGenre, IMG } from "./tmdb.mjs";
-import { askAI, verifyAI, aiModels, aiProviderName, aiState } from "./ai.mjs";
+import { askAI, askAbout, verifyAI, aiModels, aiProviderName, aiState } from "./ai.mjs";
 import {
   STATES,
   STATE_LABEL,
@@ -78,6 +78,7 @@ import { handleProxy } from "./proxy.mjs";
 import { guardState } from "./guards.mjs";
 import { browserUnavailableReason } from "../scraper/tier3.js";
 import { handleTorrentStream, prepareTorrent, torrentStatus, torrentState } from "./torrent.mjs";
+import { authConfigured, authProviders, clearCookie, finish, readSession, sessionCookie, signOut, startUrl } from "./auth.mjs";
 import { publicSites, addSite, updateSite, removeSite, detectSearchPattern, patternFromSample, addRepository, removeRepository, searchJob, startSearchOnPlay, listSites } from "./custom-sites.mjs";
 import { getPrefs, updatePrefs } from "./user-prefs.mjs";
 
@@ -1339,6 +1340,9 @@ function parseCatalogPath(pathname) {
 
 /* ----------------------------------------------------------------- handler */
 
+/** A session cookie may only be marked `Secure` when it is actually served over TLS. */
+const secureOrigin = (origin) => String(origin || "").startsWith("https://");
+
 const json = (res, status, body, maxAge = 0) => {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -1472,13 +1476,13 @@ export async function handleAddon(req, res, pathname, origin) {
         // (or picking a different poster service / provider) rewrites nothing until
         // those answers are dropped — which is exactly "enrichment does nothing".
         if (patch && ("enrich" in patch || "posters" in patch || "providers" in patch || "ratings" in patch)) clearTmdbCache();
-        json(res, 200, { ...publicSettings(), options: appOptions(), dns: publicDns(), customSites: publicSites(), prefs: getPrefs() });
+        json(res, 200, { ...publicSettings(), options: appOptions(), dns: publicDns(), customSites: publicSites(), prefs: getPrefs(), account: { configured: authConfigured(), providers: authProviders(), user: readSession(req) } });
       } catch (err) {
         json(res, 400, { error: String(err?.message || err) });
       }
       return true;
     }
-    json(res, 200, { ...publicSettings(), options: appOptions(), dns: publicDns(), customSites: publicSites(), prefs: getPrefs() });
+    json(res, 200, { ...publicSettings(), options: appOptions(), dns: publicDns(), customSites: publicSites(), prefs: getPrefs(), account: { configured: authConfigured(), providers: authProviders(), user: readSession(req) } });
     return true;
   }
 
@@ -1575,6 +1579,67 @@ export async function handleAddon(req, res, pathname, origin) {
       json(res, 200, await verifyDebrid(name, key));
     } catch (err) {
       json(res, 400, { ok: false, text: String(err?.message || err) });
+    }
+    return true;
+  }
+
+  /* --------------------------------------------------------------- signing in */
+
+  // Who this browser is, if anyone. **A whole account system waits on this except for
+  // the profile it names** — see `addon/auth.mjs` for what is stored (a name, an address,
+  // a picture; never a token and never a password).
+  if (pathname === "/auth/me") {
+    json(res, 200, { ok: true, configured: authConfigured(), providers: authProviders(), user: readSession(req) });
+    return true;
+  }
+
+  // Sign out of the session this browser is carrying.
+  if (pathname === "/auth/signout") {
+    signOut(req);
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "set-cookie": clearCookie(secureOrigin(origin)) });
+    res.end(JSON.stringify({ ok: true }));
+    return true;
+  }
+
+  // **Off to the provider.** This is a plain redirect, not a JSON answer: the whole point
+  // is to leave this origin, and a fetch cannot do that on the user's behalf.
+  if (pathname.startsWith("/auth/") && pathname.endsWith("/start")) {
+    const provider = pathname.slice("/auth/".length, -"/start".length);
+    const next = new URL(req.url ?? "/", "http://localhost").searchParams.get("next") || "";
+    const started = startUrl(provider, origin, next);
+    if (!started) {
+      // Not configured, or not a provider this build offers: back to the app with the
+      // reason, rather than a blank page from the provider's error screen.
+      res.writeHead(302, { location: `/app/#/settings?signin=${encodeURIComponent(provider)}` });
+      res.end();
+      return true;
+    }
+    res.writeHead(302, { location: started.url, "cache-control": "no-store" });
+    res.end();
+    return true;
+  }
+
+  // ...and back. The code is spent here and turned into a session cookie.
+  if (pathname.startsWith("/auth/") && pathname.endsWith("/callback")) {
+    const provider = pathname.slice("/auth/".length, -"/callback".length);
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    try {
+      const done = await finish(provider, {
+        code: params.get("code") || "",
+        state: params.get("state") || "",
+        origin,
+      });
+      const where = done.next && done.next.startsWith("/") ? done.next : "/app/#/settings";
+      res.writeHead(302, {
+        location: where,
+        "set-cookie": sessionCookie(done.sessionId, secureOrigin(origin)),
+        "cache-control": "no-store",
+      });
+      res.end();
+    } catch (err) {
+      const why = encodeURIComponent(String(err?.message || err).slice(0, 160));
+      res.writeHead(302, { location: `/app/#/settings?signin_error=${why}`, "cache-control": "no-store" });
+      res.end();
     }
     return true;
   }
@@ -1722,7 +1787,15 @@ export async function handleAddon(req, res, pathname, origin) {
       // **The whole list comes back, not just the new row.** The pane redraws from this
       // answer, so a response without `sites` left the category it had just added to
       // looking empty until the next full settings fetch.
-      const added = await addSite({ url: body.url, category: body.category, searchPattern: body.searchPattern || null });
+      // A site is added from **one URL box** and tagged afterwards; `tags` is what the
+      // pane sends, `category` is what an older page or a repository entry still sends.
+      const added = await addSite({
+        url: body.url,
+        category: body.category,
+        tags: body.tags,
+        categories: body.categories,
+        searchPattern: body.searchPattern || null,
+      });
       json(res, 200, { ...added, sites: listSites() });
     } catch (err) {
       json(res, 200, { ok: false, message: String(err?.message || err) });
@@ -2167,6 +2240,18 @@ export async function handleAddon(req, res, pathname, origin) {
   // The AI provider state (never the keys) and its two live calls.
   if (pathname === "/ai.json") {
     json(res, 200, aiState());
+    return true;
+  }
+
+  // **A question about one title**, which is a different job from `/ai/ask`: that one
+  // turns a sentence into a search, this one answers. Same providers, same key.
+  if (pathname === "/ai/about" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      json(res, 200, await askAbout(String(body.question || ""), body.context || {}));
+    } catch (err) {
+      json(res, 400, { ok: false, text: String(err?.message || err) });
+    }
     return true;
   }
 

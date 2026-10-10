@@ -45,7 +45,14 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const VERIFIED = require("./tmdb-verified.json");
 
-const ALL_DECADES = [1950, 1960, 1970, 1980, 1990, 2000, 2010, 2020];
+/**
+ * The decades, **newest first**.
+ *
+ * The card lists them in the order this array holds, and the decade you want is almost
+ * always the one you are in — 2020s first, then 2010s, and back to the 1950s. Oldest
+ * first meant scrolling the whole strip to reach the row that is usually the answer.
+ */
+const ALL_DECADES = [2020, 2010, 2000, 1990, 1980, 1970, 1960, 1950];
 
 export const MOVIE_GENRES = [
   "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family",
@@ -496,7 +503,7 @@ const countriesFor = (type) => COUNTRIES.filter(([name]) => countryHasContent(na
  * was the card that kept coming back with the same handful of names.
  */
 const globalOtt = {
-  top10: (take) => GLOBAL_OTT.map(([label, id]) => provider(`${label} ◆ Top 10`, id, null, take)),
+  top10: (take) => GLOBAL_OTT.map(([label, id]) => provider(`${label} | Top 10`, id, null, take)),
   // Each platform, then that platform's own studio's originals — the row the
   // request asked for, directly after the platform's row.
   all: () =>
@@ -527,7 +534,7 @@ function regionalOtt(kind) {
       // The row carries its own region: this is what makes one service row usable
       // from the region it was verified in instead of one country's five.
       const region = svc.region || null;
-      if (kind === "top10") return provider(`${label(svc)} ◆ Top 10`, svc.id, region, TOP10);
+      if (kind === "top10") return provider(`${label(svc)} | Top 10`, svc.id, region, TOP10);
       return provider(label(svc), svc.id, region);
     });
   };
@@ -643,9 +650,9 @@ const buildCollections = () => {
   },
   {
     key: "discover-top-10",
-    lines: ["Discover", "◆ Top 25"],
+    lines: ["Discover", "| Top 25"],
     scene: "spotlight-top-10",
-    catalogs: both(discoverRow(" ◆ Top 25", TOP25)),
+    catalogs: both(discoverRow(" | Top 25", TOP25)),
   },
   {
     key: "on-the-board",
@@ -748,7 +755,7 @@ const buildCollections = () => {
   },
   {
     key: "genre-from-decades",
-    lines: ["Genre from", "◆ Decades"],
+    lines: ["Genre from", "Decades"],
     scene: "genres-in-or-from-decades",
     // Both rows. TV genres are a different set (no "Science Fiction", but
     // "Sci-Fi & Fantasy"), so each row uses its own verified list — and a

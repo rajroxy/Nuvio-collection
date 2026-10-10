@@ -32,12 +32,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FILE = process.env.NUVIO_CUSTOM_SITES_FILE || path.join(__dirname, "custom-sites.json");
 const REPO_FILE = process.env.NUVIO_REPOSITORIES_FILE || path.join(__dirname, "repositories.json");
 
+/**
+ * **The tags a site can wear.** `Live TV` stands where `Anime` used to: a site that carries
+ * channels is what people actually add beside their film and series sites, and the search
+ * still treats `other` as the tag every title is searched with. A site stored under the old
+ * `anime` key is not lost — `tagsOf` cannot place an unknown key, so it files it under
+ * `other`, which every search includes.
+ */
 export const CATEGORIES = [
   ["movies", "Movies"],
   ["series", "Series"],
-  ["anime", "Anime"],
   ["documentary", "Documentary"],
   ["sports", "Sports"],
+  ["livetv", "Live TV"],
   ["other", "Other"],
 ];
 const CATEGORY_KEYS = CATEGORIES.map(([k]) => k);
@@ -259,15 +266,64 @@ export function patternFromSample(sampleUrl, title = "") {
 
 /* -------------------------------------------------------------- the sites store */
 
+/**
+ * **Tags, not one box per kind of title.**
+ *
+ * A site used to live in exactly one category, so "which sites do I have?" was answered by
+ * six lists and adding one meant choosing its box first. A site now carries a list of tags
+ * (`categories`), and everything that reads it goes through `tagsOf`:
+ *
+ * - an **untagged** site is `other`, which every search includes — a site you have just
+ *   pasted is searched straight away, and tagged afterwards;
+ * - a site tagged Movies is searched for a film and not for a series;
+ * - a site tagged Movies *and* Anime is searched for both, once per search — the flat
+ *   candidate list below is de-duplicated, which the old `[category] + other` never was.
+ */
+const tagsOf = (entry) => {
+  const list = Array.isArray(entry?.categories) ? entry.categories : [];
+  const tags = list.filter((k) => CATEGORY_KEYS.includes(k));
+  if (tags.length) return tags;
+  return [CATEGORY_KEYS.includes(entry?.category) ? entry.category : "other"];
+};
+
+/** The host of a URL, for saying which service a player handed off to. */
+const hostOf = (url) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "another service";
+  }
+};
+
 export const listSites = () => {
   const s = load();
   return Object.fromEntries(CATEGORY_KEYS.map((k) => [k, s[k].map((x) => ({ ...x }))]));
 };
 
-export const allSites = () => CATEGORY_KEYS.flatMap((k) => load()[k].map((x) => ({ ...x, category: k })));
+export const allSites = () => {
+  const seen = new Set();
+  const out = [];
+  for (const k of CATEGORY_KEYS) {
+    for (const x of load()[k]) {
+      if (seen.has(x.url)) continue;
+      seen.add(x.url);
+      out.push({ ...x, category: k, categories: tagsOf(x) });
+    }
+  }
+  return out;
+};
 
 export const publicSites = () => ({
-  categories: CATEGORIES.map(([key, label]) => ({ key, label, sites: load()[key].map((x) => ({ ...x })) })),
+  // The per-category view is kept: a repository, an older page and the search all read it.
+  categories: CATEGORIES.map(([key, label]) => ({
+    key,
+    label,
+    sites: CATEGORY_KEYS.flatMap((k) => load()[k]).filter((x) => tagsOf(x).includes(key)).map((x) => ({ ...x, categories: tagsOf(x) })),
+  })),
+  // **The pane's own view: one list of sites, each with its tags.** No boxes to choose
+  // from before pasting a URL, and no site listed twice because it wears two tags.
+  sites: allSites().map((x) => ({ ...x, categories: tagsOf(x) })),
+  tags: CATEGORIES.map(([key, label]) => ({ key, label })),
   repositories: listRepositories(),
 });
 
@@ -280,10 +336,15 @@ export const listRepositories = () => loadRepos().repositories.map((r) => ({ ...
  * cannot be read is **not** stored, because a site that can never be searched is a row
  * that only produces failures. The caller gets `needPattern` and asks for a sample URL.
  */
-export async function addSite({ url, category = "movies", searchPattern = null } = {}) {
+export async function addSite({ url, category = "", categories = null, searchPattern = null, tags = null } = {}) {
   const clean = normalizeUrl(url);
   if (!clean) return { ok: false, message: "Enter a full site URL (https://…)." };
-  const cat = CATEGORY_KEYS.includes(category) ? category : "other";
+  // **What it is comes after pasting it.** With no tag given, the site is `other` — the tag
+  // every search includes — so a site added from one URL box is searched on the next Play
+  // and can be tagged from its own row afterwards.
+  const wanted = [...(Array.isArray(categories) ? categories : []), ...(Array.isArray(tags) ? tags : []), ...(category ? [category] : [])];
+  const picked = [...new Set(wanted.filter((k) => CATEGORY_KEYS.includes(k)))];
+  const cat = picked[0] || "other";
   const domain = domainOf(clean);
   let pattern = searchPattern;
   if (!pattern) {
@@ -292,20 +353,34 @@ export async function addSite({ url, category = "movies", searchPattern = null }
     pattern = detected.pattern;
   }
   const s = load();
-  const entry = { url: clean, domain, category: cat, searchPattern: pattern, added: Date.now() };
+  const entry = { url: clean, domain, category: cat, categories: picked.length ? picked : [cat], searchPattern: pattern, added: Date.now() };
   const existing = CATEGORY_KEYS.flatMap((k) => s[k]).find((x) => x.url === clean);
   if (existing) {
     for (const k of CATEGORY_KEYS) s[k] = s[k].filter((x) => x.url !== clean);
   }
   s[cat].push(entry);
   persist();
-  return { ok: true, site: entry, detected: !searchPattern, message: `Added ${domain} to ${cat}.` };
+  return { ok: true, site: entry, detected: !searchPattern, message: `Added ${domain}.`, sites: listSites() };
 }
 
 /** Change a site's URL or category, or give it a search pattern. */
 export function updateSite({ url, category = "", patch = {} } = {}) {
   const s = load();
   const clean = normalizeUrl(url) || url;
+  // **A bare category is the site's first tag.** Everything retags through `categories`
+  // now, so a caller that only says "this one belongs under Anime" must not lose the
+  // site's other tags: the named category goes first (the tag the site is filed under)
+  // and the rest come with it.
+  if (!Array.isArray(patch.categories) && CATEGORY_KEYS.includes(category)) {
+    const held = CATEGORY_KEYS.flatMap((k) => s[k]).find((x) => x.url === clean);
+    patch = { ...patch, categories: [category, ...tagsOf(held || {}).filter((k) => k !== category)] };
+  }
+  // **Retagging is a patch**, and the site's first tag is the category it is filed under.
+  if (Array.isArray(patch.categories)) {
+    const tags = [...new Set(patch.categories.filter((k) => CATEGORY_KEYS.includes(k)))];
+    patch = { ...patch, categories: tags.length ? tags : ["other"], category: tags[0] || "other" };
+    category = patch.category;
+  }
   if (category && CATEGORY_KEYS.includes(category)) {
     for (const k of CATEGORY_KEYS) {
       const at = s[k].findIndex((x) => x.url === clean);
@@ -446,10 +521,10 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
   const name = String(title || "").trim();
   if (!name) return { ok: false, streams: [], sites: [], message: "No title to search with." };
   const category = type === "series" ? "series" : "movies";
-  const s = load();
-  // The title's own category, plus `other` — the home of everything the user would not
-  // call a film or a show.
-  const candidates = [...s[category], ...s.other];
+  // **By tag.** Everything tagged for this kind of title, plus everything tagged `other` —
+  // and each site once, however many tags it wears (a site tagged Movies and Anime used to
+  // be searched twice on a film, and reported itself twice with it).
+  const candidates = allSites().filter((x) => x.categories.includes(category) || x.categories.includes("other"));
   if (!candidates.length) return { ok: true, streams: [], sites: [], message: "No Custom Websites are added for this category yet." };
 
   // **Every site at once, and each one on a clock.**
@@ -507,6 +582,11 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
          * asks for is the stream.
          */
         let media = [];
+        // **The player's hand-off.** When the browser drives the site and the site opens its
+        // player, the stream is fetched by an **embed on another host** — and that embed can
+        // be heavier than the browser reading it survives. Whatever address the player
+        // handed off to is kept here, so it can still be read by a cheaper tier.
+        let embeds = [];
         if (!hit && Date.now() < deadline) {
           const found = await inBrowserQueue(() =>
             browserSearch(searchUrl, {
@@ -515,22 +595,35 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
               cookies: cookieHeader(searchUrl) || undefined,
             }),
           ).catch(() => null);
+          embeds = found?.embeds || [];
           if (found?.media?.length) {
             media = found.media;
             hit = { url: found.url || searchUrl, text: found.matched?.alt || found.matched?.text || name };
           } else if (found?.url) {
             hit = { url: found.url, text: found.matched?.alt || found.matched?.text || name };
             seenInBrowser = true;
+          } else if (embeds.length) {
+            // No watch address, but the player did open its embed: read *that*, in the
+            // cheaper tiers, before asking a browser to do it all again.
+            hit = { url: searchUrl, text: found?.matched?.alt || found?.matched?.text || name };
           }
         }
+        // **The hand-off is reported, not crawled.** Falling back to the cheaper tiers on
+        // the embed was tried and taken out again: these front-ends serve a Next.js shell
+        // whose own scripts must run to name a stream, and running a whole application in
+        // the DOM sandbox produced nothing but noise. The address is kept in the report
+        // instead, so what happened is legible — and `embeds` stays on the browser's own
+        // result for a later tier to use.
         if (!hit) {
           // Say which of the two it is: a page with no links whatever is drawn by script
           // and needs the browser tier the scraper keeps for exactly that; a page with
           // links is a search that simply has no such title on it.
           const linkless = linksIn(html, searchUrl).length === 0;
-          const error = linkless && rendered
-            ? "the search page draws its results with JavaScript — no result links in the markup"
-            : "no matching result on the search page";
+          const error = embeds.length
+            ? `the site's player hands off to ${hostOf(embeds[0])}, and no stream could be read from it`
+            : linkless && rendered
+              ? "the search page draws its results with JavaScript — no result links in the markup"
+              : "no matching result on the search page";
           return { streams, report: { domain: site.domain, count: 0, error } };
         }
         // **The player's own request, caught while the site was driven.** Nothing else

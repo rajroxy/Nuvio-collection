@@ -22,6 +22,10 @@ const FILE = process.env.NUVIO_DNS_FILE || path.join(__dirname, "dns-config.json
 
 /** The resolvers Settings offers. `servers` empty means "type your own". */
 export const DNS_PRESETS = [
+  // **None is a choice, not an empty box.** With no preset for "I do not want an override"
+  // the only way back to the machine's resolver was to turn the switch off and leave the
+  // addresses sitting there — which read as still configured. Picking None clears them.
+  { name: "None", servers: [] },
   { name: "Google", servers: ["8.8.8.8", "8.8.4.4"] },
   { name: "Cloudflare", servers: ["1.1.1.1", "1.0.0.1"] },
   { name: "AdGuard", servers: ["94.140.14.14", "94.140.15.15"] },

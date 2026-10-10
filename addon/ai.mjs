@@ -127,7 +127,7 @@ const ANSWER_TOKENS = 512;
 const REASONING_TOKENS = 4096;
 
 /** One chat completion, in whichever shape the provider speaks. */
-async function complete(cfg, key, model, prompt, { maxTokens } = {}) {
+async function complete(cfg, key, model, prompt, { maxTokens, system } = {}) {
   const thinking = REASONING.test(model);
   const budget = maxTokens || (thinking ? REASONING_TOKENS : ANSWER_TOKENS);
   if (cfg.shape === "gemini") {
@@ -136,7 +136,7 @@ async function complete(cfg, key, model, prompt, { maxTokens } = {}) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
+        systemInstruction: { parts: [{ text: system || SYSTEM }] },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0, maxOutputTokens: budget },
       }),
@@ -152,7 +152,7 @@ async function complete(cfg, key, model, prompt, { maxTokens } = {}) {
     body: JSON.stringify({
       model,
       messages: [
-        { role: "system", content: SYSTEM },
+        { role: "system", content: system || SYSTEM },
         { role: "user", content: prompt },
       ],
       temperature: 0,
@@ -279,6 +279,58 @@ export async function askAI(prompt, opts = {}) {
       if (next?.ok) return next;
       if (lastError.includes("→ HTTP 400")) break; // a request problem, not the model
     }
+  }
+  return { ok: false, text: `${cfg.label} — ${lastError}` };
+}
+
+/**
+ * **A question about one title, answered in prose.**
+ *
+ * The Ask box next to it turns a sentence into a *search* — that is what the app is for,
+ * and `SYSTEM` keeps the model on that job. A title page needs the other thing: "what is
+ * this about?", "will I like it?", "should I start it with someone who does not watch
+ * horror?". Those are answered, not translated, so this asks with a different system
+ * prompt and returns the sentences exactly as they come.
+ *
+ * `context` is the title the page is on: its name, year, and what it is. It is put in
+ * front of the question, so "will I like it?" has something to be about.
+ */
+const ABOUT_SYSTEM = `You answer questions about one film or series, in plain English, in two or three short sentences. Answer the question that was asked and nothing else: no search queries, no lists, no catalog names, no markdown. Use what you know about the title — its story, its tone, who it is for. Never invent a plot, a cast member or a fact; if you do not know the title, say so in one sentence.`;
+
+export async function askAbout(question, context = {}, opts = {}) {
+  const provider = opts.provider || aiProviderName();
+  const cfg = AI_PROVIDERS[provider];
+  const asked = String(question || "").trim();
+  if (!asked) return { ok: false, text: "Ask something about the title first." };
+  if (!cfg) return { ok: false, text: "No AI provider is selected — pick one in Settings → Assistant." };
+  const key = opts.key ?? aiKey(provider);
+  if (!key) return { ok: false, text: `No ${cfg.label} key saved — paste one in Settings → Assistant.` };
+
+  const about = [context.name && `Title: ${context.name}`, context.year && `Year: ${context.year}`, context.type && `Type: ${context.type === "series" ? "series" : "film"}`, context.overview && `Synopsis: ${String(context.overview).slice(0, 600)}`]
+    .filter(Boolean)
+    .join("\n");
+  const prompt = `${about ? `${about}\n\n` : ""}Question: ${asked}`;
+  const model = opts.model || aiModel(provider);
+  // Prose needs room for a paragraph; the search path's six words do not.
+  const speak = async (candidate) => {
+    try {
+      const raw = await complete(cfg, key, candidate, prompt, { system: ABOUT_SYSTEM, maxTokens: 400 });
+      const text = String(raw || "").replace(/\s*\n\s*/g, " ").trim().slice(0, 900);
+      return text ? { ok: true, provider, model: candidate, text } : null;
+    } catch (err) {
+      return err;
+    }
+  };
+
+  let lastError = "no model answered";
+  const first = await speak(model);
+  if (first?.ok) return first;
+  if (first instanceof Error) lastError = `${model} → ${first.message}`;
+  for (const candidate of await chooseModels(cfg, key)) {
+    if (candidate === model) continue;
+    const next = await speak(candidate);
+    if (next?.ok) return next;
+    if (next instanceof Error) lastError = `${candidate} → ${next.message}`;
   }
   return { ok: false, text: `${cfg.label} — ${lastError}` };
 }
