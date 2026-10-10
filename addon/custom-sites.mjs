@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchStaticHTML } from "../scraper/tier1.js";
+import { renderJS } from "../scraper/tier2.js";
 import { extractStreams } from "../scraper/index.js";
 import { cookieHeader } from "../scraper/sessions.js";
 
@@ -438,7 +439,7 @@ async function refreshSite(site, timeoutMs = 6000) {
  * failure is visible instead of silent. A site that throws is logged and skipped — a
  * Custom Website must never be able to take the Play button down with it.
  */
-export async function searchOnPlay({ title = "", year = "", type = "movie", trace = null, limitPerSite = 4, budgetMs = 18000 } = {}) {
+export async function searchOnPlay({ title = "", year = "", type = "movie", trace = null, limitPerSite = 4, budgetMs = 18000, onSite = null } = {}) {
   const say = (m) => trace?.push(m);
   const name = String(title || "").trim();
   if (!name) return { ok: false, streams: [], sites: [], message: "No title to search with." };
@@ -473,8 +474,31 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
         if (!searchUrl) return { streams, report: { domain: site.domain, count: 0, error: "no search URL could be built" } };
         const html = await fetchStaticHTML(searchUrl, { referer: site.url, timeout: perSite });
         if (!html) return { streams, report: { domain: site.domain, count: 0, error: "the search page could not be fetched" } };
-        const hit = pickPage(html, searchUrl, name, year);
-        if (!hit) return { streams, report: { domain: site.domain, count: 0, error: "no matching result on the search page" } };
+        let hit = pickPage(html, searchUrl, name, year);
+        // **A search page that draws its own results.** Plenty of sites ship a search page
+        // whose list is built by JavaScript, so the markup a plain fetch reads has no
+        // result links at all — every play then reports "no matching result", which reads
+        // as "your site has nothing" when the truth is "this page needs its scripts run".
+        // The sandbox tier runs them (and finishes in about a second), so a search page
+        // gets the same treatment a content page has always had here.
+        let rendered = false;
+        if (!hit && Date.now() < deadline) {
+          const dom = await renderJS(searchUrl, { referer: site.url, wait: 1200, timeout: Math.min(perSite, 8000) });
+          if (dom) {
+            rendered = true;
+            hit = pickPage(dom, searchUrl, name, year);
+          }
+        }
+        if (!hit) {
+          // Say which of the two it is: a page with no links whatever is drawn by script
+          // and needs the browser tier the scraper keeps for exactly that; a page with
+          // links is a search that simply has no such title on it.
+          const linkless = linksIn(html, searchUrl).length === 0;
+          const error = linkless && rendered
+            ? "the search page draws its results with JavaScript — no result links in the markup"
+            : "no matching result on the search page";
+          return { streams, report: { domain: site.domain, count: 0, error } };
+        }
         const verified = Boolean(cookieHeader(hit.url));
         const rows = await extractStreams(hit.url, {
           trace: null,
@@ -485,17 +509,20 @@ export async function searchOnPlay({ title = "", year = "", type = "movie", trac
         const tagged = rows.slice(0, limitPerSite).map((r) => ({ ...r, site: site.domain, domain: site.domain }));
         streams.push(...tagged);
         const out = Date.now() > deadline && !tagged.length;
-        return {
-          streams,
-          report: {
-            domain: site.domain,
-            count: tagged.length,
-            page: hit.url,
-            error: tagged.length ? "" : out ? "ran out of time" : "the page held no playable stream",
-          },
+        const report = {
+          domain: site.domain,
+          count: tagged.length,
+          page: hit.url,
+          error: tagged.length ? "" : out ? "ran out of time" : "the page held no playable stream",
         };
+        // **Handed over the moment this site is done**, so a caller can show results as
+        // they arrive instead of waiting for the slowest site.
+        try { onSite?.(report, tagged); } catch { /* a listener must not fail the search */ }
+        return { streams, report };
       } catch (err) {
-        return { streams, report: { domain: site.domain, count: 0, error: String(err?.message || err) } };
+        const report = { domain: site.domain, count: 0, error: String(err?.message || err) };
+        try { onSite?.(report, []); } catch { /* as above */ }
+        return { streams, report };
       }
     }),
   );
@@ -512,3 +539,66 @@ export const _reset = () => {
   store = empty();
   repos = { repositories: [] };
 };
+
+/**
+ * A search-on-play the caller does not have to wait for.
+ *
+ * **Why this exists.** The search asks the user's own sites, and a site is allowed its
+ * slice of an 18-second budget — so the *request* could be open for twenty seconds or
+ * more. A proxy in front of this server gives up long before that and answers **HTTP
+ * 502**, which is what "Custom Sites could not be searched — HTTP 502" was: the search
+ * was working, the request carrying it was not. The search runs in the background now and
+ * the page watches it, so every request is short.
+ */
+const JOBS = new Map();
+const JOB_TTL_MS = 5 * 60 * 1000;
+
+function sweepJobs() {
+  const now = Date.now();
+  for (const [id, job] of JOBS) if (!job.running && now - job.at > JOB_TTL_MS) JOBS.delete(id);
+}
+
+/** Start a search and return its handle **at once**. */
+export function startSearchOnPlay(options = {}) {
+  sweepJobs();
+  const id = `sop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const job = { id, running: true, streams: [], sites: [], message: "Searching your sites…", category: "", at: Date.now() };
+  JOBS.set(id, job);
+  searchOnPlay({
+    ...options,
+    onSite: (report, streams) => {
+      job.sites.push(report);
+      job.streams.push(...streams);
+    },
+  })
+    .then((res) => {
+      job.running = false;
+      job.streams = res.streams || [];
+      job.sites = res.sites || [];
+      job.message = res.message || "";
+      job.category = res.category || "";
+      job.ok = res.ok !== false;
+    })
+    .catch((err) => {
+      job.running = false;
+      job.ok = false;
+      job.message = `Custom Sites could not be searched — ${String(err?.message || err)}`;
+    })
+    .finally(() => { job.at = Date.now(); });
+  return job;
+}
+
+/** Where a job has got to, as the page reads it. */
+export function searchJob(id) {
+  const job = JOBS.get(String(id || ""));
+  if (!job) return null;
+  return {
+    id: job.id,
+    ok: job.ok !== false,
+    running: job.running,
+    streams: job.streams,
+    sites: job.sites,
+    message: job.message,
+    category: job.category,
+  };
+}

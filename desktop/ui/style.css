@@ -2015,6 +2015,14 @@ textarea:focus-visible {
 .content-tile.logo { object-fit: contain; padding: 7px; background: rgba(255, 255, 255, 0.05); border-radius: 10px; }
 .content-tile.logo-text { display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--faint); }
 
+/* **Full screen has no scrollbar.** The fullscreen element is the document itself, so
+   the page behind the player — however long it is — would otherwise put its own
+   scrollbar down the side of the picture, and the app's scrolling container is not the
+   element the browser is sizing. Nothing may scroll while the app is full screen: the
+   player covers the screen anyway, and there is nothing behind it to scroll to. */
+:fullscreen { overflow: hidden; }
+html:fullscreen, body:fullscreen { overflow: hidden; height: 100%; }
+
 /* The floated top bar always sits above the page it floats over. */
 .topbar { z-index: 40; }
 
@@ -2530,42 +2538,48 @@ textarea:focus-visible {
   background: var(--rule);
 }
 
-/* **The volume, as one box: − | 100% | +.** Two marks and the figure between them,
-   inside a single bordered control so the group reads as one thing to adjust rather
-   than three loose icons. Both marks ramp while held; the figure is the mute button. */
+/* **The volume, as one control-bar chip: − | 100% | +.**
+   Two marks and the figure between them in a single chip, so it reads as one thing to
+   adjust rather than three loose icons. It is **the same chip as every other control**
+   (`min-width: 36px; height: 34px; radius: 9px`, the same fill) — it was a thinner
+   outlined box, which is why it looked like a control from another player. Both marks
+   ramp while held; the figure is the mute button. */
 .player-vol {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   flex: none;
-  padding: 0 4px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 10px;
+  height: 34px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
 }
 .player-vol-btn, .player-vol-value {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 26px;
+  height: 100%;
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: inherit;
   font: inherit;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
 }
-.player-vol-btn { padding: 0 3px; border-radius: 7px; }
-.player-vol-btn:hover { background: rgba(255, 255, 255, 0.08); }
-.player-vol-btn[disabled] { opacity: 0.3; cursor: default; }
+.player-vol-btn { min-width: 22px; padding: 0 4px; border-radius: 7px; }
+.player-vol-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.player-vol-btn[disabled] { opacity: 0.35; cursor: default; }
 .player-vol-value {
   min-width: 40px;
   padding: 0 4px;
   border-radius: 7px;
-  font-size: 11.5px;
-  font-weight: 800;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
-.player-vol-value:hover { background: rgba(255, 255, 255, 0.08); }
+.player-vol-value:hover { background: rgba(255, 255, 255, 0.12); }
 .player-vol-value.muted { color: var(--muted); }
 .player-seek { flex: 1; min-width: 120px; height: 4px; accent-color: var(--accent); }
 .player-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -2626,17 +2640,21 @@ select.player-rate option { background: #14161c; color: var(--text); }
 
 /* The sources drawer sits over the video, so choosing one does not lose your place. */
 /*
- * **Both player panels rise from the control bar.**
+ * **Both player panels rise from the control bar, on the side their button is on.**
  *
- * They used to be pinned to the top of the stage (`top: 14px; bottom: 96px`), so the
- * Sources drawer and the Audio & subtitles panel hung from the ceiling, hundreds of
- * pixels from the buttons that opened them and from the strip those buttons live in.
- * They are anchored to the **bottom** now, just clear of the bar, and capped at a
- * share of the height so opening one reads as a panel coming out of its own button
- * rather than a second screen arriving.
+ * They were pinned to the top of the stage (`top: 14px; bottom: 96px`), so the Sources
+ * drawer and the Audio & subtitles panel hung from the ceiling, hundreds of pixels from
+ * the buttons that opened them. They sit on the bottom edge now, just clear of the bar,
+ * and capped at a share of the height so opening one reads as a panel coming out of its
+ * own button rather than a second screen arriving.
+ *
+ * **Both are on the left**, because both buttons are: the gear and the Sources folder are
+ * the first two controls in the bar. The gear's panel used to open on the right — the
+ * opposite side from its own button. They are mutually exclusive (opening one closes the
+ * other), which is what keeps two boxes out of the same corner.
  */
 .player-sources {
-  position: absolute; right: 14px; bottom: 96px; width: min(420px, 46%);
+  position: absolute; left: 14px; bottom: 96px; width: min(420px, 46%);
   max-height: min(62vh, 540px);
   display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto;
   border-radius: 14px; background: rgba(8, 9, 13, 0.94); backdrop-filter: blur(8px);
@@ -2665,16 +2683,14 @@ select.player-rate option { background: #14161c; color: var(--text); }
 /* The ramped rate, and only while a ±10s button is held (it is emptied on release). */
 .player-speed-note { font-size: 11.5px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 
-/* **Audio and subtitles, behind the gear.** It opens on the other side of the stage
-   from the sources drawer, so picking a track and picking a stream are two different
-   panels rather than one list that changes meaning. */
 /*
- * **The two player panels are mirrors, and they are the same box.**
+ * **Audio and subtitles, behind the gear — the same box as the drawer.**
  *
  * They were different widths (340 against 420) with different bottoms — the gear
  * panel ended wherever its content did, the Sources drawer ran to a fixed inset — so
- * opening one or the other moved the furniture around and the pair read as
- * unaligned. Same inset, same width, same bottom: one panel, reflected.
+ * opening one or the other moved the furniture around and the pair read as unaligned.
+ * Same inset, same width, same bottom, same side: one panel, and only one of them at a
+ * time (see the two buttons in `openPlayer`).
  */
 .player-settings-menu {
   position: absolute; left: 14px; bottom: 96px; width: min(420px, 46%);

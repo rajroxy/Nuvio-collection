@@ -15,6 +15,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleAddon } from "./addon/index.mjs";
+import { installProcessGuards } from "./addon/guards.mjs";
 
 const ROOT_DIR = resolve(fileURLToPath(import.meta.url), "..");
 const COVERS = resolve(ROOT_DIR, "covers");
@@ -78,6 +79,13 @@ function originOf(req) {
  * caller can read `server.address().port` (useful with port 0).
  */
 export function startServer({ port = Number(process.env.PORT) || 4173, host = "0.0.0.0" } = {}) {
+  // **Before anything can be scraped.** Reading a Custom Website means running that
+  // page's own scripts in this process, and a promise one of them leaves rejected is
+  // fatal to Node — the whole server, not just that site. The guard absorbs those (and
+  // records them for /addon-status.json) so a bad page can never answer **502** for
+  // everything else. See `addon/guards.mjs`.
+  installProcessGuards();
+
   const server = createServer(async (req, res) => {
     const pathname = new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname;
 

@@ -75,8 +75,9 @@ import { startManualVerification, finishManualVerification, cancelManualVerifica
 import { installDnsFetch } from "./net.mjs";
 import { publicDns, updateDns, testDns, activeDnsServers, dnsScope } from "./dns.mjs";
 import { handleProxy } from "./proxy.mjs";
-import { handleTorrentStream, torrentStatus, torrentState } from "./torrent.mjs";
-import { publicSites, addSite, updateSite, removeSite, detectSearchPattern, patternFromSample, addRepository, removeRepository, searchOnPlay, listSites } from "./custom-sites.mjs";
+import { guardState } from "./guards.mjs";
+import { handleTorrentStream, prepareTorrent, torrentStatus, torrentState } from "./torrent.mjs";
+import { publicSites, addSite, updateSite, removeSite, detectSearchPattern, patternFromSample, addRepository, removeRepository, searchJob, startSearchOnPlay, listSites } from "./custom-sites.mjs";
 import { getPrefs, updatePrefs } from "./user-prefs.mjs";
 
 // **The DNS override is installed once, here.** Every request the server makes — metadata,
@@ -1803,21 +1804,34 @@ export async function handleAddon(req, res, pathname, origin) {
    * **Search-on-Play.** The sites the user added, searched for the title being played:
    * every stream comes back tagged with the site's domain, and every site reports what it
    * did — so a site that failed says why instead of silently adding nothing.
+   *
+   * **Started, not awaited.** The search is allowed a long budget (each site gets a slice
+   * of it), and a request held open that long is one the proxy in front of this server
+   * answers with **502** — which is what "Custom Sites could not be searched — HTTP 502"
+   * was. A `POST` starts the search and returns its id; the page then asks for that job
+   * until it is done, so every request is short.
    */
   if (pathname === "/custom-sites/streams.json") {
     try {
-      const body = req.method === "POST" ? await readBody(req) : Object.fromEntries(new URL(req.url, "http://localhost").searchParams);
-      const trace = [];
-      const result = await searchOnPlay({
-        title: body.title || body.name || "",
-        year: body.year || "",
-        type: body.type === "series" ? "series" : "movie",
-        trace,
-      });
-      json(res, 200, { ...result, trace });
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        const job = startSearchOnPlay({
+          title: body.title || body.name || "",
+          year: body.year || "",
+          type: body.type === "series" ? "series" : "movie",
+          trace: [],
+        });
+        json(res, 200, searchJob(job.id));
+      } else {
+        const id = new URL(req.url ?? "/", "http://localhost").searchParams.get("id") || "";
+        const job = searchJob(id);
+        // A job this server has never heard of (a restart, or a stale page) is not an
+        // error the page should keep polling for.
+        json(res, 200, job || { ok: false, running: false, streams: [], sites: [], message: "That search is no longer running — press Play again." });
+      }
     } catch (err) {
       console.error("[addon] custom-sites search failed:", err.message);
-      json(res, 200, { ok: false, streams: [], sites: [], trace: [], message: `Custom Sites could not be searched — ${err.message}` });
+      json(res, 200, { ok: false, running: false, streams: [], sites: [], message: `Custom Sites could not be searched — ${err.message}` });
     }
     return true;
   }
@@ -1868,10 +1882,21 @@ export async function handleAddon(req, res, pathname, origin) {
     return true;
   }
 
-  // The player's live readout for a swarm it started: peers, progress, speed.
+  // **Start the swarm, and answer at once.** Joining one takes as long as it takes, and a
+  // request that waits for it is a request the proxy in front of this server gives up on —
+  // which is where "HTTP 502" on a torrent came from. The player asks to prepare, then
+  // polls `/torrent/status` until the file is known, and only then points the element at
+  // `/stream/torrent` (which is instant by then).
+  if (pathname === "/torrent/prepare") {
+    const params = new URL(req.url ?? "/", "http://localhost").searchParams;
+    json(res, 200, { ok: true, ...prepareTorrent({ magnet: params.get("magnet") || "", infoHash: params.get("ih") || "" }) });
+    return true;
+  }
+
+  // The player's live readout for a swarm it started: state, peers, progress, the file.
   if (pathname === "/torrent/status") {
     const params = new URL(req.url ?? "/", "http://localhost").searchParams;
-    json(res, 200, { ok: true, status: torrentStatus(params.get("ih") || "") });
+    json(res, 200, { ok: true, status: torrentStatus(params.get("ih") || "", params.get("idx")) });
     return true;
   }
 
@@ -2037,6 +2062,11 @@ export async function handleAddon(req, res, pathname, origin) {
       customRows: customCounts(),
       aiProvider: aiState().provider,
       aiReady: aiState().ready,
+      // **What the app has survived.** A page under scraping whose own script throws is
+      // absorbed rather than fatal (`addon/guards.mjs`); this says how many, and what
+      // the last few were, so "the server died while searching my sites" is answerable
+      // from the status route instead of from a missing reply.
+      absorbedErrors: guardState(),
     });
     return true;
   }

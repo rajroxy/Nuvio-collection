@@ -150,38 +150,64 @@ const ready = (torrent) =>
   });
 
 /**
- * Add a magnet and come back with the file to play.
+ * Add a magnet to the client and come back **at once**.
  *
- * A swarm already alive is reused, which is the common case: one Play is dozens of
- * range requests, and every one of them must not re-resolve the magnet.
+ * A swarm already alive is reused, which is the common case: one Play is dozens of range
+ * requests, and every one of them must not re-resolve the magnet.
+ *
+ * **The wait for metadata is not this function's job.** Joining a swarm takes as long as
+ * it takes; a request that waits for it is a request a proxy in front of this server will
+ * give up on (which is where "HTTP 502" on a torrent comes from). So this starts the
+ * swarm and answers, and the player asks `torrentStatus` how it is getting on.
  */
-export async function openTorrent({ magnet = "", infoHash = "", fileIdx = null } = {}) {
-  if (loadState === "loading") await warmTorrent();
-  if (!torrentReady()) throw new Error(`the server has no torrent engine (${loadError})`);
+export function prepareTorrent({ magnet = "", infoHash = "" } = {}) {
+  if (!torrentReady()) return { ok: false, error: loadError || "loading" };
   const hash = String(infoHash || hashOf(magnet) || "").toLowerCase();
-  if (!hash) throw new Error("no info hash in this stream");
-
+  if (!hash) return { ok: false, error: "no info hash in this stream" };
   let entry = swarms.get(hash);
   if (!entry) {
     const c = getClient();
     const torrent = c.add(magnet && magnet.startsWith("magnet:") ? magnet : `magnet:?xt=urn:btih:${hash}`, { path: undefined });
-    entry = { torrent, addedAt: Date.now(), timer: null };
+    entry = { torrent, addedAt: Date.now(), timer: null, error: "" };
+    torrent.on("error", (err) => { entry.error = String(err?.message || err || "the torrent failed"); });
     swarms.set(hash, entry);
     prune();
   }
   touch(hash);
+  return { ok: true, infoHash: hash };
+}
+
+/**
+ * Add a magnet and wait for the file to play.
+ *
+ * Used by the stream route, which is only ever reached **after** the player has been told
+ * the swarm is ready (see `prepareTorrent`), so the wait is normally already over.
+ */
+export async function openTorrent({ magnet = "", infoHash = "", fileIdx = null } = {}) {
+  if (loadState === "loading") await warmTorrent();
+  if (!torrentReady()) throw new Error(`the server has no torrent engine (${loadError})`);
+  const started = prepareTorrent({ magnet, infoHash });
+  if (!started.ok) throw new Error(started.error);
+  const entry = swarms.get(started.infoHash);
   await ready(entry.torrent);
   const file = pickFile(entry.torrent, fileIdx);
   if (!file) throw new Error("nothing playable in this torrent");
-  return { infoHash: hash, file, name: file.name, length: file.length };
+  return { infoHash: started.infoHash, file, name: file.name, length: file.length };
 }
 
-/** The live readout for the player: peers, progress, speed. */
-export function torrentStatus(infoHash) {
+/**
+ * The live readout for the player: where the swarm is, and the file once it is known.
+ *
+ * `state` is what the player waits on — `loading` until the metadata arrives, `ready`
+ * with the file behind it, or `error` with the reason. That is the whole of the
+ * "the torrent does not start" conversation: the note under the picture says which of
+ * the three the swarm is in instead of a black rectangle saying nothing.
+ */
+export function torrentStatus(infoHash, fileIdx = null) {
   const entry = swarms.get(String(infoHash || "").toLowerCase());
-  if (!entry) return null;
+  if (!entry) return { state: "idle", peers: 0, progress: 0, downloadSpeed: 0 };
   const t = entry.torrent;
-  return {
+  const base = {
     peers: Number(t.numPeers) || 0,
     progress: Number(t.progress) || 0,
     downloadSpeed: Number(t.downloadSpeed) || 0,
@@ -189,6 +215,11 @@ export function torrentStatus(infoHash) {
     downloaded: Number(t.downloaded) || 0,
     timeRemaining: Number(t.timeRemaining) || 0,
   };
+  if (entry.error) return { ...base, state: "error", error: entry.error };
+  if (!t.ready || !t.files?.length) return { ...base, state: "loading" };
+  const file = pickFile(t, fileIdx);
+  if (!file) return { ...base, state: "error", error: "nothing playable in this torrent" };
+  return { ...base, state: "ready", name: file.name, length: file.length, fileIdx: t.files.indexOf(file) };
 }
 
 /** An open byte range of a file, as a stream — webtorrent fetches the pieces it needs. */

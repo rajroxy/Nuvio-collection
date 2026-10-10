@@ -715,7 +715,20 @@ const post = async (path, body) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) return { ok: false, unreachable: true, message: `HTTP ${res.status}` };
+  // **A 502/503 here is not the route failing — it is the app server gone.** The tunnel in
+  // front of this app answers those two itself when nothing is listening, so "Custom Sites
+  // could not be searched — HTTP 502" was really "there was no server to ask". Say that,
+  // and say what to do about it, instead of printing the status code at the user.
+  if (!res.ok) {
+    const gone = res.status === 502 || res.status === 503 || res.status === 504;
+    return {
+      ok: false,
+      unreachable: true,
+      message: gone
+        ? `the app server did not answer (HTTP ${res.status}) — it may have just restarted. Try again.`
+        : `HTTP ${res.status}`,
+    };
+  }
   return res.json().catch(() => ({}));
 };
 
@@ -8500,12 +8513,38 @@ async function playTorrent(node, video, magnet, opts, seq) {
   // from there: one plain URL with range support, like any other stream.
   if (state.options?.torrent?.ready) {
     const serverUrl = `/stream/torrent?magnet=${encodeURIComponent(magnet)}${opts.infoHash ? `&ih=${encodeURIComponent(opts.infoHash)}` : ""}${opts.fileIdx != null ? `&idx=${encodeURIComponent(opts.fileIdx)}` : ""}`;
+    const query = `magnet=${encodeURIComponent(magnet)}${opts.infoHash ? `&ih=${encodeURIComponent(opts.infoHash)}` : ""}${opts.fileIdx != null ? `&idx=${encodeURIComponent(opts.fileIdx)}` : ""}`;
     note.textContent = "Joining the swarm…";
     try {
-      const res = await fetch(serverUrl, { method: "HEAD" });
+      // **Start it, then watch it — never hold a request open on a swarm.** Joining one
+      // takes as long as it takes, and a request that waits for it is one the proxy in
+      // front of this app gives up on: the picture got "HTTP 502" for a torrent that was
+      // doing exactly what it should. So the player asks the server to prepare, polls the
+      // status, and only points the element at the stream **once the file is known** —
+      // by which time `/stream/torrent` answers immediately.
+      const started = await post("/torrent/prepare", { magnet, infoHash: opts.infoHash || "", fileIdx: opts.fileIdx ?? null }).catch(() => null);
       if (seq !== playerSeq) return;
-      if (res.ok) {
-        note.textContent = "Streaming from the swarm…";
+      if (started && started.ok === false) {
+        say(`The server's swarm could not be started — ${started.error || "no reason given"}. Trying this window instead.`);
+      }
+      const hash = started?.infoHash || opts.infoHash || "";
+      const until = Date.now() + 120000;
+      let ready = null;
+      while (Date.now() < until) {
+        if (seq !== playerSeq) return;
+        const snap = await get(`/torrent/status?ih=${encodeURIComponent(hash)}${opts.fileIdx != null ? `&idx=${encodeURIComponent(opts.fileIdx)}` : ""}`).catch(() => null);
+        const status = snap?.status;
+        if (!status) break;
+        if (status.state === "error") { say(`The swarm gave up — ${status.error}`); break; }
+        if (status.peers) note.textContent = `${status.peers} peers · ${Math.round((status.progress || 0) * 100)}% · ${Math.round((status.downloadSpeed || 0) / 1e5) / 10} MB/s`;
+        else note.textContent = "Looking for peers…";
+        if (status.state === "ready") { ready = status; break; }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (seq !== playerSeq) return;
+      if (ready) {
+        say("");
+        note.textContent = ready.name ? `Streaming ${ready.name}` : "Streaming from the swarm…";
         video.src = serverUrl;
         video.addEventListener("error", () => { if (playerSeq === seq) say("The server's swarm stalled — this stream may have no peers."); }, { once: true });
         await video.play().catch(() => { /* autoplay refused: the controls are there */ });
@@ -8513,17 +8552,16 @@ async function playTorrent(node, video, magnet, opts, seq) {
         const timer = setInterval(async () => {
           if (playerSeq !== seq || !video.isConnected) return clearInterval(timer);
           try {
-            const { status } = await get(`/torrent/status?ih=${encodeURIComponent(opts.infoHash || "")}`);
-            if (!status) return;
+            const { status } = await get(`/torrent/status?ih=${encodeURIComponent(hash)}`);
+            if (!status || status.state !== "ready") return;
             if (status.peers) note.textContent = `${status.peers} peers · ${Math.round((status.progress || 0) * 100)}% · ${Math.round((status.downloadSpeed || 0) / 1e5) / 10} MB/s`;
-            else note.textContent = "Looking for peers…";
           } catch { /* the readout is not worth a failure */ }
         }, 2000);
         video.addEventListener("emptied", () => clearInterval(timer), { once: true });
         return;
       }
-      const why = await res.json().catch(() => ({}));
-      say(`The server could not start this torrent — ${why.error || `HTTP ${res.status}`}. Trying this window instead.`);
+      // Out of time, or the swarm gave up: the page's own engine still gets its turn.
+      say("The server's swarm had no answer in time — trying this window instead.");
     } catch (err) {
       if (seq !== playerSeq) return;
       say(`The server could not start this torrent — ${err.message}. Trying this window instead.`);
@@ -8601,7 +8639,7 @@ function loadHls() {
   return hlsLoader;
 }
 
-function stopPlayer() {
+function stopPlayer({ keepFullscreen = false } = {}) {
   playerSeq += 1;
   stopTorrent();
   if (playerHls) {
@@ -8612,7 +8650,12 @@ function stopPlayer() {
     playerNode.remove();
     playerNode = null;
   }
-  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  // **Full screen belongs to the player, not to this node.** `openPlayer` tears the old
+  // player down before building the new one, and leaving full screen there is the whole of
+  // "pressing Play goes full screen on the finding-sources page and then drops out of it":
+  // the exit ran, and the request that followed was no longer inside a click, so the
+  // browser refused it. Closing the player for real still leaves full screen.
+  if (document.fullscreenElement && !keepFullscreen) document.exitFullscreen?.().catch(() => {});
   document.removeEventListener("keydown", playerKey);
 }
 
@@ -8667,7 +8710,8 @@ const timecode = (seconds) => {
 async function openPlayer(url, title, opts = {}) {
   const src = String(url || "").trim();
   if (!src) return;
-  stopPlayer();
+  // The player being replaced must not take full screen with it.
+  stopPlayer({ keepFullscreen: true });
 
   const video = el("video", { class: "player-video", playsinline: true, autoplay: true });
   const seek = el("input", { class: "player-seek focusable", type: "range", min: "0", max: "1000", value: "0", step: "1" });
@@ -8790,7 +8834,10 @@ async function openPlayer(url, title, opts = {}) {
     }
     const failed = (box.sites || []).filter((x) => x.error);
     customSummary.hidden = false;
-    customSummary.replaceChildren(
+    // **The children are filtered.** `replaceChildren` stringifies anything that is not a
+    // node, so the `null` this passed when no site had failed came out as the word "null"
+    // printed in the summary line.
+    customSummary.replaceChildren(...[
       el("span", { class: "drawer-summary-line", text: `Custom Sites: ${rows.length} stream${rows.length === 1 ? "" : "s"}` }),
       failed.length
         ? el("span", { class: "drawer-summary-note", text: failed.map((x) => `${x.domain}: ${x.error}`).join(" · ") })
@@ -8804,7 +8851,7 @@ async function openPlayer(url, title, opts = {}) {
           drawSources(shown.filter((r) => !r.custom), currentSource);
         },
       }),
-    );
+    ].filter(Boolean));
   };
 
   /** Ask the sites for this title. Runs once when the player opens. */
@@ -8817,23 +8864,56 @@ async function openPlayer(url, title, opts = {}) {
     customBusy = true;
     customNote.className = "drawer-extract-note";
     customNote.replaceChildren(el("span", { class: "drawer-spinner", "aria-hidden": "true" }), el("span", { text: " Searching your sites…" }));
+    /**
+     * **Draw what the search has so far.**
+     *
+     * Called on every poll, so a site that answers first puts its streams on screen while
+     * the slow ones are still working — and the note is the server's own line for the
+     * state it is in, not a spinner that says nothing.
+     */
+    const showSearch = (res) => {
+      const box = customBox();
+      box.streams = (res?.streams || []).map((r) => ({ ...r, custom: true, name: r.title || r.name || "Stream" }));
+      box.sites = res?.sites || [];
+      box.at = Date.now();
+      const text = res?.message || (box.streams.length ? `Custom Sites: ${box.streams.length} streams.` : "");
+      customNote.className = `drawer-extract-note${box.streams.length ? " ok" : ""}`;
+      if (res?.running && !box.streams.length) {
+        customNote.replaceChildren(el("span", { class: "drawer-spinner", "aria-hidden": "true" }), el("span", { text: `${lead}${text || "Searching your sites…"}` }));
+      } else {
+        customNote.textContent = `${lead}${text}`;
+      }
+      drawSources([...shown.filter((r) => !r.custom), ...box.streams], currentSource);
+    };
+
     try {
-      const res = await post("/custom-sites/streams.json", {
+      // **Started, then watched.** The server runs the search in the background (a site is
+      // allowed a long slice of the budget), and this polls it — one short request at a
+      // time. Holding a single request open for the whole search is what the proxy in
+      // front of the app answers with **502**, which is what "Custom Sites could not be
+      // searched — HTTP 502" was.
+      const started = await post("/custom-sites/streams.json", {
         title: meta.name || opts.title || title || "",
         year: meta.releaseInfo || "",
         type: meta.type === "series" ? "series" : "movie",
       });
       // A dead app server answers with this envelope rather than throwing, and "HTTP 503"
       // on its own does not say what failed.
-      if (res?.unreachable) throw new Error(res.message);
-      const box = customBox();
-      box.streams = (res?.streams || []).map((r) => ({ ...r, custom: true, name: r.title || r.name || "Stream" }));
-      box.sites = res?.sites || [];
-      box.at = Date.now();
-      customNote.className = `drawer-extract-note${box.streams.length ? " ok" : ""}`;
-      customNote.textContent = lead + (res?.message || (box.streams.length ? `Custom Sites: ${box.streams.length} streams.` : "Custom Sites: nothing found."));
-      const merged = [...shown.filter((r) => !r.custom), ...box.streams];
-      drawSources(merged, currentSource);
+      if (started?.unreachable) throw new Error(started.message);
+      showSearch(started);
+      // A server that answered the whole search in one go has nothing to poll.
+      if (started?.id && started.running) {
+        const until = Date.now() + 90000;
+        while (Date.now() < until && customBusy) {
+          await new Promise((r) => setTimeout(r, 700));
+          if (!customBusy) return;
+          const snap = await get(`/custom-sites/streams.json?id=${encodeURIComponent(started.id)}`).catch(() => null);
+          if (!snap) break;
+          showSearch(snap);
+          if (!snap.running) break;
+        }
+      }
+      drawCustomSummary();
     } catch (err) {
       customNote.className = "drawer-extract-note bad";
       customNote.textContent = `${lead}Custom Sites could not be searched — ${err.message}`;
@@ -9424,6 +9504,10 @@ async function openPlayer(url, title, opts = {}) {
             onclick: () => {
               const opening = gearPanel.hidden;
               drawTracks();
+              // **One panel at a time.** Both open above the same end of the bar now (their
+              // buttons are the first two on the left), so leaving the other one open would
+              // stack two boxes in the same place.
+              if (opening) drawer.hidden = true;
               gearPanel.hidden = !opening;
               // The lookup is a live API call with a daily quota, so it happens when the
               // panel is opened for the first time — not for every stream that starts.
@@ -9433,7 +9517,13 @@ async function openPlayer(url, title, opts = {}) {
           opts.streams?.length
             ? el("button", {
                 class: "player-icon focusable", type: "button", id: "player-sources", title: "Sources",
-                onclick: () => { drawer.hidden = !drawer.hidden; },
+                // Above its own button — the Sources button is on the **left** of the bar,
+                // so the drawer opens on the left (see `.player-sources`).
+                onclick: () => {
+                  const opening = drawer.hidden;
+                  if (opening) gearPanel.hidden = true;
+                  drawer.hidden = !opening;
+                },
               }, playerGlyph([svgNode("path", { d: "M3.5 7.5a2 2 0 0 1 2-2h3.3l1.8 2h6.9a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" })]))
             : null,
           // **The rule that splits the bar.** Options on the left (what this stream
@@ -9476,7 +9566,13 @@ async function openPlayer(url, title, opts = {}) {
   // a fullscreen request is only honoured while the click that caused it is still on
   // the stack, and the first `await` below would spend it. The overlay fills the
   // window either way, so a refusal costs nothing.
-  if (opts.fullscreen !== false) node.requestFullscreen?.().catch(() => { /* the overlay still fills the window */ });
+  // **The document is the fullscreen element, not this overlay.** A fullscreen request
+  // made here is outside the click that asked for it (the player has awaited a round of
+  // add-on calls by now), so browsers refuse it — and an element that is replaced takes
+  // full screen with it. The document never gets replaced, and the overlay covers it.
+  if (opts.fullscreen !== false && !document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.().catch(() => { /* the overlay still fills the window */ });
+  }
 
   const native = video.canPlayType("application/vnd.apple.mpegurl");
 
